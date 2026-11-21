@@ -1,4 +1,4 @@
-//! DockerEnv：`container` / `light` 档位的**本地 Docker 后端**。
+//! DockerEnv：`desktop` / `headless` 档位的**本地 Docker 后端**。
 //!
 //! ## 为什么需要它
 //!
@@ -42,7 +42,7 @@ pub struct DockerSpec {
     pub mounts: Vec<super::pathmap::Mount>,
     /// 容器内工作目录（通常是 `/workspace`）。
     pub workdir: PathBuf,
-    /// 档位：决定能力集（Light 无桌面 / Container 有 Xvfb 桌面）。
+    /// 档位：决定能力集（Headless 无桌面 / Container 有 Xvfb 桌面）。
     pub tier: super::provider::Tier,
     /// CPU 上限（`--cpus`）。`None` 用容器默认，即不限。
     pub cpus: Option<f32>,
@@ -62,7 +62,7 @@ impl Default for DockerSpec {
             image: String::new(),
             mounts: Vec::new(),
             workdir: PathBuf::from("/workspace"),
-            tier: super::provider::Tier::Light,
+            tier: super::provider::Tier::Headless,
             cpus: None,
             memory_mb: None,
             disk_mb: None,
@@ -132,9 +132,8 @@ impl DockerSpec {
 ///   宿主鼠标不在画布上时也能看见指针位置。
 /// v7 → v8：光标模式 arrow → most，画的是真实形状（输入框变工字形、
 ///   链接变手形），不再永远一个箭头。
-/// v8 → v9：镜像改成分层构建（base → light → desktop），容器档位镜像名仍是
-///   `pointer-sandbox-container:latest`（别名），内容变了但名字没变，必须靠
-///   版本号让旧容器重建。
+/// v8 → v9：镜像改成分层构建（base → headless → desktop），desktop 档位镜像名
+///   `pointer-sandbox-desktop:latest`，内容变了但名字没变，必须靠版本号让旧容器重建。
 const SPEC_VERSION: u32 = 9;
 
 /// 构造 `docker run` 参数。
@@ -163,7 +162,7 @@ fn run_args(
         args.push("-v".into());
         args.push(bind);
     }
-    if spec.tier == super::provider::Tier::Container {
+    if spec.tier == super::provider::Tier::Desktop {
         // 桌面观察 / 接管通道，都只绑 127.0.0.1 的宿主随机端口：
         //   5900 → x11vnc（系统屏幕共享直连）
         //   6080 → websockify（面板内 noVNC 走 WebSocket）
@@ -276,7 +275,7 @@ impl DockerEnv {
         Self {
             container: container.to_string(),
             workdir: PathBuf::from("/workspace"),
-            tier: super::provider::Tier::Container,
+            tier: super::provider::Tier::Desktop,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
             host_fs: super::local::LocalEnv::new("/tmp"),
@@ -288,7 +287,7 @@ impl DockerEnv {
     /// 与 `create` 的区别：绝不 `docker run`，也绝不 `rm -f`。给"应用重启后
     /// 缓存空了、但容器还在跑"的场景用（面板接管入口靠它恢复）。
     pub fn attach(spec: DockerSpec) -> Result<Option<Self>> {
-        if spec.tier != super::provider::Tier::Container {
+        if spec.tier != super::provider::Tier::Desktop {
             return Ok(None);
         }
         let container = spec.container.clone();
@@ -333,7 +332,7 @@ impl DockerEnv {
 
         // 容器档位：每会话随机 VNC 密码（空字符串 = 显式要求无密码）。
         // 复用已有容器时密码已经在容器里定死了，必须读回来；这里再随机一个就会对不上。
-        let vnc_password = if spec.tier == super::provider::Tier::Container {
+        let vnc_password = if spec.tier == super::provider::Tier::Desktop {
             if reusable {
                 Self::container_vnc_password(&spec.container)
             } else {
@@ -399,7 +398,7 @@ impl DockerEnv {
         };
         // 容器档位：Xvfb 是异步起的，立刻 exec 会拿到 "cannot open display"。
         // 这里等桌面真正可用再返回，避免调用方第一次执行就失败。
-        if env.tier == super::provider::Tier::Container {
+        if env.tier == super::provider::Tier::Desktop {
             env.wait_until_desktop_ready()?;
         }
         Ok(env)
@@ -407,7 +406,7 @@ impl DockerEnv {
 
     /// 查容器某个端口映射到宿主的哪个端口（只绑 127.0.0.1）。
     fn published_port(&self, container_port: &str) -> Option<u16> {
-        if self.tier != super::provider::Tier::Container {
+        if self.tier != super::provider::Tier::Desktop {
             return None;
         }
         let out = Command::new("docker")
@@ -578,7 +577,7 @@ impl DockerEnv {
     /// 容器档位默认带 `DISPLAY=:99`（镜像入口起的 Xvfb），调用方显式给了就不覆盖。
     fn effective_env(&self, env: &std::collections::BTreeMap<String, String>) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        if self.tier == super::provider::Tier::Container
+        if self.tier == super::provider::Tier::Desktop
             && !env.contains_key("DISPLAY")
             && !out.iter().any(|(k, _)| k == "DISPLAY")
         {
@@ -639,8 +638,8 @@ impl Environment for DockerEnv {
     fn kind(&self) -> EnvKind {
         match self.tier {
             super::provider::Tier::Local => EnvKind::Local,
-            super::provider::Tier::Light => EnvKind::Light,
-            super::provider::Tier::Container => EnvKind::Container,
+            super::provider::Tier::Headless => EnvKind::Headless,
+            super::provider::Tier::Desktop => EnvKind::Desktop,
         }
     }
     fn workspace_root(&self) -> &Path {
@@ -654,8 +653,8 @@ impl Environment for DockerEnv {
     }
     fn capabilities(&self) -> Capabilities {
         match self.tier {
-            super::provider::Tier::Container => Capabilities::container(),
-            _ => Capabilities::light(),
+            super::provider::Tier::Desktop => Capabilities::desktop(),
+            _ => Capabilities::headless(),
         }
     }
     fn path_map(&self) -> &PathMap {
@@ -904,7 +903,7 @@ mod tests {
     fn spec_with_tier(tier: super::super::provider::Tier) -> DockerSpec {
         DockerSpec {
             container: "pointer-test".into(),
-            image: "pointer-sandbox-light:latest".into(),
+            image: "pointer-sandbox-headless:latest".into(),
             mounts: Vec::new(),
             workdir: "/workspace".into(),
             tier,
@@ -922,7 +921,7 @@ mod tests {
             image: "img".into(),
             mounts: Vec::new(),
             workdir: "/workspace".into(),
-            tier: crate::env::provider::Tier::Light,
+            tier: crate::env::provider::Tier::Headless,
             cpus: Some(2.0),
             memory_mb: Some(4096),
             disk_mb: Some(10240),
@@ -940,39 +939,39 @@ mod tests {
     #[test]
     fn capabilities_follow_tier() {
         // 直接构造结构体（不真的起容器），只验证能力映射。
-        let light = DockerEnv {
+        let headless = DockerEnv {
             container: "c".into(),
             workdir: "/workspace".into(),
-            tier: super::super::provider::Tier::Light,
+            tier: super::super::provider::Tier::Headless,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
             host_fs: super::super::local::LocalEnv::new("/tmp"),
         };
-        assert_eq!(light.kind(), EnvKind::Light);
-        assert!(!light.capabilities().desktop, "light 档不应有桌面");
-        assert!(!light.capabilities().snapshot, "light 档不应有快照");
+        assert_eq!(headless.kind(), EnvKind::Headless);
+        assert!(!headless.capabilities().desktop, "headless 档不应有桌面");
+        assert!(!headless.capabilities().snapshot, "headless 档不应有快照");
 
         let container = DockerEnv {
             container: "c".into(),
             workdir: "/workspace".into(),
-            tier: super::super::provider::Tier::Container,
+            tier: super::super::provider::Tier::Desktop,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
             host_fs: super::super::local::LocalEnv::new("/tmp"),
         };
-        assert_eq!(container.kind(), EnvKind::Container);
+        assert_eq!(container.kind(), EnvKind::Desktop);
         assert!(container.capabilities().desktop, "container 档必须有桌面");
         assert!(
             !container.capabilities().snapshot,
             "快照还没实现，能力位必须是 false（声明了做不到比不声明更糟）"
         );
 
-        // DockerSpec::default() 是 light，避免调用方漏传档位时静默开桌面。
+        // DockerSpec::default() 是 headless，避免调用方漏传档位时静默开桌面。
         assert_eq!(
             DockerSpec::default().tier,
-            super::super::provider::Tier::Light
+            super::super::provider::Tier::Headless
         );
-        assert_eq!(spec_with_tier(super::super::provider::Tier::Container).tier, super::super::provider::Tier::Container);
+        assert_eq!(spec_with_tier(super::super::provider::Tier::Desktop).tier, super::super::provider::Tier::Desktop);
     }
 
     #[test]
@@ -990,10 +989,10 @@ mod tests {
     fn spec_for_args() -> DockerSpec {
         DockerSpec {
             container: "pointer-args".into(),
-            image: "pointer-sandbox-light:latest".into(),
+            image: "pointer-sandbox-headless:latest".into(),
             mounts: vec![super::super::pathmap::Mount::new("/host/proj", "/workspace", false)],
             workdir: "/workspace".into(),
-            tier: super::super::provider::Tier::Light,
+            tier: super::super::provider::Tier::Headless,
             cpus: Some(2.0),
             memory_mb: Some(2048),
             disk_mb: Some(8192),
@@ -1022,9 +1021,9 @@ mod tests {
     }
 
     #[test]
-    fn container_tier_publishes_vnc_with_password() {
+    fn desktop_tier_publishes_vnc_with_password() {
         let mut spec = spec_for_args();
-        spec.tier = super::super::provider::Tier::Container;
+        spec.tier = super::super::provider::Tier::Desktop;
         let args = run_args(&spec, "h", Some("abcd2345"), true).join(" ");
         assert!(args.contains("-p 127.0.0.1::5900"), "{args}");
         assert!(args.contains("-p 127.0.0.1::6080"), "{args}");
@@ -1034,17 +1033,17 @@ mod tests {
     /// 端口没映射出来时不能返回半截地址：vnc 拿不到就整体当作没有桌面。
     #[test]
     fn light_tier_has_no_desktop_endpoint() {
-        let light = DockerEnv {
+        let headless = DockerEnv {
             container: "c".into(),
             workdir: "/workspace".into(),
-            tier: super::super::provider::Tier::Light,
+            tier: super::super::provider::Tier::Headless,
             vnc_password: Some("abcd2345".into()),
             map: PathMap::new(Vec::new()),
             host_fs: super::super::local::LocalEnv::new("/tmp"),
         };
         assert!(
-            light.desktop_endpoint().is_none(),
-            "light 档没有桌面，不能因为带了密码就返回端点"
+            headless.desktop_endpoint().is_none(),
+            "headless 档没有桌面，不能因为带了密码就返回端点"
         );
     }
 }

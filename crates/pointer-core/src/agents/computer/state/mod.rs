@@ -522,9 +522,13 @@ impl ComputerState {
 
         // 桌面由执行环境提供时（容器 / 远程沙箱），截图必须来自那块桌面。
         // 宿主截图 + 沙箱点击 = 模型看的是你的 Mac、点的是沙箱，坐标能对上但内容对不上。
+        //
+        // local 档位不算：`capabilities().desktop` 对 LocalEnv 也是 true（"这台机器有
+        // 桌面"），但宿主桌面要走下面的 `screen::` 分支——SandboxControl 只会
+        // xdotool / import，在宿主上跑不起来。
         let env = crate::env::session_env::env_for_conversation(conversation_id)
             .unwrap_or_else(crate::env::effective_env);
-        if env.capabilities().desktop {
+        if env.kind() != crate::env::EnvKind::Local && env.capabilities().desktop {
             use crate::agents::computer::control::{ComputerControl, SandboxControl};
             // 容器只有一个虚拟屏：清掉宿主显示器选择。
             // 不清的话 `ensure_pipeline_capture` 会拿 "1" 和 "container:desktop" 比对，

@@ -3,7 +3,7 @@
 //! 为什么需要它：`Environment` 抽象解决了「主机操作怎么做」，但没解决
 //! 「工具拿到的是哪一份实例」。此前靠线程局部（`env::current_env()`）隐式传递，
 //! tokio 在 `await` 点换线程、`spawn_blocking` 必然换线程，绑定一丢就会静默
-//! 回落到宿主——light 档位等于失效。
+//! 回落到宿主——headless 档位等于失效。
 //!
 //! 这里的做法：**上下文由 `ToolRegistry::invoke` 的入参显式传入**，
 //! 调用期间在**同一线程**上短暂挂成线程局部（`invoke` 是同步函数，工具体内部
@@ -54,9 +54,9 @@ impl ToolContext {
     }
 
     /// 按会话解析上下文：该会话已经建过沙箱就用沙箱环境，
-    /// 否则按部署档位回落（local 用宿主，light 用拒绝环境）。
+    /// 否则按部署档位回落（local 用宿主，headless 用拒绝环境）。
     ///
-    /// `fallback_workspace` 只在 local 档位生效——light 档位的工作区一律是
+    /// `fallback_workspace` 只在 local 档位生效——headless 档位的工作区一律是
     /// `env.workspace_root()`（沙箱内的 guest 路径），宿主路径在沙箱里不存在。
     pub fn for_conversation(
         conversation_id: &str,
@@ -145,7 +145,7 @@ mod tests {
             let seen = current_tool_context().expect("上下文应可见");
             assert_eq!(seen.conversation_id(), "conv-1");
             // 同一作用域内工具体读到的环境必须是会话环境，不是宿主
-            assert_eq!(crate::env::effective_env().kind(), EnvKind::Light);
+            assert_eq!(crate::env::effective_env().kind(), EnvKind::Headless);
             assert_eq!(crate::env::effective_env().workspace_root(), Path::new("/workspace"));
         }
         assert!(current_tool_context().is_none());

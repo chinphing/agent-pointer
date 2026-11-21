@@ -215,16 +215,16 @@ struct AuthToml {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct EnvironmentSection {
-    /// `local` | `light` | `container`。缺省按 `[deployment] mode` 派生。
+    /// `local` | `headless` | `desktop`。缺省按 `[deployment] mode` 派生。
     #[serde(default)]
     provider: Option<String>,
     /// 全局默认后端：`host` | `envd` | `docker`。**不作用于 `local` 档位**。
     #[serde(default)]
     backend: Option<String>,
-    /// 按档位覆盖后端：`[environment.backends] light = "docker"`。
+    /// 按档位覆盖后端：`[environment.backends] headless = "docker"`。
     #[serde(default)]
     backends: BTreeMap<String, String>,
-    /// `provider = "light"` 时必填的沙箱控制面地址。
+    /// `provider = "headless"` 时必填的沙箱控制面地址。
     #[serde(default)]
     sandbox_url: Option<String>,
     /// e2b-local 的卷宿主目录（`docker.volume_host_path`）。有值走 `volumeMounts`。
@@ -245,11 +245,11 @@ struct EnvironmentSection {
     /// 每沙箱磁盘 MB（仅 Linux + overlay2/xfs 生效）。
     #[serde(default)]
     disk_mb: Option<u32>,
-    /// 桌面能力。**不配 = 由档位推导**（`container` 有、`light` 无）；配了就覆盖，
+    /// 桌面能力。**不配 = 由档位推导**（`desktop` 有、`headless` 无）；配了就覆盖，
     /// 与档位矛盾时只 WARN。仅作用于 `envd` 后端——`docker` 的能力位只读档位。
     #[serde(default)]
     desktop: Option<bool>,
-    /// 账号级覆盖：`admin = "local"`、`alice = "light"`。
+    /// 账号级覆盖：`admin = "local"`、`alice = "headless"`。
     #[serde(default)]
     accounts: HashMap<String, String>
 }
@@ -867,7 +867,7 @@ fn env_nonempty(key: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// 部署默认执行环境档位（`local` | `light`）。`None` = 按 `[deployment] mode` 派生。
+/// 部署默认执行环境档位（`local` | `headless`）。`None` = 按 `[deployment] mode` 派生。
 pub fn environment_provider() -> Option<String> {
     env_nonempty(ENV_ENVIRONMENT_PROVIDER)
 }
@@ -878,14 +878,14 @@ pub fn environment_backend() -> Option<String> {
     env_nonempty(ENV_ENVIRONMENT_BACKEND)
 }
 
-/// 按档位的后端覆盖：`local=host,light=docker`（来自 `[environment.backends]`）。
+/// 按档位的后端覆盖：`local=host,headless=docker`（来自 `[environment.backends]`）。
 pub fn environment_backends() -> Vec<(String, String)> {
     env_nonempty(ENV_ENVIRONMENT_BACKENDS)
         .map(|raw| parse_key_value_pairs(&raw))
         .unwrap_or_default()
 }
 
-/// `provider = "light"` 时必填的沙箱控制面地址。
+/// `provider = "headless"` 时必填的沙箱控制面地址。
 pub fn environment_sandbox_url() -> Option<String> {
     env_nonempty(ENV_ENVIRONMENT_SANDBOX_URL)
 }
@@ -931,7 +931,7 @@ pub fn environment_disk_mb() -> Option<u32> {
 
 /// 显式配置的桌面能力（`POINTER_SERVER_ENVIRONMENT_DESKTOP`）。
 ///
-/// `None` = 没配 → 由档位决定（`container` 有桌面，其余没有），见
+/// `None` = 没配 → 由档位决定（`desktop` 有桌面，其余没有），见
 /// `session_env::remote_desktop`；`Some(_)` = 显式覆盖，与档位矛盾时只告警。
 /// 取值 `1/true/yes/on` 为真，其余（含 `0/false/no/off`）为假。
 pub fn environment_desktop_override() -> Option<bool> {
@@ -970,7 +970,7 @@ pub(crate) fn admin_account_matches(list: &[String], uid: &str) -> bool {
     list.iter().any(|entry| entry.trim() == uid)
 }
 
-/// 账号级 provider 覆盖：`alice=light,bob=local`。
+/// 账号级 provider 覆盖：`alice=headless,bob=local`。
 pub fn environment_accounts() -> Vec<(String, String)> {
     env_nonempty(ENV_ENVIRONMENT_ACCOUNTS)
         .map(|raw| parse_key_value_pairs(&raw))
@@ -1162,7 +1162,7 @@ public_url = "https://pointer.example.com"
             &cfg,
             r#"
 [environment]
-provider = "light"
+provider = "headless"
 admin_tier = "inherit"
 "#,
         )
@@ -1201,11 +1201,11 @@ admin_tier = "inherit"
             &cfg,
             r#"
 [environment]
-provider = "container"
+provider = "desktop"
 backend = "docker"
 sandbox_url = "http://cube:3000"
 volume_host_path = "/data/pointer/volumes"
-template = "pointer-sandbox-container:latest"
+template = "pointer-sandbox-desktop:latest"
 admin_tier = "inherit"
 cpus = 2
 memory_mb = 4096
@@ -1213,7 +1213,7 @@ disk_mb = 10240
 desktop = true
 
 [environment.backends]
-light = "docker"
+headless = "docker"
 "#,
         )
         .unwrap();
@@ -1246,11 +1246,11 @@ light = "docker"
             &cfg,
             r#"
 [environment]
-provider = "container"
+provider = "desktop"
 backend = "docker"
 sandbox_url = "http://cube:3000"
 volume_host_path = "/data/pointer/volumes"
-template = "pointer-sandbox-container:latest"
+template = "pointer-sandbox-desktop:latest"
 cpus = 2
 memory_mb = 4096
 disk_mb = 10240
@@ -1258,8 +1258,8 @@ desktop = true
 
 [environment.backends]
 local = "host"
-light = "docker"
-container = "docker"
+headless = "docker"
+desktop = "docker"
 "#,
         )
         .unwrap();
@@ -1268,7 +1268,7 @@ container = "docker"
             .into_iter()
             .collect();
         let expected = [
-            ("POINTER_SERVER_ENVIRONMENT_PROVIDER", "container"),
+            ("POINTER_SERVER_ENVIRONMENT_PROVIDER", "desktop"),
             ("POINTER_SERVER_ENVIRONMENT_BACKEND", "docker"),
             ("POINTER_SERVER_ENVIRONMENT_SANDBOX_URL", "http://cube:3000"),
             (
@@ -1277,7 +1277,7 @@ container = "docker"
             ),
             (
                 "POINTER_SERVER_ENVIRONMENT_TEMPLATE",
-                "pointer-sandbox-container:latest",
+                "pointer-sandbox-desktop:latest",
             ),
             ("POINTER_SERVER_ENVIRONMENT_CPUS", "2"),
             ("POINTER_SERVER_ENVIRONMENT_MEMORY_MB", "4096"),
@@ -1285,7 +1285,7 @@ container = "docker"
             ("POINTER_SERVER_ENVIRONMENT_DESKTOP", "1"),
             (
                 "POINTER_SERVER_ENVIRONMENT_BACKENDS",
-                "container=docker,light=docker,local=host",
+                "desktop=docker,headless=docker,local=host",
             ),
         ];
         for (key, value) in expected {
@@ -1299,8 +1299,8 @@ container = "docker"
         assert_eq!(
             backends,
             vec![
-                ("container".to_string(), "docker".to_string()),
-                ("light".to_string(), "docker".to_string()),
+                ("desktop".to_string(), "docker".to_string()),
+                ("headless".to_string(), "docker".to_string()),
                 ("local".to_string(), "host".to_string()),
             ]
         );
@@ -1311,7 +1311,7 @@ container = "docker"
     fn toml_environment_rejects_unknown_key() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = dir.path().join("pointer-server.toml");
-        std::fs::write(&cfg, "[environment]\nprovder = \"light\"\n").unwrap();
+        std::fs::write(&cfg, "[environment]\nprovder = \"headless\"\n").unwrap();
         let err = format!("{:#}", parse_toml_file(&cfg, dir.path()).unwrap_err());
         assert!(err.contains("provder"), "错误信息要指出是哪个键: {err}");
     }

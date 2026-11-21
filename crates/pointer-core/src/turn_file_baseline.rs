@@ -472,7 +472,7 @@ pub fn turn_file_diff(
     workspace_root: &Path,
     path: &str,
 ) -> Result<TurnFileDiff> {
-    // 执行环境：light/container 档位下工作区在沙箱里（`/workspace`），
+    // 执行环境：headless/desktop 档位下工作区在沙箱里（`/workspace`），
     // 宿主路径不存在——这里必须按会话解析，否则 diff 永远是空的。
     let env = crate::env::session_env::env_for_conversation(conversation_id)
         .unwrap_or_else(crate::env::effective_env);

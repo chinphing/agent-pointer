@@ -121,7 +121,7 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
     // different worker thread since `ConversationWorkspaceGuard::enter` was set
     // in `run_chat_inner`, so the thread-local is empty here.
     // 执行环境绑定（§3.4）：tokio 可能换了工作线程，这里按会话重放；
-    // light 档位下工作区根是 guest 路径 `/workspace`。
+    // headless 档位下工作区根是 guest 路径 `/workspace`。
     let (_env_guard, tool_workspace) = crate::env::session_env::bind_and_resolve_workspace(
         conversation_id,
         &session_user_id,

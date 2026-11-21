@@ -6,7 +6,7 @@
 //! 2. **未命中一律拒绝**（`PATH_NOT_MAPPED`），不做「猜一个最像的」。
 //!
 //! local 档位用 [`PathMap::identity`]：`to_host` / `to_agent` 都是恒等，
-//! 未命中时直接放行（宿主就是环境）。light / container 用 [`PathMap::new`]，
+//! 未命中时直接放行（宿主就是环境）。headless / desktop 用 [`PathMap::new`]，
 //! 未命中即报错。
 
 use anyhow::{anyhow, Result};

@@ -8,7 +8,7 @@
 # 构建：
 #   docker build -f docker/runtime.Dockerfile \
 #     --build-arg BASE_IMAGE=pointer-sandbox-base:2026.11 \
-#     -t pointer-sandbox-light:2026.11 .
+#     -t pointer-sandbox-headless:2026.11 .
 #
 # python 用**发行版自带的**（Ubuntu 24.04 → /usr/bin/python3.12）而不是 python.org
 # 镜像：技能 venv 的 `bin/python3` 是指向 `/usr/bin/python3.x` 的符号链接，只有

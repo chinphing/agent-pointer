@@ -13,7 +13,7 @@ pub struct AppAccessTool {
     verify: VerifyHintGenerator,
 }
 
-/// §3.3：GUI 自动化只能在本机跑。light/container 没有桌面会话时直接拒绝，
+/// §3.3：GUI 自动化只能在本机跑。headless/desktop 没有桌面会话时直接拒绝，
 /// 绝不能让 agent 的请求落到宿主桌面。
 fn require_desktop() -> Result<()> {
     let env = crate::env::effective_env();

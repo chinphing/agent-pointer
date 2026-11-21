@@ -104,7 +104,7 @@ impl std::error::Error for GitCommandError {}
 /// leaf entries and are never followed, preventing traversal outside the root.
 /// 面板要操作的根目录。
 ///
-/// light/container 档位下工作区在沙箱里（`/workspace`），宿主路径在沙箱中不存在，
+/// headless/desktop 档位下工作区在沙箱里（`/workspace`），宿主路径在沙箱中不存在，
 /// 所以一律以环境绑定的工作区为准；local 档位沿用调用方给的宿主路径。
 fn panel_root(env: &dyn crate::env::Environment, workspace_root: &Path) -> Result<PathBuf> {
     if env.kind() != crate::env::EnvKind::Local {
@@ -956,11 +956,11 @@ mod tests {
 
     #[test]
     fn panel_does_not_read_host_workspace_when_environment_is_light() {
-        // light 档位下没有绑定/绑定为沙箱时，面板绝不能去读宿主目录。
+        // headless 档位下没有绑定/绑定为沙箱时，面板绝不能去读宿主目录。
         let env = crate::env::test_light_env();
         let host_dir = std::env::temp_dir();
         let err = list_directory_in(env.as_ref(), &host_dir, None)
-            .expect_err("light 环境不应读到宿主目录");
+            .expect_err("headless 环境不应读到宿主目录");
         let chain = format!("{err:#}");
         assert!(
             chain.contains("未绑定"),

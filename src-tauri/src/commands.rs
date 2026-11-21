@@ -33,10 +33,10 @@ fn platform_list_scope(state: &AppState) -> pointer_core::conversation_store::Li
 }
 
 
-/// 面板命令的执行环境：按会话解析（light 档位下工作区在沙箱里）。
+/// 面板命令的执行环境：按会话解析（headless 档位下工作区在沙箱里）。
 ///
 /// 没有会话 id 时回落到 `effective_env()`：local 档位照旧用宿主，
-/// light 档位会拿到「拒绝执行」环境而不是静默读宿主。
+/// headless 档位会拿到「拒绝执行」环境而不是静默读宿主。
 fn panel_env(
     conversation_id: Option<&str>,
     workspace_root: &str,
@@ -1947,12 +1947,12 @@ mod desktop_tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let cfg = ProviderConfig {
-            tier: Some(Tier::Container),
+            tier: Some(Tier::Desktop),
             admin_tier: Default::default(),
             backend: Some(Backend::Docker),
             sandbox_url: None,
             volume_host_path: None,
-            template: Some("pointer-sandbox-container:latest".to_string()),
+            template: Some("pointer-sandbox-desktop:latest".to_string()),
             admins: Vec::new(),
             accounts: Default::default(),
             tier_backends: Default::default(),

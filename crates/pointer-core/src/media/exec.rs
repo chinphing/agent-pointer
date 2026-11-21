@@ -1,7 +1,7 @@
 //! 媒体子进程统一入口（§3.3：agent 可触发的进程一律在环境内跑）。
 //!
 //! 设计文档 §7.2 债务表里 `media/*` 是"沙箱内"归属：ffmpeg / ffprobe / pdfinfo
-//! 必须走 `Environment::exec`，这样 light 模式下它们跑在沙箱里，而不是宿主。
+//! 必须走 `Environment::exec`，这样 headless 模式下它们跑在沙箱里，而不是宿主。
 //!
 //! 两个配套抽象：
 //! - [`run`] / [`run_ok`]：跑一次工具，超时与输出上限统一；
@@ -26,7 +26,7 @@ const MEDIA_MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 /// 否则大图被静默截断成"损坏"。这里单独设 6 MiB，超过就报错而不是截断。
 pub const MEDIA_ARTIFACT_MAX_BYTES: u64 = 6 * 1024 * 1024;
 
-/// 当前环境是否把进程放到远端（light）跑。
+/// 当前环境是否把进程放到远端（headless）跑。
 pub fn is_remote() -> bool {
     effective_env().kind() != crate::env::EnvKind::Local
 }

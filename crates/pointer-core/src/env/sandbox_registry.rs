@@ -145,12 +145,12 @@ mod tests {
                 Entry {
                     sandbox_id: "sbx123".into(),
                     envd_url: "http://127.0.0.1:1234".into(),
-                    template: "pointer-sandbox-light:latest".into(),
+                    template: "pointer-sandbox-headless:latest".into(),
                 },
             );
             let hit = lookup("conv-a").expect("应能查回");
             assert_eq!(hit.sandbox_id, "sbx123");
-            assert_eq!(hit.template, "pointer-sandbox-light:latest");
+            assert_eq!(hit.template, "pointer-sandbox-headless:latest");
 
             forget("conv-a");
             assert!(lookup("conv-a").is_none());

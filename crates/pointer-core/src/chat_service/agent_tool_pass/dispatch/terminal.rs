@@ -28,7 +28,7 @@ use super::super::super::StreamTx;
 use super::super::types::ToolExecResult;
 
 fn resolve_terminal_session_workspace(conversation_id: &str, from_settings: String) -> String {
-    // light/container：该会话已经建过沙箱 → 直接用沙箱工作区。
+    // headless/desktop：该会话已经建过沙箱 → 直接用沙箱工作区。
     // 这里必须按 conversation_id 查，不能靠 thread-local（分派线程上可能已丢绑定）。
     if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
         return env.workspace_root().display().to_string();

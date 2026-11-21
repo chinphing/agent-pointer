@@ -41,17 +41,17 @@ pub enum EnvKind {
     /// 宿主真实桌面，无隔离。
     Local,
     /// namespace + uid + 挂载，无 GUI。
-    Light,
+    Headless,
     /// 完整运行时 + GUI（Xvfb + WM）。
-    Container,
+    Desktop,
 }
 
 impl EnvKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Local => "local",
-            Self::Light => "light",
-            Self::Container => "container",
+            Self::Headless => "headless",
+            Self::Desktop => "desktop",
         }
     }
 }
@@ -146,8 +146,8 @@ impl Capabilities {
         }
     }
 
-    /// light：无桌面、无快照；出网默认允许（隔离靠 net namespace）。
-    pub fn light() -> Self {
+    /// headless：无桌面、无快照；出网默认允许（隔离靠 net namespace）。
+    pub fn headless() -> Self {
         Self {
             desktop: false,
             read_scope: ReadScope::User,
@@ -157,12 +157,12 @@ impl Capabilities {
         }
     }
 
-    /// container：light + 桌面。
+    /// desktop：headless + 桌面。
     ///
     /// `snapshot` 目前是 `false`——快照还没实现（设计文档 §6 列在后续）。
     /// 这里不能写 `true`：能力位是给上层做决策用的，声明了却做不到会让人
     /// 以为"跑完能回滚"。
-    pub fn container() -> Self {
+    pub fn desktop() -> Self {
         Self {
             desktop: true,
             read_scope: ReadScope::User,
@@ -361,6 +361,16 @@ pub struct DesktopEndpoint {
 pub trait Environment: Send + Sync {
     fn kind(&self) -> EnvKind;
 
+    /// 是否是「环境没绑定」的占位实现（[`DeniedEnv`]）。
+    ///
+    /// `DeniedEnv::kind()` 报 `Headless` 是**刻意**的：调用方靠 `kind() != Local`
+    /// 决定"不要碰宿主"。但只凭 kind 分不出"沙箱环境"和"环境压根没绑定"，
+    /// 于是漏绑定会被说成"沙箱里没有这个路径"——错误信息指向完全错误的方向。
+    /// 需要区分时问这里，别去比对 `kind()`。
+    fn is_denied(&self) -> bool {
+        false
+    }
+
     /// 提示词注入用。local 返回宿主真实路径。
     fn workspace_root(&self) -> &Path;
     fn skills_root(&self) -> &Path;
@@ -373,7 +383,7 @@ pub trait Environment: Send + Sync {
 
     /// 桌面接管入口（容器档位才有）。
     ///
-    /// 宿主和 light 档位没有可观察的桌面，返回 `None`。
+    /// 宿主和 headless 档位没有可观察的桌面，返回 `None`。
     fn desktop_endpoint(&self) -> Option<DesktopEndpoint> {
         None
     }
@@ -468,7 +478,7 @@ where
 
 /// 未绑定环境时的**拒绝执行**环境。
 ///
-/// light/container 档位下，一旦某个线程没有会话绑定（tokio 换线程、
+/// headless/desktop 档位下，一旦某个线程没有会话绑定（tokio 换线程、
 /// `spawn_blocking`、新起的后台任务…），旧实现会静默回落到 `LocalEnv`——
 /// 命令跑到宿主、工作区指向宿主路径，属于**数据泄露级**的错误。
 /// 这里改为显式失败：宁可报错，也不在宿主执行。
@@ -498,7 +508,11 @@ impl DeniedEnv {
 
 impl Environment for DeniedEnv {
     fn kind(&self) -> EnvKind {
-        EnvKind::Light
+        EnvKind::Headless
+    }
+    /// 让调用方能区分「沙箱环境」和「环境没绑定」（见 [`Environment::is_denied`]）。
+    fn is_denied(&self) -> bool {
+        true
     }
     /// 别让默认实现报「不支持交互式终端」——真正原因是环境没绑定。
     fn pty_open(&self, _spec: PtySpec) -> Result<Box<dyn PtyHandle>> {
@@ -516,7 +530,7 @@ impl Environment for DeniedEnv {
         &self.home
     }
     fn capabilities(&self) -> Capabilities {
-        Capabilities::light()
+        Capabilities::headless()
     }
     fn path_map(&self) -> &PathMap {
         &self.map
@@ -565,13 +579,13 @@ impl Environment for DeniedEnv {
     }
 }
 
-/// 测试用：一个 kind=Light 但不触碰宿主的环境（所有 IO 都拒绝）。
+/// 测试用：一个 kind=Headless 但不触碰宿主的环境（所有 IO 都拒绝）。
 #[cfg(test)]
 pub(crate) fn test_light_env() -> Arc<dyn Environment> {
     Arc::new(DeniedEnv::new())
 }
 
-/// 部署档位是否为 light/container（只读一次环境变量，进程内不变）。
+/// 部署档位是否为 headless/desktop（只读一次环境变量，进程内不变）。
 fn deployment_is_remote() -> bool {
     static CACHE: OnceLock<bool> = OnceLock::new();
     *CACHE.get_or_init(|| {
@@ -606,7 +620,7 @@ pub fn effective_env() -> Arc<dyn Environment> {
     if let Some(env) = current_env() {
         return env;
     }
-    // light/container 档位绝不能静默回落宿主：返回拒绝执行的环境，把漏绑定变成显式错误。
+    // headless/desktop 档位绝不能静默回落宿主：返回拒绝执行的环境，把漏绑定变成显式错误。
     if deployment_is_remote() {
         static DENIED: OnceLock<Arc<dyn Environment>> = OnceLock::new();
         return DENIED
@@ -617,6 +631,77 @@ pub fn effective_env() -> Arc<dyn Environment> {
     DEFAULT_LOCAL
         .get_or_init(|| Arc::new(LocalEnv::from_settings()) as Arc<dyn Environment>)
         .clone()
+}
+
+/// 工作区目录的检查结果。
+///
+/// 三种失败必须分开：以前"环境没绑定"和"沙箱里没有这个路径"都被报成
+/// 「工作区目录无效或不存在」，可实际查的是**宿主**路径——报错把人带到完全
+/// 错误的方向（见 `docs` 里 admin + 沙箱档位部署的排查记录）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceDirState {
+    /// 目录可用。
+    Present,
+    /// 本线程没有绑定执行环境，而部署是沙箱档位（[`DeniedEnv`]）。
+    Unbound,
+    /// 环境里确实没有这个目录。
+    Missing,
+}
+
+impl WorkspaceDirState {
+    /// 失败时给出可直接返回给用户的错误；`Present` 返回 `None`。
+    ///
+    /// `kind` 只用来选文案：`Local` 的路径是宿主路径，其余是沙箱 guest 路径。
+    pub fn error(self, kind: EnvKind, workspace: &Path) -> Option<anyhow::Error> {
+        match self {
+            Self::Present => None,
+            Self::Unbound => Some(anyhow::anyhow!(
+                "执行环境未绑定：本部署配置了沙箱档位，但当前会话没有绑定执行环境"
+            )),
+            Self::Missing if kind == EnvKind::Local => Some(anyhow::anyhow!(
+                "工作区目录无效或不存在: {}",
+                workspace.display()
+            )),
+            Self::Missing => Some(anyhow::anyhow!(
+                "沙箱内不存在工作区：{}",
+                workspace.display()
+            )),
+        }
+    }
+}
+
+/// 判定工作区目录是否可用。
+///
+/// `env` 传 `None` 表示"本线程没有绑定环境，按宿主判断"——与
+/// `tools::file::path::env_is_dir` 同一套约定，不能在这里自作主张换成
+/// [`effective_env`]：后者在未绑定时按**部署默认档位**返回 [`DeniedEnv`]。
+pub fn workspace_dir_state(env: Option<&dyn Environment>, path: &Path) -> WorkspaceDirState {
+    let Some(env) = env else {
+        return if path.is_dir() {
+            WorkspaceDirState::Present
+        } else {
+            WorkspaceDirState::Missing
+        };
+    };
+    if env.is_denied() {
+        return WorkspaceDirState::Unbound;
+    }
+    let present = if env.kind() == EnvKind::Local {
+        path.is_dir()
+    } else {
+        env.metadata(path).map(|m| m.is_dir).unwrap_or(false)
+    };
+    if present {
+        WorkspaceDirState::Present
+    } else {
+        WorkspaceDirState::Missing
+    }
+}
+
+/// [`workspace_dir_state`] + 对应文案：可用返回 `None`，否则返回要抛的错误。
+pub fn workspace_dir_error(env: Option<&dyn Environment>, path: &Path) -> Option<anyhow::Error> {
+    let kind = env.map(|e| e.kind()).unwrap_or(EnvKind::Local);
+    workspace_dir_state(env, path).error(kind, path)
 }
 
 thread_local! {
@@ -719,16 +804,16 @@ mod tests {
     #[test]
     fn capabilities_match_kind() {
         assert_eq!(Capabilities::local().read_scope, ReadScope::Host);
-        assert!(!Capabilities::light().desktop);
-        assert!(Capabilities::container().desktop);
+        assert!(!Capabilities::headless().desktop);
+        assert!(Capabilities::desktop().desktop);
         assert_eq!(EnvKind::Local.as_str(), "local");
     }
 
     #[test]
     fn denied_env_refuses_host_io_instead_of_leaking() {
-        // light 档位下没绑定会话环境时，绝不能静默回落宿主。
+        // headless 档位下没绑定会话环境时，绝不能静默回落宿主。
         let env = DeniedEnv::new();
-        assert_eq!(env.kind(), EnvKind::Light);
+        assert_eq!(env.kind(), EnvKind::Headless);
         assert_eq!(env.workspace_root(), Path::new("/workspace"));
         let err = env
             .exec(&["/bin/echo".to_string(), "hi".to_string()], ExecOptions::default())
@@ -737,6 +822,72 @@ mod tests {
         assert!(err.contains("未绑定"), "错误应说明未绑定：{err}");
         assert!(env.read_file(Path::new("/etc/hostname")).is_err());
         assert!(env.write_file(Path::new("/tmp/x"), b"x").is_err());
+    }
+
+    #[test]
+    fn denied_env_is_identifiable() {
+        // 光看 kind() 分不出"沙箱"和"没绑定"——必须能问出来。
+        let denied = DeniedEnv::new();
+        assert!(denied.is_denied());
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!LocalEnv::new(dir.path()).is_denied());
+    }
+
+    #[test]
+    fn workspace_dir_state_separates_unbound_from_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let present = dir.path();
+        let missing = dir.path().join("nope");
+
+        // 没绑定环境：按宿主判断（local 账号的老行为）。
+        assert_eq!(workspace_dir_state(None, present), WorkspaceDirState::Present);
+        assert_eq!(workspace_dir_state(None, &missing), WorkspaceDirState::Missing);
+
+        // 绑了 local 环境：宿主判断。
+        let local = LocalEnv::new(dir.path());
+        assert_eq!(
+            workspace_dir_state(Some(&local), present),
+            WorkspaceDirState::Present
+        );
+        assert_eq!(
+            workspace_dir_state(Some(&local), &missing),
+            WorkspaceDirState::Missing
+        );
+
+        // 没绑定的沙箱档位：必须报「未绑定」，不能报「不存在」。
+        let denied = DeniedEnv::new();
+        assert_eq!(
+            workspace_dir_state(Some(&denied), present),
+            WorkspaceDirState::Unbound
+        );
+    }
+
+    #[test]
+    fn workspace_dir_error_names_the_real_cause() {
+        let ws = Path::new("/tmp/pointer-ws-error-text");
+        let unbound = WorkspaceDirState::Unbound
+            .error(EnvKind::Headless, ws)
+            .unwrap()
+            .to_string();
+        assert!(unbound.contains("执行环境未绑定"), "{unbound}");
+        assert!(!unbound.contains("工作区目录无效"), "{unbound}");
+
+        let missing_sandbox = WorkspaceDirState::Missing
+            .error(EnvKind::Headless, ws)
+            .unwrap()
+            .to_string();
+        assert!(missing_sandbox.contains("沙箱内不存在工作区"), "{missing_sandbox}");
+
+        let missing_host = WorkspaceDirState::Missing
+            .error(EnvKind::Local, ws)
+            .unwrap()
+            .to_string();
+        assert!(
+            missing_host.contains("工作区目录无效或不存在"),
+            "{missing_host}"
+        );
+
+        assert!(WorkspaceDirState::Present.error(EnvKind::Local, ws).is_none());
     }
 
     /// 递归收集被守卫文件里的宿主直连。
@@ -807,7 +958,7 @@ mod tests {
             ("media/image_dir.rs", "附件目录枚举（宿主路径）"),
             ("tools/terminal_elevated.rs", "提权是宿主专属能力"),
             ("tools/terminal_askpass.rs", "提权口令交互，宿主专属"),
-            ("media/ffmpeg.rs", "仅 local 档位走宿主 which；light 已走 env.exec"),
+            ("media/ffmpeg.rs", "仅 local 档位走宿主 which；headless 已走 env.exec"),
         ];
         let patterns = [
             "std::fs::",

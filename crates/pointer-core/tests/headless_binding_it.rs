@@ -1,11 +1,11 @@
-//! light 档位的会话绑定真机测试（需要 e2b-local 网关）。
+//! headless 档位的会话绑定真机测试（需要 e2b-local 网关）。
 //!
 //! ```bash
-//! cargo test -p pointer-core --test light_binding_it -- --ignored --test-threads=1
+//! cargo test -p pointer-core --test headless_binding_it -- --ignored --test-threads=1
 //! ```
 //!
 //! 覆盖 §3.4 / §7.1 B3 的三条主线：
-//! 1. 部署默认 light → 会话绑到远端，工作区根变成 guest `/workspace`；
+//! 1. 部署默认 headless → 会话绑到远端，工作区根变成 guest `/workspace`；
 //! 2. admin 账号默认 local → 不建沙箱、工作区根保持宿主路径；
 //! 3. 会话回收 → 沙箱销毁、缓存清空。
 
@@ -23,9 +23,9 @@ fn sandbox_url() -> String {
 
 #[test]
 #[ignore = "需要 e2b-local 网关；手动跑"]
-fn light_binding_end_to_end() {
-    // 部署默认 light；admin 名单里只有 admin。
-    std::env::set_var("POINTER_SERVER_ENVIRONMENT_PROVIDER", "light");
+fn headless_binding_end_to_end() {
+    // 部署默认 headless；admin 名单里只有 admin。
+    std::env::set_var("POINTER_SERVER_ENVIRONMENT_PROVIDER", "headless");
     std::env::set_var("POINTER_SERVER_ENVIRONMENT_SANDBOX_URL", sandbox_url());
     std::env::set_var("POINTER_SERVER_ADMIN_ACCOUNTS", "admin");
     std::env::remove_var("POINTER_SERVER_ENVIRONMENT_ACCOUNTS");
@@ -48,16 +48,16 @@ fn light_binding_end_to_end() {
     }
 
     // --- 1. 普通用户：绑到远端 ---------------------------------------
-    let conv = "conv-light-binding-it";
+    let conv = "conv-headless-binding-it";
     let (guard, workspace) = session_env::bind_and_resolve_workspace(
         conv,
         "alice",
         PathBuf::from("/host/should-be-ignored"),
     )
-    .expect("bind light session");
-    assert!(guard.is_some(), "light 档位必须绑定环境");
-    assert_eq!(workspace, "/workspace", "light 下工作区根是 guest 路径");
-    assert_eq!(effective_env().kind(), EnvKind::Light);
+    .expect("bind headless session");
+    assert!(guard.is_some(), "headless 档位必须绑定环境");
+    assert_eq!(workspace, "/workspace", "headless 下工作区根是 guest 路径");
+    assert_eq!(effective_env().kind(), EnvKind::Headless);
     assert!(current_env().is_some());
 
     let sandbox_id = session_env::cached_sandbox_id(conv).expect("沙箱应被缓存");
@@ -66,8 +66,8 @@ fn light_binding_end_to_end() {
     // 文件写入真的落在沙箱里
     let env = effective_env();
     let path = std::path::Path::new("/workspace/binding.txt");
-    env.write_file(path, b"from-light").expect("write in sandbox");
-    assert_eq!(env.read_file(path).expect("read back"), b"from-light");
+    env.write_file(path, b"from-headless").expect("write in sandbox");
+    assert_eq!(env.read_file(path).expect("read back"), b"from-headless");
 
     // 同一会话再绑一次：复用同一个沙箱
     let (guard2, workspace2) =
@@ -85,17 +85,23 @@ fn light_binding_end_to_end() {
     // 解绑 thread-local，才能验证 admin 分支（同一线程已绑定时会复用现有环境）
     drop(guard);
 
-    // --- 2. admin 账号：默认 local ------------------------------------
-    let admin_conv = "conv-light-binding-admin";
+    // --- 2. admin 账号：默认 local，但**也要绑** LocalEnv（宿主直跑） ----
+    let admin_conv = "conv-headless-binding-admin";
     let (admin_guard, admin_workspace) = session_env::bind_and_resolve_workspace(
         admin_conv,
         "admin",
         PathBuf::from("/host/admin-workspace"),
     )
     .expect("bind admin session");
-    assert!(admin_guard.is_none(), "admin 默认 local，不绑远端");
-    assert_eq!(admin_workspace, "/host/admin-workspace");
+    // local 档位不绑的话，工具线程会退到 DeniedEnv：宿主工具全线报
+    // 「工作区目录无效或不存在」。绑了才能"admin 走宿主 + 普通用户走沙箱"并存。
+    assert!(admin_guard.is_some(), "admin 是 local 档位，必须绑定 LocalEnv");
+    assert_eq!(admin_workspace, "/host/admin-workspace", "local 档位工作区是宿主路径");
+    assert_eq!(effective_env().kind(), EnvKind::Local);
+    assert!(!effective_env().is_denied());
     assert!(session_env::cached_sandbox_id(admin_conv).is_none());
+    drop(admin_guard);
+    session_env::release(admin_conv);
 
     // --- 3. 回收 ------------------------------------------------------
     session_env::release(conv);
@@ -113,7 +119,7 @@ fn light_binding_end_to_end() {
 /// 生成的，不记下来就只能靠超时回收（实测攒了 26 个 e2b-envd-* 容器）。
 #[test]
 #[ignore = "需要 e2b-local 网关；手动跑"]
-fn light_sandbox_registry_tracks_lifecycle() {
+fn headless_sandbox_registry_tracks_lifecycle() {
     use pointer_core::env::provider::{Backend, ProviderConfig, Tier};
 
     let dir = tempfile::tempdir().expect("tempdir");
@@ -127,14 +133,14 @@ fn light_sandbox_registry_tracks_lifecycle() {
     std::fs::write(skills.join("demo/SKILL.md"), "# demo\n").unwrap();
     std::env::set_var("POINTER_SKILLS_DIR", &skills);
 
-    let conv = "conv-light-registry-it";
+    let conv = "conv-headless-registry-it";
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Light),
+        tier: Some(Tier::Headless),
         backend: Some(Backend::Envd),
         sandbox_url: Some(sandbox_url()),
         volume_host_path: None,
-        template: Some("pointer-sandbox-light:latest".to_string()),
+        template: Some("pointer-sandbox-headless:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -156,7 +162,7 @@ fn light_sandbox_registry_tracks_lifecycle() {
         "登记的是网关的 sandboxID：{}",
         entry.sandbox_id
     );
-    assert_eq!(entry.template, "pointer-sandbox-light:latest");
+    assert_eq!(entry.template, "pointer-sandbox-headless:latest");
 
     // 环境确实是那个沙箱（能执行命令）。
     let out = env
@@ -173,7 +179,7 @@ fn light_sandbox_registry_tracks_lifecycle() {
     // 释放 = 销毁：拿旧 id 再 attach 探活，应该已经死了。
     let spec = pointer_core::env::remote::RemoteSpec {
         control_url: sandbox_url(),
-        template: "pointer-sandbox-light:latest".to_string(),
+        template: "pointer-sandbox-headless:latest".to_string(),
         ..Default::default()
     };
     let alive = pointer_core::env::remote::RemoteEnv::attach(&spec, entry.sandbox_id, entry.envd_url)

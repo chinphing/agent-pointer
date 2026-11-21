@@ -1,4 +1,4 @@
-//! RemoteEnv：E2B 兼容协议（e2b-local / CubeSandbox）上的 light 模式实现。
+//! RemoteEnv：E2B 兼容协议（e2b-local / CubeSandbox）上的 headless 模式实现。
 //!
 //! ## 协议事实（2026-11-15 在 e2b-local + OrbStack 实测）
 //!
@@ -39,7 +39,7 @@ const START_EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub const DEFAULT_CONTROL_URL: &str = "http://127.0.0.1:3000";
 pub const DEFAULT_TEMPLATE: &str = "debian:bookworm-slim";
-/// envd 的 files 接口需要显式用户；light 模式里 agent 以 root 身份跑在容器内。
+/// envd 的 files 接口需要显式用户；headless 模式里 agent 以 root 身份跑在容器内。
 const FILES_USER: &str = "root";
 /// `open_reader` 每次 Range 请求的块大小（envd 支持 `Range`，实测返回 206）。
 const READER_CHUNK_BYTES: u64 = 4 * 1024 * 1024;
@@ -69,7 +69,7 @@ pub struct RemoteSpec {
     pub mounts: Vec<Mount>,
     /// 模板里是否带图形桌面（Xvfb + xdotool + x11vnc）。
     ///
-    /// 默认值由**档位**决定（`container` → true，其余 → false），`[environment] desktop`
+    /// 默认值由**档位**决定（`desktop` → true，其余 → false），`[environment] desktop`
     /// 显式配置时覆盖它；见 `session_env::remote_desktop`。为真时
     /// `capabilities().desktop` 也为真，计算机工具会把它当"自己的桌面"，
     /// 走沙箱内的 xdotool 而不是宿主。
@@ -97,7 +97,7 @@ impl Default for RemoteSpec {
     }
 }
 
-/// 远端（light）执行环境。
+/// 远端（headless）执行环境。
 pub struct RemoteEnv {
     control_url: String,
     sandbox_id: String,
@@ -113,12 +113,12 @@ pub struct RemoteEnv {
     has_timeout: bool,
 }
 
-/// 桌面能力：有桌面就跟容器档位一样（其余权限位和 light 相同）。
+/// 桌面能力：有桌面就跟容器档位一样（其余权限位和 headless 相同）。
 fn desktop_capabilities(desktop: bool) -> Capabilities {
     if desktop {
-        Capabilities::container()
+        Capabilities::desktop()
     } else {
-        Capabilities::light()
+        Capabilities::headless()
     }
 }
 
@@ -369,7 +369,7 @@ impl RemoteEnv {
 
 impl Environment for RemoteEnv {
     fn kind(&self) -> EnvKind {
-        EnvKind::Light
+        EnvKind::Headless
     }
 
     fn workspace_root(&self) -> &Path {

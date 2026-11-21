@@ -70,14 +70,15 @@ agent 要在服务端跑命令、读写文件、开浏览器，先得有**执行
 | 场景 | 档位 `provider` | 后端 `backend` |
 |---|---|---|
 | 桌面 App，跑在用户自己电脑 | `local` | `host` |
-| 单机 web，使用者是同事 | `container` / `light` | `docker` |
-| **多用户 web，互不可信** | `container` / `light` | `envd` + Cube |
-| 已有 K8s | `container` | `docker`（或自建 Kata/gVisor） |
+| 单机 web，使用者是同事 | `headless` / `desktop` | `docker` |
+| **多用户 web，互不可信** | `headless` / `desktop` | `envd` + Cube |
+| 已有 K8s | `desktop` | `docker`（或自建 Kata/gVisor） |
 
 判断口诀：**同一台机器上跑的是不是"别人的代码"**。是 → Cube；否 → Docker。
 
-档位决定**有没有桌面**（`container` 有 GUI，`light` 只有命令行）；档位与后端必须自洽，
-否则服务端启动直接报错。完整命令见：
+档位决定**有没有桌面**（`desktop` 有 GUI，`headless` 只有命令行）；档位与后端必须自洽，
+否则服务端启动直接报错。更早的 `light` / `container` **已不再支持**，配了会启动失败并
+提示改用 `headless` / `desktop`。完整命令见：
 
 - `references/deploy-docker.md` —— 镜像三种来源、宿主权限、验证、容量规划
 - `references/deploy-cube.md` —— KVM 前提、单机安装、加计算节点、做模板、卷与用户状态

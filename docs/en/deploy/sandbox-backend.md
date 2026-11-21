@@ -14,15 +14,15 @@ Picking wrong means rework after launch, so start with section 0.
 | Scenario | Tier | Backend | Why |
 |---|---|---|---|
 | Desktop app (user's own machine) | `local` | `host` | Runs on the host, no isolation |
-| Single-host web, trusted colleagues | `container` / `light` | `docker` | The isolation boundary is that one machine |
-| **Multi-user web (mutually untrusted)** | `container` / `light` | `envd` + Cube | Per-user kernel; a shared kernel is not enough |
-| Existing K8s cluster | `container` | `docker` (or bring Kata/gVisor) | Don't rebuild the wheel |
+| Single-host web, trusted colleagues | `desktop` / `headless` | `docker` | The isolation boundary is that one machine |
+| **Multi-user web (mutually untrusted)** | `desktop` / `headless` | `envd` + Cube | Per-user kernel; a shared kernel is not enough |
+| Existing K8s cluster | `desktop` | `docker` (or bring Kata/gVisor) | Don't rebuild the wheel |
 
 Rule of thumb: **is someone else's code running on the same machine?**
 Yes → Cube. No → Docker is enough.
 
-> Tier decides whether there is a GUI: `container` has a desktop (browser, screenshots, VNC),
-> `light` is command-line only. Backend decides who runs it.
+> Tier decides whether there is a GUI: `desktop` has a desktop (browser, screenshots, VNC),
+> `headless` is command-line only. Backend decides who runs it.
 
 ---
 
@@ -36,36 +36,36 @@ Configuration lives in `server.toml`; every key has an environment-variable over
 > so **stay on `local` and switch only when the sandbox is actually needed**.
 >
 > ⚠️ **Platform-mode trap**: with `provider` unset the default tier is derived from
-> `[deployment] mode` — standalone derives `local`, but **platform derives `light`**,
-> and `light` defaults to the `envd` backend, which requires `sandbox_url`. So a
+> `[deployment] mode` — standalone derives `local`, but **platform derives `headless`**,
+> and `headless` defaults to the `envd` backend, which requires `sandbox_url`. So a
 > platform deployment with no `[environment]` section fails on the first message.
 > Set `provider = "local"` explicitly to avoid it.
 
 ```toml
 [environment]
-provider = "local"              # local (recommended default) | light | container; switch once the sandbox is ready
+provider = "local"              # local (recommended default) | headless | desktop; switch once the sandbox is ready
 backend  = "docker"             # host | envd | docker (global default, **not applied to local**)
-template = "pointer-sandbox-container:latest"
+template = "pointer-sandbox-desktop:latest"
 # sandbox_url        = "http://10.0.0.5:3000"   # required for envd
 # volume_host_path   = "/data/pointer/volumes"  # optional for envd
 cpus      = 2                   # 0 = unlimited
 memory_mb = 4096
 disk_mb   = 10240
-desktop   = false               # optional override; defaults to the tier (container has one)
-accounts  = { alice = "light" } # per-user tier override
+desktop   = false               # optional override; defaults to the tier (desktop has one)
+accounts  = { alice = "headless" } # per-user tier override
 
 # Per-tier backends (optional): wins over the global `backend` above
 [environment.backends]
 local     = "host"
-light     = "docker"
-container = "docker"
+headless  = "docker"
+desktop = "docker"
 ```
 
 | Key | Environment variable | Notes |
 |---|---|---|
-| `provider` | `POINTER_SERVER_ENVIRONMENT_PROVIDER` | Tier: `local` / `light` / `container` |
+| `provider` | `POINTER_SERVER_ENVIRONMENT_PROVIDER` | Tier: `local` / `headless` / `desktop` |
 | `backend` | `POINTER_SERVER_ENVIRONMENT_BACKEND` | Global default backend: `host` / `envd` / `docker`; **not applied to the `local` tier** |
-| `backends` | `POINTER_SERVER_ENVIRONMENT_BACKENDS` | Per-tier backend: `[environment.backends] light = "docker"`, env form `local=host,light=docker` |
+| `backends` | `POINTER_SERVER_ENVIRONMENT_BACKENDS` | Per-tier backend: `[environment.backends] headless = "docker"`, env form `local=host,headless=docker` |
 | `template` | `POINTER_SERVER_ENVIRONMENT_TEMPLATE` | Image name (docker) or template ID (envd) |
 | `sandbox_url` | `POINTER_SERVER_ENVIRONMENT_SANDBOX_URL` | envd control-plane URL; required for `envd` |
 | `volume_host_path` | `POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH` | envd volume root; empty means raw host mounts |
@@ -75,13 +75,17 @@ container = "docker"
 | `accounts` | `POINTER_SERVER_ENVIRONMENT_ACCOUNTS` | Per-user tier, e.g. `user=tier,user2=tier` |
 | `admin_tier` | `POINTER_SERVER_ENVIRONMENT_ADMIN_TIER` | Tier for accounts listed in `[auth] admins`: `local` (default, run on host) / `inherit` (follow the deployment default tier). `accounts` overrides always win |
 
+Only `local` / `headless` / `desktop` are accepted. The earlier values `light` / `container`
+are **no longer supported**: startup fails and points at `headless` / `desktop` instead of
+silently aliasing them.
+
 **Tier and backend must agree** — a mismatch fails at startup:
 
 | Tier | Allowed backends |
 |---|---|
 | `local` | `host` |
-| `light` | `envd` / `docker` |
-| `container` | `envd` / `docker` |
+| `headless` | `envd` / `docker` |
+| `desktop` | `envd` / `docker` |
 
 ### 1.1 How the backend is chosen
 
@@ -89,12 +93,12 @@ For a given tier, the backend comes from the first match:
 
 1. `[environment.backends].<tier>` (explicit)
 2. the global `backend` — **but never for the `local` tier**
-3. the tier default: `local` → `host` / `light` → `envd` / `container` → `docker`
+3. the tier default: `local` → `host` / `headless` → `envd` / `desktop` → `docker`
 
 That second exception matters: listed admins are pinned to the `local` tier
 (see `admin_tier`), so "global `backend = "docker"` + admin" now resolves to
 `local + host` instead of tripping the "`local` only allows `host`" check.
-To give `light` / `container` a different backend, change the global `backend`
+To give `headless` / `desktop` a different backend, change the global `backend`
 or pin it per tier with `[environment.backends]`.
 
 ### 1.2 When it is validated
@@ -110,9 +114,9 @@ Unknown keys under `[environment]` (a typo like `provder` / `bakend`) now
 silently — which looked like it worked.
 
 > **Desktop capability follows the tier; `desktop` is only an override.** The
-> `container` tier ships a desktop, `light` does not, and both backends
+> `desktop` tier ships a desktop, `headless` does not, and both backends
 > (`docker` / `envd`) follow the same rule. Configure `desktop` only for the
-> rare exception (e.g. a desktop on a non-`container` tier); a value that
+> rare exception (e.g. a desktop on a non-`desktop` tier); a value that
 > contradicts the tier logs a warning.
 
 ---
@@ -137,8 +141,8 @@ silently — which looked like it worked.
 **A. Build locally** (dev / single host)
 
 ```bash
-./docker/build.sh desktop    # 产出 pointer-sandbox-desktop:<ver>，同时打 pointer-sandbox-container:latest 别名
-./docker/build.sh            # 全部：base → light → desktop
+./docker/build.sh desktop    # 产出 pointer-sandbox-desktop:<ver>，同时打 pointer-sandbox-desktop:latest 别名
+./docker/build.sh            # 全部：base → headless → desktop
 ```
 
 > **The server package ships the build context**: the unzipped `pointer-server-*.zip`
@@ -147,7 +151,7 @@ silently — which looked like it worked.
 >
 > ```bash
 > cd pointer-server
-> ./docker/build.sh desktop    # 产出 pointer-sandbox-desktop:<ver>，同时打 pointer-sandbox-container:latest 别名
+> ./docker/build.sh desktop    # 产出 pointer-sandbox-desktop:<ver>，同时打 pointer-sandbox-desktop:latest 别名
 > ```
 >
 > The deb package puts it at `/usr/share/pointer-server/docker/`.
@@ -156,17 +160,17 @@ silently — which looked like it worked.
 **B. Pull from a private registry** (recommended for production)
 
 ```bash
-docker pull registry.example.com/pointer/sandbox-container:0.1.3
-docker tag  registry.example.com/pointer/sandbox-container:0.1.3 pointer-sandbox-container:latest
+docker pull registry.example.com/pointer/sandbox-desktop:0.1.3
+docker tag  registry.example.com/pointer/sandbox-desktop:0.1.3 pointer-sandbox-desktop:latest
 ```
 
 **C. Offline tarball** (air-gapped intranet)
 
 ```bash
 # on a networked machine
-docker save pointer-sandbox-container:latest | gzip > sandbox-container.tar.gz
+docker save pointer-sandbox-desktop:latest | gzip > sandbox-desktop.tar.gz
 # on the target host
-gunzip -c sandbox-container.tar.gz | docker load
+gunzip -c sandbox-desktop.tar.gz | docker load
 ```
 
 > **Version drift risk**: the container spec fingerprint hashes the image **name**, not its
@@ -177,9 +181,9 @@ gunzip -c sandbox-container.tar.gz | docker load
 
 ```toml
 [environment]
-provider = "container"
+provider = "desktop"
 backend  = "docker"
-template = "pointer-sandbox-container:latest"   # use pointer-sandbox-light:latest for tier=light
+template = "pointer-sandbox-desktop:latest"   # use pointer-sandbox-headless:latest for tier=headless
 cpus      = 2
 memory_mb = 4096
 ```
@@ -189,10 +193,10 @@ memory_mb = 4096
 ```bash
 docker images | grep pointer-sandbox
 
-docker run --rm pointer-sandbox-container:latest id
+docker run --rm pointer-sandbox-desktop:latest id
 # expect: uid=1000(pointer)
 
-docker run -d --name sbx-smoke pointer-sandbox-container:latest sleep infinity
+docker run -d --name sbx-smoke pointer-sandbox-desktop:latest sleep infinity
 sleep 6
 docker exec sbx-smoke sh -lc 'DISPLAY=:99 xdpyinfo | grep dimensions'
 # expect: 1920x1080 pixels
@@ -201,7 +205,7 @@ docker rm -f sbx-smoke
 
 Then open a session and have the agent run `pwd`; `/workspace` means it works.
 
-**Ports used by desktop takeover**: the container tier publishes two extra host ports,
+**Ports used by desktop takeover**: the desktop tier publishes two extra host ports,
 both bound to `127.0.0.1` with a random host port — **no firewall opening needed**:
 
 | In container | Purpose |
@@ -213,7 +217,7 @@ Verifying the takeover channel:
 
 ```bash
 docker run -d --name sbx-vnc -p 127.0.0.1::6080 -p 127.0.0.1::5900 \
-  -e POINTER_VNC_PASSWORD=test1234 pointer-sandbox-container:latest sleep infinity
+  -e POINTER_VNC_PASSWORD=test1234 pointer-sandbox-desktop:latest sleep infinity
 sleep 8
 P=$(docker port sbx-vnc 6080/tcp | sed 's/.*://')
 curl -s -o /dev/null -w 'vnc.html %{http_code}\n' "http://127.0.0.1:$P/vnc.html"   # expect 200
@@ -306,7 +310,7 @@ scheduler:
 ### 3.4 Build a template
 
 The template image **must run envd** (49999 for exec, 49983 for files).
-`pointer-sandbox-light` will not work as-is — it does not ship envd.
+`pointer-sandbox-headless` will not work as-is — it does not ship envd.
 
 ```bash
 cubemastercli tpl create-from-image \
@@ -322,7 +326,7 @@ Wait for `READY` and record the `template_id` (`tpl-xxxxxxxx`).
 
 ```toml
 [environment]
-provider   = "light"                       # envd has no desktop
+provider   = "headless"                    # envd has no desktop
 backend    = "envd"
 sandbox_url = "http://<control-node-ip>:3000"
 template    = "tpl-xxxxxxxx"

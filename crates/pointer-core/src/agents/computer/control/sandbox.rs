@@ -1,4 +1,4 @@
-//! `ComputerControl` 的容器后端：驱动沙箱里的 X 桌面（container 档位）。
+//! `ComputerControl` 的容器后端：驱动沙箱里的 X 桌面（desktop 档位）。
 //!
 //! 宿主侧不碰任何 GUI API——所有动作都翻译成容器内的 `xdotool` 调用，
 //! 截图用 ImageMagick 的 `import`。这样"agent 在隔离环境里点鼠标"和

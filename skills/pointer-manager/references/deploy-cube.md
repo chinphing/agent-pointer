@@ -110,7 +110,7 @@ scheduler:
 ## 做模板
 
 **模板镜像里必须跑着 envd**（49999 = exec，49983 = files）。
-`pointer-sandbox-light` 不含 envd，不能直接当模板。
+`pointer-sandbox-headless` 不含 envd，不能直接当模板。
 
 ```bash
 cubemastercli tpl create-from-image \
@@ -126,7 +126,7 @@ cubemastercli tpl create-from-image \
 
 ```toml
 [environment]
-provider    = "light"                       # envd 无桌面
+provider    = "headless"                    # envd 无桌面
 backend     = "envd"
 sandbox_url = "http://<控制节点IP>:3000"
 template    = "tpl-xxxxxxxx"

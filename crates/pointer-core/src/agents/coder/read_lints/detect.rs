@@ -28,7 +28,7 @@ pub fn config_file_path(root: &Path) -> PathBuf {
 }
 
 
-/// 环境感知的读取：light/container 档位下工作区在沙箱里，宿主 `fs` 看不到。
+/// 环境感知的读取：headless/desktop 档位下工作区在沙箱里，宿主 `fs` 看不到。
 fn env_read_text(path: &Path) -> Option<String> {
     crate::env::effective_env().read_to_string(path).ok()
 }

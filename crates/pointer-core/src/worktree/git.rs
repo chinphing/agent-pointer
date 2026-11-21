@@ -67,7 +67,7 @@ where
             .map(|a| a.as_ref().to_string_lossy().into_owned()),
     );
     // worktree 属于**宿主仓库**（沙箱里没有 .git）：固定用宿主环境，
-    // 不能跟着会话档位走，否则 light 档位下会去沙箱里找仓库。
+    // 不能跟着会话档位走，否则 headless 档位下会去沙箱里找仓库。
     let output = host_env()
         .exec(&argv, git_options(cwd))
         .context("failed to start git (is git installed?)")?;

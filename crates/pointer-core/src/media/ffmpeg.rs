@@ -95,7 +95,7 @@ fn path_display(path: &Path) -> String {
 }
 
 fn tool_responds_to_version(path: &Path) -> bool {
-    // 走 exec：local 用绝对路径，light 用工具名在沙箱里解析。
+    // 走 exec：local 用绝对路径，headless 用工具名在沙箱里解析。
     let program = path.to_string_lossy().into_owned();
     crate::media::exec::run(&program, &["-version".to_string()])
         .map(|o| o.success())
@@ -103,7 +103,7 @@ fn tool_responds_to_version(path: &Path) -> bool {
 }
 
 fn resolve_tool(name: &str) -> Option<PathBuf> {
-    // light/container：媒体工具装在沙箱镜像里，返回名字让 `exec` 走沙箱 PATH；
+    // headless/desktop：媒体工具装在沙箱镜像里，返回名字让 `exec` 走沙箱 PATH；
     // 在宿主上扫出来的绝对路径在沙箱里并不存在。
     if crate::env::effective_env().kind() != crate::env::EnvKind::Local {
         return Some(PathBuf::from(name));
@@ -151,7 +151,7 @@ fn resolve_via_path_lookup(name: &str) -> Option<PathBuf> {
     }
     #[cfg(not(windows))]
     {
-        // light/container 档位下 ffmpeg 在沙箱里，必须在环境里探测；
+        // headless/desktop 档位下 ffmpeg 在沙箱里，必须在环境里探测；
         // 只有 local 档位才走宿主 `which`。
         let env = crate::env::effective_env();
         let (ok, stdout): (bool, Vec<u8>) = if env.kind() == crate::env::EnvKind::Local {

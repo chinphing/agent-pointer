@@ -52,7 +52,7 @@ pub struct McpClient {
 enum Transport {
     /// stdio：本地子进程（插件自带 / 本机命令）。
     Stdio {
-        /// 子进程句柄（§3.3：进程由 `Environment::spawn` 起，light 下会明确拒绝）。
+        /// 子进程句柄（§3.3：进程由 `Environment::spawn` 起，headless 下会明确拒绝）。
         child: Arc<Mutex<Box<dyn ChildHandle>>>,
         /// 存活标记：读线程在 stdout EOF（进程退出）时置 false。
         alive: Arc<AtomicBool>,

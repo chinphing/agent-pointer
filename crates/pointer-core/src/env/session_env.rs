@@ -2,12 +2,16 @@
 //!
 //! 职责：
 //!
-//! 1. 按 §3.4 的三层规则决定本会话用 `local` 还是 `light`；
-//! 2. `light` 时创建 / 复用远端沙箱（按会话缓存），并把它绑到 thread-local `EnvironmentGuard`；
+//! 1. 按 §3.4 的三层规则决定本会话用 `local` 还是 `headless`；
+//! 2. `headless` 时创建 / 复用远端沙箱（按会话缓存），并把它绑到 thread-local `EnvironmentGuard`；
 //! 3. 会话结束 / 空闲超时后回收沙箱。
 //!
-//! 约定：`resolve_session_env` 返回 `None` 表示"用进程级 local"——工具层
-//! `effective_env()` 会自动回落到 `LocalEnv`，因此不需要额外绑定。
+//! 约定：`resolve_session_env` 返回 `None` 表示"本会话走 local 档位"（宿主直跑）。
+//!
+//! **local 档位也要绑定**：绑定的是 `LocalEnv`（工作区 = 会话工作区，路径映射恒等）。
+//! 沙箱档位的部署里，"admin 走宿主 + 普通用户走沙箱"要能并存；不绑的话工具线程
+//! 查不到环境，`effective_env()` 会按**部署档位**返回 `DeniedEnv`，admin 的宿主
+//! 工具全线报"工作区不存在"。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,7 +23,7 @@ use anyhow::{Context, Result};
 use super::mounts::{MountPlan, SkillRoot};
 use super::provider::{Backend, ProviderConfig, ResolvedEnv, Tier};
 use super::remote::{RemoteEnv, RemoteSpec};
-use super::{current_env, Environment, EnvironmentGuard};
+use super::{current_env, Environment, EnvironmentGuard, LocalEnv};
 
 /// 沙箱空闲多久后回收（下次同会话再来会重建）。
 const IDLE_TTL: Duration = Duration::from_secs(30 * 60);
@@ -69,9 +73,54 @@ fn cache() -> &'static Mutex<HashMap<String, Cached>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// 解析本会话应使用的环境；`None` = 走进程级 local。
+/// local 档位的会话环境缓存。
 ///
-/// light 档位会创建或复用沙箱（会发网络请求）。
+/// 为什么需要：沙箱档位的部署里，工具线程（`spawn_blocking` / tokio 换线程）靠
+/// [`env_for_conversation`] 按会话重放绑定。local 档位以前什么都不绑，重放时查不到
+/// → `effective_env()` 按**部署档位**返回 `DeniedEnv`，admin 的宿主工具全线报
+/// 「工作区目录无效或不存在」。这里按会话记一份 `LocalEnv`，让"admin 走宿主 +
+/// 普通用户走沙箱"在同一个进程里并存。
+///
+/// 不需要空闲淘汰：`LocalEnv` 只有几个路径，没有可回收的资源；会话删除时由
+/// [`release`] 摘掉。
+fn local_cache() -> &'static Mutex<HashMap<String, Arc<LocalEnv>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<LocalEnv>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// local 档位的环境：工作区**原样**使用会话工作区。
+///
+/// 空工作区不换成设置值 / home：那会让"没有工作区"的工具悄悄写进 `$HOME`。
+/// 保持空串，下游照旧报「未设置工作区」。
+fn local_env_for(workspace: &Path) -> Arc<LocalEnv> {
+    Arc::new(LocalEnv::new(workspace.to_path_buf()))
+}
+
+fn remember_local(conversation_id: &str, env: Arc<LocalEnv>) {
+    if let Ok(mut map) = local_cache().lock() {
+        map.insert(conversation_id.to_string(), env);
+    }
+}
+
+/// 测试用：等价于跑过一次 local 档位的 [`bind_and_resolve_workspace`]。
+#[cfg(test)]
+pub(crate) fn remember_local_for_test(conversation_id: &str, workspace: &Path) {
+    remember_local(conversation_id, local_env_for(workspace));
+}
+
+fn cached_local(conversation_id: &str) -> Option<Arc<LocalEnv>> {
+    local_cache()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(conversation_id).cloned())
+}
+
+/// 解析本会话应使用的环境；`None` = **local 档位**（宿主直跑）。
+///
+/// 返回 `None` 不代表"什么都不用绑"：调用方（[`bind_and_resolve_workspace`] /
+/// [`bind_if_absent`]）要绑一个工作区正确的 `LocalEnv`，工具线程才重放得到。
+///
+/// headless 档位会创建或复用沙箱（会发网络请求）。
 pub fn resolve_session_env(
     cfg: &ProviderConfig,
     conversation_id: &str,
@@ -106,6 +155,8 @@ pub fn resolve_session_env_for_current(
 }
 
 /// 工具分发 / 子智能体线程重放用：已经绑过就不重复绑。
+///
+/// local 档位也算"要绑"：绑一个 `LocalEnv`（工作区取 `workspace_root`）。
 pub fn bind_if_absent(
     conversation_id: &str,
     session_user_id: &str,
@@ -114,11 +165,13 @@ pub fn bind_if_absent(
     if current_env().is_some() {
         return Ok(None);
     }
-    let Some(env) = resolve_session_env_for_current(conversation_id, session_user_id, workspace_root)?
-    else {
-        return Ok(None);
-    };
-    Ok(Some(EnvironmentGuard::enter(env)))
+    let resolved =
+        resolve_session_env_for_current(conversation_id, session_user_id, workspace_root)?;
+    let fallback = workspace_root
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    let (guard, _) = bind_resolved_env(conversation_id, resolved, fallback);
+    Ok(guard)
 }
 
 /// 按会话查已建好的环境（**不依赖线程局部**）。
@@ -127,6 +180,12 @@ pub fn bind_if_absent(
 /// thread-local 绑定在那些位置读不到——凡是"当前线程上有没有环境"都可能错的
 /// 地方，改用这个按 conversation_id 查。
 pub fn env_for_conversation(conversation_id: &str) -> Option<Arc<dyn Environment>> {
+    // local 档位（admin / standalone）也要能按会话重放：工具线程上没有 thread-local，
+    // 查不到就会退到 `DeniedEnv`，宿主工具全线失效。
+    if let Some(local) = cached_local(conversation_id) {
+        let env: Arc<dyn Environment> = local;
+        return Some(env);
+    }
     // 两条后端各有一份缓存；工具层不关心后端，这里统一查。
     if let Ok(mut map) = cache().lock() {
         if let Some(hit) = map.get_mut(conversation_id) {
@@ -193,8 +252,9 @@ fn is_pinned(conversation_id: &str) -> bool {
 /// 工具分派点用：按会话**缓存**重放环境绑定。
 ///
 /// 与 [`bind_if_absent`] 的区别：这里不重新解析 provider（工具线程上没有
-/// session_user 线程局部，重解析可能得到不同档位），只看该会话是否已经建过沙箱。
-/// 建过 → 绑定并返回 guard；没建过（local 档位）→ 返回 `None`，保持宿主行为。
+/// session_user 线程局部，重解析可能得到不同档位），只看该会话的环境缓存：
+/// 沙箱（envd / docker）或 local 档位的 `LocalEnv` 都算。
+/// 都没有（会话还没跑过对话）→ 返回 `None`。
 pub fn bind_cached(conversation_id: &str) -> Option<EnvironmentGuard> {
     if current_env().is_some() {
         return None;
@@ -209,8 +269,9 @@ pub fn bind_cached(conversation_id: &str) -> Option<EnvironmentGuard> {
 
 /// 绑定本会话环境，并给出工具层应当使用的工作区根。
 ///
-/// light 档位返回 guest 路径 `/workspace`（宿主路径在沙箱里不存在）；
-/// local 档位原样返回 `fallback`。已经绑过时沿用现有环境。
+/// 沙箱档位返回 guest 路径 `/workspace`（宿主路径在沙箱里不存在）；
+/// local 档位绑 `LocalEnv` 并返回 `fallback`（宿主路径，路径映射恒等）。
+/// 已经绑过时沿用现有环境。
 ///
 /// 返回 `String` 是为了对齐现有 `ConversationWorkspaceGuard` / `SessionWorkDirGuard` 的入参类型。
 pub fn bind_and_resolve_workspace(
@@ -237,13 +298,28 @@ pub fn bind_and_resolve_workspace(
         "bind_env: conversation={conversation_id} resolved={:?}",
         resolved.as_ref().map(|e| e.kind())
     );
-    match resolved {
-        Some(env) => {
-            let workspace = env.workspace_root().to_string_lossy().into_owned();
-            Ok((Some(EnvironmentGuard::enter(env)), workspace))
+    Ok(bind_resolved_env(conversation_id, resolved, fallback))
+}
+
+/// 把解析结果绑到当前线程，并给出工具层该用的工作区根。
+///
+/// `None`（local 档位）**也要绑**：绑一个工作区为 `fallback` 的 `LocalEnv`，
+/// 并记进 [`local_cache`]，这样工具线程（`bind_cached`）能重放。
+fn bind_resolved_env(
+    conversation_id: &str,
+    resolved: Option<Arc<dyn Environment>>,
+    fallback: PathBuf,
+) -> (Option<EnvironmentGuard>, String) {
+    let env: Arc<dyn Environment> = match resolved {
+        Some(env) => env,
+        None => {
+            let local = local_env_for(fallback.as_path());
+            remember_local(conversation_id, local.clone());
+            local
         }
-        None => Ok((None, fallback.to_string_lossy().into_owned())),
-    }
+    };
+    let workspace = env.workspace_root().to_string_lossy().into_owned();
+    (Some(EnvironmentGuard::enter(env)), workspace)
 }
 
 /// 技能根挂载前的凭证检查（§5.5）：技能目录里不允许出现裸凭证文件。
@@ -333,6 +409,11 @@ pub fn release(conversation_id: &str) {
             );
         }
     }
+
+    // local 档位没有沙箱要销毁，但缓存条目要摘掉：删会话后不该还留着它的工作区。
+    if let Ok(mut map) = local_cache().lock() {
+        map.remove(conversation_id);
+    }
 }
 
 /// 进程退出时统一回收。
@@ -357,6 +438,9 @@ pub fn release_all() {
     }
     if let Ok(mut set) = pinned_set().lock() {
         set.clear();
+    }
+    if let Ok(mut map) = local_cache().lock() {
+        map.clear();
     }
 }
 
@@ -437,7 +521,7 @@ pub fn adopt_docker_env(
     session_user_id: &str,
     workspace_root: Option<&Path>,
 ) -> Option<Arc<dyn Environment>> {
-    let spec = docker_spec_for(cfg, conversation_id, session_user_id, workspace_root, Tier::Container)
+    let spec = docker_spec_for(cfg, conversation_id, session_user_id, workspace_root, Tier::Desktop)
         .ok()?;
     let env = Arc::new(match crate::env::docker::DockerEnv::attach(spec.clone()) {
         Ok(Some(env)) => env,
@@ -519,14 +603,14 @@ fn conversation_creation_lock(conversation_id: &str) -> Arc<Mutex<()>> {
 
 /// envd 沙箱要不要带图形桌面。
 ///
-/// **档位是唯一事实来源**：`container` 有桌面、`light` 没有——与 docker 后端的
+/// **档位是唯一事实来源**：`desktop` 有桌面、`headless` 没有——与 docker 后端的
 /// `DockerEnv::capabilities()` 是同一套推导，否则同一个档位两条后端会各说一套
-/// （`tier=container` 时 envd 报无桌面、docker 报有桌面）。
+/// （`tier=desktop` 时 envd 报无桌面、docker 报有桌面）。
 ///
 /// `[environment] desktop` 只作**显式覆盖**：写了就听它的，与档位矛盾时告警
 /// 但不拦——模板里到底有没有 X 栈只有部署的人知道。
 fn remote_desktop(tier: Tier, explicit: Option<bool>) -> bool {
-    let by_tier = tier == Tier::Container;
+    let by_tier = tier == Tier::Desktop;
     match explicit {
         None => by_tier,
         Some(want) => {
@@ -576,7 +660,7 @@ fn acquire_remote(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
-            anyhow::anyhow!("environment.provider=light 但未配置 environment.sandbox_url")
+            anyhow::anyhow!("environment.provider=headless 但未配置 environment.sandbox_url")
         })?
         .to_string();
 
@@ -748,7 +832,7 @@ fn skill_roots_for_mounts() -> Result<Vec<SkillRoot>> {
         .collect())
 }
 
-/// light 模式下工具层应当使用的工作区根（guest 路径）。
+/// headless 模式下工具层应当使用的工作区根（guest 路径）。
 pub fn guest_workspace_root(env: &Arc<dyn Environment>) -> PathBuf {
     env.workspace_root().to_path_buf()
 }
@@ -776,7 +860,7 @@ mod tests {
 
     fn light_cfg_without_url() -> ProviderConfig {
         ProviderConfig {
-            tier: Some(Tier::Light),
+            tier: Some(Tier::Headless),
             backend: None,
             sandbox_url: None,
             ..Default::default()
@@ -792,7 +876,7 @@ mod tests {
     #[test]
     fn light_without_sandbox_url_errors() {
         let err = match resolve_session_env(&light_cfg_without_url(), "conv-1", "alice", None) {
-            Ok(_) => panic!("light 缺 sandbox_url 必须报错"),
+            Ok(_) => panic!("headless 缺 sandbox_url 必须报错"),
             Err(e) => e.to_string(),
         };
         assert!(err.contains("sandbox_url"), "{err}");
@@ -919,7 +1003,7 @@ mod tests {
         let mut cfg = light_cfg_without_url();
         cfg.sandbox_url = Some("http://127.0.0.1:3000".into());
         cfg.admins = vec!["admin".into()];
-        // admin 默认 local：即使部署是 light 且没配 url 也不该报错
+        // admin 默认 local：即使部署是 headless 且没配 url 也不该报错
         let env = resolve_session_env(&cfg, "conv-admin", "admin", None).expect("admin resolve");
         assert!(env.is_none());
     }
@@ -955,12 +1039,12 @@ mod tests {
         // 收养只在容器**已经存在**时才有意义；不存在就该老老实实返回 None，
         // 不能顺手把容器建起来（面板轮询会反复调用）。
         let cfg = ProviderConfig {
-            tier: Some(Tier::Container),
+            tier: Some(Tier::Desktop),
             backend: Some(Backend::Docker),
             admin_tier: Default::default(),
             sandbox_url: None,
             volume_host_path: None,
-            template: Some("pointer-sandbox-container:latest".to_string()),
+            template: Some("pointer-sandbox-desktop:latest".to_string()),
             admins: Vec::new(),
             accounts: Default::default(),
             tier_backends: Default::default(),
@@ -1049,42 +1133,144 @@ mod tests {
         }
     }
 
+    // --- local 档位也要显式绑定：admin 走宿主 + 普通用户走沙箱并存 ---
+
+    /// 沙箱档位的部署配置（desktop + docker），`[auth] admins` 里有 `admin`。
+    fn sandbox_deployment_cfg() -> ProviderConfig {
+        ProviderConfig {
+            tier: Some(Tier::Desktop),
+            backend: Some(Backend::Docker),
+            admin_tier: Default::default(),
+            sandbox_url: None,
+            volume_host_path: None,
+            template: None,
+            admins: vec!["admin".into()],
+            accounts: Default::default(),
+            tier_backends: Default::default(),
+            platform: true,
+        }
+    }
+
+    #[test]
+    fn admin_on_sandbox_deployment_binds_local_env() {
+        // 部署是 desktop（非 local 档位），admin 命中名单 → 解析成 local 档位。
+        let cfg = sandbox_deployment_cfg();
+        let dir = tempfile::tempdir().unwrap();
+        let resolved = resolve_session_env(&cfg, "conv-admin-bind", "admin", Some(dir.path()))
+            .expect("admin 解析不能报错");
+        assert!(resolved.is_none(), "admin 是 local 档位，不该建沙箱");
+
+        let (guard, workspace) =
+            bind_resolved_env("conv-admin-bind", resolved, dir.path().to_path_buf());
+        let guard = guard.expect("local 档位也必须绑定 LocalEnv");
+        assert_eq!(workspace, dir.path().display().to_string());
+
+        let env = current_env().expect("绑定后必须能读到环境");
+        assert_eq!(env.kind(), crate::env::EnvKind::Local);
+        assert_eq!(env.workspace_root(), dir.path());
+        assert!(!env.is_denied(), "local 档位不是「未绑定」");
+
+        // 回归：以前工具线程拿到的是 DeniedEnv，这里报「工作区目录无效或不存在」。
+        let cwd = crate::tools::terminal::effective_terminal_cwd(None, &workspace)
+            .expect("admin 的宿主工作区必须可用");
+        assert_eq!(cwd, dir.path().canonicalize().unwrap());
+
+        drop(guard);
+        release("conv-admin-bind");
+    }
+
+    #[test]
+    fn non_admin_on_sandbox_deployment_stays_in_sandbox() {
+        // 同一份配置下普通用户仍是沙箱档位——local 绑定不能把沙箱用户带回宿主。
+        // 真正建容器由 `tests/desktop_tier_it.rs` 覆盖，这里只锁档位判定。
+        let cfg = sandbox_deployment_cfg();
+        let resolved = cfg.resolve(Some("alice")).expect("resolve");
+        assert_eq!(resolved.tier, Tier::Desktop);
+        assert_eq!(resolved.backend, Backend::Docker);
+        assert!(
+            cached_local("conv-alice").is_none(),
+            "沙箱用户不该有 local 缓存"
+        );
+    }
+
+    #[test]
+    fn local_env_is_replayable_on_tool_threads() {
+        // 工具线程（`spawn_blocking`）上没有 thread-local，只能按会话缓存重放。
+        // 查不到就会退到 DeniedEnv——这正是 admin 宿主工具全挂的原因。
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().display().to_string();
+        let (guard, workspace) =
+            bind_resolved_env("conv-local-replay", None, dir.path().to_path_buf());
+        assert_eq!(workspace, ws);
+        drop(guard);
+
+        let expected = dir.path().canonicalize().unwrap();
+        let cwd = std::thread::spawn(move || {
+            assert!(current_env().is_none(), "新线程不该有 thread-local 绑定");
+            let _g = bind_cached("conv-local-replay").expect("local 档位必须能按会话重放");
+            assert_eq!(
+                current_env().unwrap().kind(),
+                crate::env::EnvKind::Local,
+                "重放出来的必须是 LocalEnv"
+            );
+            crate::tools::terminal::effective_terminal_cwd(None, &ws)
+        })
+        .join()
+        .unwrap()
+        .expect("重放后 terminal 必须能定位工作区");
+        assert_eq!(cwd, expected);
+        release("conv-local-replay");
+    }
+
+    #[test]
+    fn release_drops_local_cache_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_guard, _ws) =
+            bind_resolved_env("conv-local-release", None, dir.path().to_path_buf());
+        assert!(cached_local("conv-local-release").is_some());
+        release("conv-local-release");
+        assert!(
+            cached_local("conv-local-release").is_none(),
+            "release 必须清掉 local 缓存"
+        );
+    }
+
     // --- 桌面能力：档位是唯一事实来源，`[environment] desktop` 只作显式覆盖 ---
 
     #[test]
     fn remote_desktop_follows_tier_when_unset() {
         // 与 docker 后端 `DockerEnv::capabilities()` 同一套推导：不能一个说有一个说没有。
         assert!(
-            remote_desktop(Tier::Container, None),
-            "container 档位默认带桌面"
+            remote_desktop(Tier::Desktop, None),
+            "desktop 档位默认带桌面"
         );
         assert!(
-            !remote_desktop(Tier::Light, None),
-            "light 档位默认不带桌面"
+            !remote_desktop(Tier::Headless, None),
+            "headless 档位默认不带桌面"
         );
         assert!(!remote_desktop(Tier::Local, None));
     }
 
     #[test]
     fn explicit_desktop_overrides_tier_both_ways() {
-        // 显式 true + light → 覆盖为 true（并告警）
-        assert!(remote_desktop(Tier::Light, Some(true)));
+        // 显式 true + headless → 覆盖为 true（并告警）
+        assert!(remote_desktop(Tier::Headless, Some(true)));
         // 显式 false + container → 覆盖为 false（并告警）
-        assert!(!remote_desktop(Tier::Container, Some(false)));
+        assert!(!remote_desktop(Tier::Desktop, Some(false)));
         // 与档位一致时结果不变
-        assert!(remote_desktop(Tier::Container, Some(true)));
-        assert!(!remote_desktop(Tier::Light, Some(false)));
+        assert!(remote_desktop(Tier::Desktop, Some(true)));
+        assert!(!remote_desktop(Tier::Headless, Some(false)));
     }
 
     #[test]
     fn envd_capabilities_follow_tier_derived_desktop() {
         // envd 侧的 `capabilities().desktop` 只取决于 `RemoteSpec.desktop`；
-        // 后者现在由档位推导，因此 container 档的 envd 沙箱同样报"有桌面"。
+        // 后者现在由档位推导，因此 desktop 档的 envd 沙箱同样报"有桌面"。
         let spec_for = |tier| crate::env::remote::RemoteSpec {
             desktop: remote_desktop(tier, None),
             ..Default::default()
         };
-        assert!(spec_for(Tier::Container).desktop);
-        assert!(!spec_for(Tier::Light).desktop);
+        assert!(spec_for(Tier::Desktop).desktop);
+        assert!(!spec_for(Tier::Headless).desktop);
     }
 }

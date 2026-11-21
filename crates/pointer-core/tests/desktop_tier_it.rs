@@ -1,8 +1,8 @@
-//! 走**应用真实配置路径**验证 container 档位：`resolve_session_env_for_current`
+//! 走**应用真实配置路径**验证 desktop 档位：`resolve_session_env_for_current`
 //! → `acquire_docker` → 容器镜像 / DISPLAY / 桌面工具。
 //!
 //! ```bash
-//! cargo test -p pointer-core --test container_tier_it -- --ignored --test-threads=1
+//! cargo test -p pointer-core --test desktop_tier_it -- --ignored --test-threads=1
 //! ```
 
 use pointer_core::env::provider::{Backend, ProviderConfig, Tier};
@@ -32,12 +32,12 @@ fn console_pty_opens_inside_the_container() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         admin_tier: Default::default(),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -115,7 +115,7 @@ fn console_pty_opens_inside_the_container() {
 
 #[test]
 #[ignore = "需要本机 docker"]
-fn container_tier_through_provider_config() {
+fn desktop_tier_through_provider_config() {
     if !docker_available() {
         eprintln!("skip: docker 不可用");
         return;
@@ -123,12 +123,12 @@ fn container_tier_through_provider_config() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         admin_tier: Default::default(),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -139,7 +139,7 @@ fn container_tier_through_provider_config() {
         .expect("resolve")
         .expect("docker 后端应返回环境");
 
-    assert_eq!(env.kind(), EnvKind::Container);
+    assert_eq!(env.kind(), EnvKind::Desktop);
     assert!(env.capabilities().desktop);
 
     let out = env
@@ -156,7 +156,7 @@ fn container_tier_through_provider_config() {
     assert_eq!(out.status, 0, "stderr={}", String::from_utf8_lossy(&out.stderr));
     assert!(text.contains("DISPLAY=:99"), "应注入 DISPLAY：{text}");
     assert!(text.contains("name of display"), "X 服务应可用：{text}");
-    // node 已按需求从镜像里移除（light/desktop 都不装），只校验 python。
+    // node 已按需求从镜像里移除（headless/desktop 都不装），只校验 python。
     assert!(text.contains("Python 3.12"), "python 应为 3.12：{text}");
 
     // 清理：不留下测试容器。
@@ -182,11 +182,11 @@ fn adopt_existing_container_after_cache_loss() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -206,7 +206,7 @@ fn adopt_existing_container_after_cache_loss() {
     )
     .expect("应能收养已在运行的容器");
 
-    assert_eq!(adopted.kind(), EnvKind::Container);
+    assert_eq!(adopted.kind(), EnvKind::Desktop);
     let endpoint = adopted.desktop_endpoint().expect("收养后应有桌面入口");
     assert!(
         endpoint.ws_url.is_some(),
@@ -247,11 +247,11 @@ fn lost_container_is_recreated_on_next_use() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -264,7 +264,7 @@ fn lost_container_is_recreated_on_next_use() {
     let first = resolve_session_env(&cfg, conv, "tester", Some(dir.path()))
         .expect("resolve")
         .expect("docker 后端应返回环境");
-    assert_eq!(first.kind(), EnvKind::Container);
+    assert_eq!(first.kind(), EnvKind::Desktop);
     assert!(container_exists(name), "首次应建出容器 {name}");
 
     // 2. 应用之外把它删掉。
@@ -281,7 +281,7 @@ fn lost_container_is_recreated_on_next_use() {
     let second = resolve_session_env(&cfg, conv, "tester", Some(dir.path()))
         .expect("resolve again")
         .expect("容器丢失后应重建环境");
-    assert_eq!(second.kind(), EnvKind::Container);
+    assert_eq!(second.kind(), EnvKind::Desktop);
     assert!(container_exists(name), "容器丢失后应重建");
     let out = second
         .exec(
@@ -319,11 +319,11 @@ fn typing_cjk_survives_in_container() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -394,11 +394,11 @@ fn stale_container_is_recreated_on_adopt() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -413,7 +413,7 @@ fn stale_container_is_recreated_on_adopt() {
     let started = std::process::Command::new("docker")
         .args([
             "run", "-d", "--name", name, "--label", "pointer.spec=stale-fingerprint",
-            "pointer-sandbox-container:latest", "sleep", "infinity",
+            "pointer-sandbox-desktop:latest", "sleep", "infinity",
         ])
         .output()
         .expect("docker run");
@@ -457,11 +457,11 @@ fn desktop_password_matches_container_env() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -508,11 +508,11 @@ fn desktop_endpoint_exposes_websockify() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -593,7 +593,7 @@ fn desktop_endpoint_exposes_websockify() {
 
 #[test]
 #[ignore = "需要本机 docker"]
-fn docker_control_drives_the_container_desktop() {
+fn docker_control_drives_the_desktop() {
     use pointer_core::agents::computer::control::{ComputerControl, SandboxControl};
     use pointer_core::agents::computer::input::actions::MouseButton;
 
@@ -605,11 +605,11 @@ fn docker_control_drives_the_container_desktop() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -650,7 +650,7 @@ fn docker_control_drives_the_container_desktop() {
 
 #[test]
 #[ignore = "需要本机 docker"]
-fn container_has_gui_apps_and_clipboard() {
+fn desktop_has_gui_apps_and_clipboard() {
     if !docker_available() {
         eprintln!("skip: docker 不可用");
         return;
@@ -658,11 +658,11 @@ fn container_has_gui_apps_and_clipboard() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -767,11 +767,11 @@ fn gui_task_navigates_and_screenshot_changes() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -892,7 +892,7 @@ fn gui_task_navigates_and_screenshot_changes() {
 /// 这条挡的是"宿主截图 + 容器点击"的静默错位——坐标能对上、内容对不上。
 #[test]
 #[ignore = "需要本机 docker"]
-fn capture_screen_reads_the_container_desktop() {
+fn capture_screen_reads_the_desktop() {
     use pointer_core::agents::computer::state::ComputerState;
     use pointer_core::env::EnvironmentGuard;
 
@@ -904,11 +904,11 @@ fn capture_screen_reads_the_container_desktop() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -973,11 +973,11 @@ fn keyboard_lands_after_focus_is_lost() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),
@@ -1054,11 +1054,11 @@ fn browser_starts_after_container_recreation() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
         admin_tier: Default::default(),
-        tier: Some(Tier::Container),
+        tier: Some(Tier::Desktop),
         backend: Some(Backend::Docker),
         sandbox_url: None,
         volume_host_path: None,
-        template: Some("pointer-sandbox-container:latest".to_string()),
+        template: Some("pointer-sandbox-desktop:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
         tier_backends: Default::default(),

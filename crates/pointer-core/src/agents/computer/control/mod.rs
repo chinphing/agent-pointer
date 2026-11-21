@@ -28,7 +28,7 @@ pub use sandbox::SandboxControl;
 pub use local::LocalControl;
 pub use remote::{RemoteControl, RemoteTransport};
 
-/// 按会话挑控制后端：container 档位走容器桌面，其余走宿主。
+/// 按会话挑控制后端：desktop 档位走容器桌面，其余走宿主。
 ///
 /// 这一步必须按会话解析——同一个进程里可能一个会话在沙箱里跑、
 /// 另一个在宿主跑。`fallback` 是宿主后端（进程级构造的那份）。
@@ -60,6 +60,12 @@ pub fn sandbox_env_for(
     conversation_id: &str,
 ) -> Option<std::sync::Arc<dyn crate::env::Environment>> {
     let env = crate::env::session_env::env_for_conversation(conversation_id)?;
+    // local 档位是**宿主**桌面，不是"环境提供的桌面"：
+    // `Capabilities::local().desktop` 表示"这台机器有桌面"，把它当成沙箱桌面会让
+    // 鼠标键盘工具去宿主上跑 `xdotool`。宿主控制走调用方传的 fallback（LocalControl）。
+    if env.kind() == crate::env::EnvKind::Local {
+        return None;
+    }
     env.capabilities().desktop.then_some(env)
 }
 
@@ -141,5 +147,29 @@ pub trait ComputerControl: Send + Sync {
     /// 读系统剪贴板（用于粘贴后恢复原内容）。
     fn get_clipboard_text(&self) -> Result<Option<String>> {
         Ok(crate::platform::clipboard::read_text().ok())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// local 档位是**宿主**桌面：必须交给 fallback（`LocalControl`），
+    /// 不能让 `SandboxControl` 去宿主上跑 `xdotool` / `import`。
+    #[test]
+    fn local_session_is_not_a_sandbox_desktop() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::env::session_env::remember_local_for_test("conv-local-control", dir.path());
+        assert!(
+            sandbox_env_for("conv-local-control").is_none(),
+            "local 档位不能当成沙箱桌面"
+        );
+        assert!(sandbox_desktop_for("conv-local-control").is_none());
+        crate::env::session_env::release("conv-local-control");
+    }
+
+    #[test]
+    fn unknown_conversation_has_no_sandbox_desktop() {
+        assert!(sandbox_env_for("conv-never-bound").is_none());
     }
 }

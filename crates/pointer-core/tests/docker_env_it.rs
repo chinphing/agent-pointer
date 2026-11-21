@@ -24,10 +24,10 @@ fn docker_available() -> bool {
 fn spec(name: &str, workspace: &Path) -> DockerSpec {
     DockerSpec {
         container: name.to_string(),
-        image: "pointer-sandbox-light:latest".to_string(),
+        image: "pointer-sandbox-headless:latest".to_string(),
         mounts: vec![Mount::new(workspace, "/workspace", false)],
         workdir: "/workspace".into(),
-        tier: pointer_core::env::provider::Tier::Light,
+        tier: pointer_core::env::provider::Tier::Headless,
         cpus: None,
         memory_mb: None,
         disk_mb: None,
@@ -38,10 +38,10 @@ fn spec(name: &str, workspace: &Path) -> DockerSpec {
 fn container_spec(name: &str, workspace: &Path) -> DockerSpec {
     DockerSpec {
         container: name.to_string(),
-        image: "pointer-sandbox-container:latest".to_string(),
+        image: "pointer-sandbox-desktop:latest".to_string(),
         mounts: vec![Mount::new(workspace, "/workspace", false)],
         workdir: "/workspace".into(),
-        tier: pointer_core::env::provider::Tier::Container,
+        tier: pointer_core::env::provider::Tier::Desktop,
         cpus: Some(2.0),
         memory_mb: Some(2048),
         disk_mb: None,
@@ -130,7 +130,7 @@ fn docker_env_pty_gets_a_tty() {
 
 #[test]
 #[ignore = "需要本机 docker"]
-fn container_tier_has_desktop_and_can_screenshot() {
+fn desktop_tier_has_desktop_and_can_screenshot() {
     if !docker_available() {
         eprintln!("skip: docker 不可用");
         return;
@@ -140,7 +140,7 @@ fn container_tier_has_desktop_and_can_screenshot() {
     let _guard = Guard(env);
     let env = &_guard.0;
 
-    assert_eq!(env.kind(), pointer_core::env::EnvKind::Container);
+    assert_eq!(env.kind(), pointer_core::env::EnvKind::Desktop);
     assert!(env.capabilities().desktop);
 
     // DISPLAY 由 DockerEnv 自动注入，调用方不用自己写。
@@ -173,7 +173,7 @@ fn container_tier_has_desktop_and_can_screenshot() {
 
 #[test]
 #[ignore = "需要本机 docker"]
-fn container_tier_applies_resource_limits() {
+fn desktop_tier_applies_resource_limits() {
     if !docker_available() {
         eprintln!("skip: docker 不可用");
         return;
@@ -205,10 +205,10 @@ fn disk_limit_degrades_gracefully_when_unsupported() {
     // 期望：告警一次、退回不限磁盘、容器照常可用。
     let spec = DockerSpec {
         container: "pointer-it-disk-limit".to_string(),
-        image: "pointer-sandbox-light:latest".to_string(),
+        image: "pointer-sandbox-headless:latest".to_string(),
         mounts: vec![Mount::new(dir.path(), "/workspace", false)],
         workdir: "/workspace".into(),
-        tier: pointer_core::env::provider::Tier::Light,
+        tier: pointer_core::env::provider::Tier::Headless,
         cpus: Some(1.0),
         memory_mb: Some(1024),
         disk_mb: Some(4096),
@@ -355,7 +355,7 @@ fn stale_spec_container_is_recreated() {
         .args([
             "run", "-d", "--name", "pointer-it-stale",
             "--label", "pointer.spec=stale-from-old-build",
-            "pointer-sandbox-light:latest", "sleep", "infinity",
+            "pointer-sandbox-headless:latest", "sleep", "infinity",
         ])
         .output()
         .expect("run");

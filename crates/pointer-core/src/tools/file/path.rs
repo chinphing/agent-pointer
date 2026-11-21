@@ -230,7 +230,7 @@ impl Drop for AgentWorkspaceGuard {
 // ---------------------------------------------------------------------------
 // 环境感知的路径判定
 //
-// light/container 档位的工作区是**沙箱路径**（`/workspace`），宿主上并不存在；
+// headless/desktop 档位的工作区是**沙箱路径**（`/workspace`），宿主上并不存在；
 // 直接用 `Path::is_dir()` / `canonicalize()` 会误判成"工作区不存在"，让文件工具全线失败。
 // 因此非 Local 档位一律走 `Environment`，且不再做宿主 canonicalize（沙箱路径已规范化）。
 // ---------------------------------------------------------------------------
@@ -301,8 +301,12 @@ pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
         ));
     }
     let p = PathBuf::from(raw);
-    if !env_is_dir(&p) {
-        return Err(anyhow!("工作区目录无效或不存在: {}", raw));
+    // 三种失败分开报：环境没绑定 ≠ 沙箱里没这个路径 ≠ 宿主目录不存在。
+    // 这里看**本线程实际绑定**的环境（`current_env()`），未绑定时按宿主判断，
+    // 与 `env_is_dir` 同一套约定——不能换成 `effective_env()`，后者在未绑定时会按
+    // 部署档位返回 `DeniedEnv`，把 local 账号的宿主路径一律判成不存在。
+    if let Some(err) = crate::env::workspace_dir_error(crate::env::current_env().as_deref(), &p) {
+        return Err(err);
     }
     if is_filesystem_root(&p) {
         return Err(anyhow!("工作区不能是文件系统根: {}", raw));

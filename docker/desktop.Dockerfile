@@ -1,9 +1,9 @@
 #
-# L3 桌面层（container 档位）：light 的全部能力 + 图形桌面。
+# L3 桌面层（desktop 档位）：headless 的全部能力 + 图形桌面。
 #
 # 构建：
 #   docker build -f docker/desktop.Dockerfile \
-#     --build-arg BASE_IMAGE=pointer-sandbox-light:2026.11 \
+#     --build-arg BASE_IMAGE=pointer-sandbox-headless:2026.11 \
 #     -t pointer-sandbox-desktop:2026.11 .
 #
 # 桌面怎么起来（入口脚本负责）：
@@ -13,7 +13,7 @@
 #
 # 不放 ffmpeg：拖整套编解码库 +418 MB，只有媒体类技能需要。
 #
-ARG BASE_IMAGE=pointer-sandbox-light:latest
+ARG BASE_IMAGE=pointer-sandbox-headless:latest
 FROM ${BASE_IMAGE}
 USER root
 ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn

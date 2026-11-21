@@ -136,12 +136,12 @@ mod tests {
     fn container_session_refuses_to_switch_host_monitors() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = crate::env::provider::ProviderConfig {
-            tier: Some(crate::env::provider::Tier::Container),
+            tier: Some(crate::env::provider::Tier::Desktop),
             backend: Some(crate::env::provider::Backend::Docker),
             admin_tier: Default::default(),
             sandbox_url: None,
             volume_host_path: None,
-            template: Some("pointer-sandbox-container:latest".to_string()),
+            template: Some("pointer-sandbox-desktop:latest".to_string()),
             admins: Vec::new(),
             accounts: Default::default(),
             tier_backends: Default::default(),

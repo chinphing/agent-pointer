@@ -18,8 +18,8 @@ Pointer 走 `docker` 命令行（不是 SDK），**只有守护进程没有 CLI 
 ### A. 本机构建
 
 ```bash
-docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container:latest .
-docker build -f docker/sandbox-light.Dockerfile     -t pointer-sandbox-light:latest     .
+docker build -f docker/desktop.Dockerfile -t pointer-sandbox-desktop:latest  .
+docker build -f docker/runtime.Dockerfile -t pointer-sandbox-headless:latest .
 ```
 
 - Dockerfile 里 apt 源默认 `mirrors.aliyun.com`（buildkit 直连 deb.debian.org 常失败）
@@ -32,7 +32,7 @@ docker build -f docker/sandbox-light.Dockerfile     -t pointer-sandbox-light:lat
 
 ```bash
 cd pointer-server
-docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container:latest .
+docker build -f docker/desktop.Dockerfile -t pointer-sandbox-desktop:latest .
 ```
 
 仍然需要联网拉基础镜像（`python:3.12-slim` / `node:24-bookworm-slim`）和 apt 包。
@@ -40,32 +40,32 @@ docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container
 ### B. 私有仓库
 
 ```bash
-docker pull registry.example.com/pointer/sandbox-container:0.1.3
-docker tag  registry.example.com/pointer/sandbox-container:0.1.3 pointer-sandbox-container:latest
+docker pull registry.example.com/pointer/sandbox-desktop:0.1.3
+docker tag  registry.example.com/pointer/sandbox-desktop:0.1.3 pointer-sandbox-desktop:latest
 ```
 
 ### C. 离线 tar（内网 / 无仓库）
 
 ```bash
 # 有网的机器
-docker save pointer-sandbox-container:latest | gzip > sandbox-container.tar.gz
+docker save pointer-sandbox-desktop:latest | gzip > sandbox-desktop.tar.gz
 # 目标机
-gunzip -c sandbox-container.tar.gz | docker load
+gunzip -c sandbox-desktop.tar.gz | docker load
 ```
 
 ## 配置
 
 ```toml
 [environment]
-provider = "container"
+provider = "desktop"
 backend  = "docker"
-template = "pointer-sandbox-container:latest"
+template = "pointer-sandbox-desktop:latest"
 cpus      = 2
 memory_mb = 4096
 disk_mb   = 10240
 ```
 
-`provider = "light"` 时用 `pointer-sandbox-light:latest`（无桌面，更小）。
+`provider = "headless"` 时用 `pointer-sandbox-headless:latest`（无桌面，更小）。
 
 对应环境变量：`POINTER_SERVER_ENVIRONMENT_PROVIDER` / `_BACKEND` / `_TEMPLATE` /
 `_CPUS` / `_MEMORY_MB` / `_DISK_MB`。
@@ -74,11 +74,11 @@ disk_mb   = 10240
 
 ```bash
 # 1. 默认用户不是 root
-docker run --rm pointer-sandbox-container:latest id
+docker run --rm pointer-sandbox-desktop:latest id
 # 期望：uid=1000(pointer) gid=1000(pointer)
 
-# 2. 桌面能起来（container 档位）
-docker run -d --name sbx-smoke pointer-sandbox-container:latest sleep infinity
+# 2. 桌面能起来（desktop 档位）
+docker run -d --name sbx-smoke pointer-sandbox-desktop:latest sleep infinity
 sleep 6
 docker exec sbx-smoke sh -lc 'DISPLAY=:99 xdpyinfo | grep dimensions'
 # 期望：1920x1080 pixels
@@ -86,7 +86,7 @@ docker rm -f sbx-smoke
 
 # 3. 面板「接管电脑」通道（6080 = websockify + noVNC）
 docker run -d --name sbx-vnc -p 127.0.0.1::6080 -p 127.0.0.1::5900 \
-  -e POINTER_VNC_PASSWORD=test1234 pointer-sandbox-container:latest sleep infinity
+  -e POINTER_VNC_PASSWORD=test1234 pointer-sandbox-desktop:latest sleep infinity
 sleep 8
 P=$(docker port sbx-vnc 6080/tcp | sed 's/.*://')
 curl -s -o /dev/null -w 'vnc.html %{http_code}\n' "http://127.0.0.1:$P/vnc.html"   # 期望 200
@@ -110,7 +110,7 @@ docker rm -f sbx-vnc
 |---|---|---|
 | 5 | 20 GB | 默认配额即可 |
 | 20 | 80 GB | 降到 2048 MB |
-| 50 | 200 GB | 2048 MB + 关桌面（light 档位） |
+| 50 | 200 GB | 2048 MB + 关桌面（headless 档位） |
 
 实测参考：空桌面容器 49 MB，开浏览器 230 MB，可写层 3.8 MB。
 配额是上限不是占用，按并发留余量。

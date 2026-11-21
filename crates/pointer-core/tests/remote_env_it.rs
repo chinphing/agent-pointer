@@ -257,7 +257,7 @@ fn remote_env_roundtrip_against_e2b_local() {
 }
 
 #[test]
-#[ignore = "需要 e2b-local + pointer-sandbox-light 镜像；手动跑"]
+#[ignore = "需要 e2b-local + pointer-sandbox-headless 镜像；手动跑"]
 fn media_pipeline_runs_inside_sandbox() {
     use pointer_core::env::{Environment, EnvironmentGuard};
     use pointer_core::media::exec::MediaInput;
@@ -271,7 +271,7 @@ fn media_pipeline_runs_inside_sandbox() {
         return;
     };
     let template = std::env::var("POINTER_SANDBOX_TEMPLATE")
-        .unwrap_or_else(|_| "pointer-sandbox-light:latest".to_string());
+        .unwrap_or_else(|_| "pointer-sandbox-headless:latest".to_string());
 
     // 1) 先在宿主生成一段 2 秒测试视频（此时还没有绑定环境 → 跑在宿主）
     let host_dir = tempfile::tempdir().expect("host tempdir");
@@ -314,11 +314,11 @@ fn media_pipeline_runs_inside_sandbox() {
     // 文件工具的路径判定必须走环境：宿主上根本没有 `/workspace`，
     // 用 Path::is_dir()/canonicalize() 会误判成"工作区不存在"。
     let ws = pointer_core::tools::file::resolve_tool_workspace_root()
-        .expect("light 下工作区解析应成功");
+        .expect("headless 下工作区解析应成功");
     assert_eq!(ws, Path::new("/workspace"));
     let resolved =
         pointer_core::tools::file::resolve_within_workspace_root(Path::new("/workspace"), "sub/a.txt")
-            .expect("light 下相对路径解析应成功");
+            .expect("headless 下相对路径解析应成功");
     assert_eq!(resolved, Path::new("/workspace/sub/a.txt"));
 
     let input = MediaInput::existing("/workspace/in.mp4");
@@ -359,7 +359,7 @@ fn remote_spawn_streams_stdin_and_stdout() {
         return;
     };
     let template = std::env::var("POINTER_SANDBOX_TEMPLATE")
-        .unwrap_or_else(|_| "pointer-sandbox-light:latest".to_string());
+        .unwrap_or_else(|_| "pointer-sandbox-headless:latest".to_string());
     let spec = RemoteSpec {
         control_url: url,
         template,
@@ -467,7 +467,7 @@ fn plugin_hook_script_runs_from_mounted_plugins_dir() {
         mounts,
         volume_host_path: Some(volumes.clone()),
         template: std::env::var("POINTER_SANDBOX_TEMPLATE")
-            .unwrap_or_else(|_| "pointer-sandbox-light:latest".to_string()),
+            .unwrap_or_else(|_| "pointer-sandbox-headless:latest".to_string()),
         ..Default::default()
     };
     let env = RemoteEnv::create(&spec).expect("create sandbox with plugins");
@@ -510,7 +510,7 @@ fn remote_env_is_safe_inside_async_context() {
         return;
     };
     let template = std::env::var("POINTER_SANDBOX_TEMPLATE")
-        .unwrap_or_else(|_| "pointer-sandbox-light:latest".to_string());
+        .unwrap_or_else(|_| "pointer-sandbox-headless:latest".to_string());
     let spec = RemoteSpec {
         control_url: url,
         template,
@@ -540,13 +540,13 @@ fn remote_env_is_safe_inside_async_context() {
 #[test]
 #[ignore = "需要本地沙箱网关（scripts/dev-sandbox.sh up）"]
 fn terminal_tool_runs_inside_sandbox() {
-    // 回归：terminal 曾经直连宿主 std::process::Command，light 下仍跑在本机。
+    // 回归：terminal 曾经直连宿主 std::process::Command，headless 下仍跑在本机。
     let Some(url) = control_url() else {
         eprintln!("skip: POINTER_SANDBOX_URL 未设置");
         return;
     };
     let template = std::env::var("POINTER_SANDBOX_TEMPLATE")
-        .unwrap_or_else(|_| "pointer-sandbox-light:latest".to_string());
+        .unwrap_or_else(|_| "pointer-sandbox-headless:latest".to_string());
     let spec = RemoteSpec {
         control_url: url,
         template,
@@ -556,7 +556,7 @@ fn terminal_tool_runs_inside_sandbox() {
     let cleanup = Guard2(&env);
     let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
 
-    // 工具分派用这个函数拿工作区：light 下必须给沙箱路径，不能回落到宿主 settings。
+    // 工具分派用这个函数拿工作区：headless 下必须给沙箱路径，不能回落到宿主 settings。
     assert_eq!(
         pointer_core::workspace_resolve::resolve_tool_workspace(
             "c1",
@@ -608,7 +608,7 @@ fn remote_pty_gives_a_tty_and_supports_resize() {
     let spec = RemoteSpec {
         control_url: url,
         template: std::env::var("POINTER_SANDBOX_TEMPLATE")
-            .unwrap_or_else(|_| "pointer-sandbox-light:latest".to_string()),
+            .unwrap_or_else(|_| "pointer-sandbox-headless:latest".to_string()),
         ..Default::default()
     };
     let env = RemoteEnv::create(&spec).expect("create sandbox");

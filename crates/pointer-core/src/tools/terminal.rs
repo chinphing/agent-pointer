@@ -166,16 +166,14 @@ pub(crate) fn effective_terminal_cwd(
     let trimmed = session_workspace.trim();
     if !trimmed.is_empty() {
         let p = PathBuf::from(trimmed);
-        // light/container：工作区是沙箱路径（`/workspace`），宿主上不存在，
+        // headless/desktop：工作区是沙箱路径（`/workspace`），宿主上不存在，
         // 判定必须走 Environment，否则每次 terminal 都报"工作区不存在"。
+        //
+        // 三种失败必须分开报：环境没绑定 ≠ 沙箱里没这个路径 ≠ 宿主目录不存在。
+        // 以前一律报「工作区目录无效或不存在」，把"漏绑定"藏成"路径不对"。
         let env = crate::env::effective_env();
-        let is_dir = if env.kind() == crate::env::EnvKind::Local {
-            p.is_dir()
-        } else {
-            env.metadata(&p).map(|m| m.is_dir).unwrap_or(false)
-        };
-        if !is_dir {
-            return Err(anyhow!("工作区目录无效或不存在: {trimmed}"));
+        if let Some(err) = crate::env::workspace_dir_error(Some(env.as_ref()), &p) {
+            return Err(err);
         }
         if env.kind() != crate::env::EnvKind::Local {
             return Ok(normalize_terminal_cwd(p));
@@ -328,7 +326,7 @@ pub fn run_terminal_command_streaming(
         // 提权是宿主概念：沙箱里没有 sudo/管理员会话，直接说明而不是尝试宿主提权。
         if crate::env::effective_env().kind() != crate::env::EnvKind::Local {
             return Err(anyhow!(
-                "当前执行环境（light/container）不支持提权命令：请在沙箱内用普通权限完成，或让用户在本机执行"
+                "当前执行环境（headless/desktop）不支持提权命令：请在沙箱内用普通权限完成，或让用户在本机执行"
             ));
         }
         return run_terminal_command_elevated(
@@ -357,7 +355,7 @@ pub fn run_terminal_command_streaming(
         max_output_bytes
     );
 
-    // light/container 档位：命令在环境内执行，不经宿主 shell / PTY。
+    // headless/desktop 档位：命令在环境内执行，不经宿主 shell / PTY。
     // 宿主 spawn 会把命令跑在本机（工作区在沙箱里根本不存在）。
     let active_env = crate::env::effective_env();
     if active_env.kind() != crate::env::EnvKind::Local {
@@ -417,7 +415,7 @@ pub fn run_terminal_command_streaming(
 
     let env_file_paths = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
 
-    // 只在 Host 档位刷新进程 PATH：light/container 的命令跑在环境里，
+    // 只在 Host 档位刷新进程 PATH：headless/desktop 的命令跑在环境里，
     // 宿主 PATH 与它无关（Windows 注册表刷新是进程级副作用）。
     if crate::env::effective_env().kind() == crate::env::EnvKind::Local {
         crate::shell_env::refresh_process_path_from_registry();
@@ -1463,6 +1461,30 @@ mod cwd_tests {
     fn effective_terminal_cwd_defaults_to_workspace_root() {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().display().to_string();
+        let cwd = effective_terminal_cwd(None, &ws).unwrap();
+        assert_eq!(cwd, dir.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn effective_terminal_cwd_reports_unbound_env_not_missing_workspace() {
+        // 部署是沙箱档位、本线程却没绑定环境时，必须说「执行环境未绑定」。
+        // 以前这里报「工作区目录无效或不存在」——把漏绑定藏成路径问题，排查方向全错。
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().display().to_string();
+        let _g = crate::env::EnvironmentGuard::enter(crate::env::test_light_env());
+        let err = effective_terminal_cwd(None, &ws).unwrap_err().to_string();
+        assert!(err.contains("执行环境未绑定"), "{err}");
+        assert!(!err.contains("工作区目录无效"), "{err}");
+    }
+
+    #[test]
+    fn effective_terminal_cwd_accepts_host_workspace_under_local_binding() {
+        // admin（local 档位）在沙箱档位部署里：绑的是 LocalEnv，工作区是宿主路径。
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().display().to_string();
+        let env: Arc<dyn crate::env::Environment> =
+            Arc::new(crate::env::LocalEnv::new(dir.path()));
+        let _g = crate::env::EnvironmentGuard::enter(env);
         let cwd = effective_terminal_cwd(None, &ws).unwrap();
         assert_eq!(cwd, dir.path().canonicalize().unwrap());
     }

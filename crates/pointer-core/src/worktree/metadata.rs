@@ -9,7 +9,6 @@
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -28,7 +27,7 @@ struct OwnerRecord {
 
 pub(crate) fn owner(checkout: &Path) -> Result<Option<String>> {
     let path = metadata_path(checkout)?;
-    let contents = match fs::read(&path) {
+    let contents = match super::git::read_bytes(&path) {
         Ok(contents) => contents,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
@@ -56,16 +55,19 @@ pub(crate) fn bind_thread(checkout: &Path, thread_id: &str) -> Result<()> {
     }
 
     let path = metadata_path(checkout)?;
+    let record = OwnerRecord {
+        version: OWNER_VERSION,
+        owner_thread_id: thread_id.to_owned(),
+    };
+    let bytes = serde_json::to_vec(&record)?;
+    if !super::git::git_on_host() {
+        super::git::write_bytes(&path, &bytes)?;
+        return Ok(());
+    }
     let directory = path.parent().context("worktree metadata has no parent")?;
     let mut temporary = NamedTempFile::new_in(directory)
         .with_context(|| format!("cannot create worktree metadata in {}", directory.display()))?;
-    serde_json::to_writer(
-        &mut temporary,
-        &OwnerRecord {
-            version: OWNER_VERSION,
-            owner_thread_id: thread_id.to_owned(),
-        },
-    )?;
+    temporary.write_all(&bytes)?;
     temporary.flush()?;
 
     match temporary.persist_noclobber(&path) {

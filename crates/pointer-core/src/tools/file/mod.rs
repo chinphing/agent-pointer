@@ -29,16 +29,13 @@ use write::execute_file_write_payload;
 
 /// 文件工具执行路径用的执行环境。
 ///
-/// 分发点（`ToolRegistry::invoke` → `ToolContextGuard`）已经按会话绑过环境，
-/// 所以正常情况下拿到的一定是绑定实例。没绑定时按**宿主**处理——这与本组
-/// 路径层既有约定一致（`path::env_exists` / `env_is_dir` /
-/// `effective_write_scope` 都是「`current_env()` 为 `None` = local 直跑」），
-/// 也与 `resolve_tool_workspace_root` 的报错口径一致。
-///
-/// 刻意**不按部署档位兜底**：沙箱部署下那会给出 `DeniedEnv`，把「漏绑定」
-/// 伪装成「沙箱里没这个路径」。
-pub(super) fn tool_env(root: &std::path::Path) -> Arc<dyn crate::env::Environment> {
-    crate::env::current_env().unwrap_or_else(|| crate::env::host_env_at(root))
+/// 分发点已经按会话绑过环境时直接用它。没绑定时：本机工作区按宿主读；
+/// `/data/...` 这类容器路径改查会话环境，没有就失败，不再把容器路径当成宿主路径。
+pub(super) fn tool_env(root: &std::path::Path) -> Result<Arc<dyn crate::env::Environment>> {
+    match path::runtime_env_for(root)? {
+        Some(env) => Ok(env),
+        None => Ok(crate::env::host_env_at(root)),
+    }
 }
 
 /// Doc for registry tool `file`; keep in sync with `prompts/file.md`.

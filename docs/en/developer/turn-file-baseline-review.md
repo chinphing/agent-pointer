@@ -79,7 +79,7 @@ For the footer display strategy see the "Performance" section of [`../ui/turn-ch
 
 ## Cross-platform
 
-Desktop and web share the same core logic and API; both must be able to reach the conversation workspace's disk path.
+Desktop and web share `turn_file_diff`. `/data/...` is read through the cached session environment, and relative paths join the caller-supplied project directory. Host paths are read on the host. A missing session environment is an error. Both entry points only pass the conversation, project directory, and file path.
 
 ## Known issues (not addressed for now)
 

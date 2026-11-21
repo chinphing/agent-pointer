@@ -5,7 +5,8 @@ import { resolveAttachmentAbsPath } from './attachmentLocalPath'
 import { isUsableAttachmentPreviewUrl } from './attachmentSupport'
 import {
   resolveVideoPreviewUrl,
-  videoPreviewUrlFromLocalPath
+  videoPreviewUrlFromLocalPath,
+  videoPreviewUrlFromStorage
 } from './chatMediaPreview'
 import { isTauriRuntime } from './runtime'
 
@@ -46,7 +47,7 @@ export async function resolveImagePreviewDataUrl(
   return `data:${mime};base64,${preview.dataBase64}`
 }
 
-/** Desktop local file URL for inline video/audio playback (no preview API). */
+/** Desktop playback URL. Local files use a file URL; sandbox media is read through the session. */
 export async function resolveDesktopPlaybackUrl(
   att: RenderableAttachment,
   conversationId?: string | null
@@ -59,14 +60,18 @@ export async function resolveDesktopPlaybackUrl(
     if (att.localAbsPath?.trim()) {
       return videoPreviewUrlFromLocalPath(att.localAbsPath)
     }
-    const abs = await resolveAttachmentAbsPath(att)
+    const abs = await resolveAttachmentAbsPath(att, conversationId)
     if (abs) return convertFileSrc(abs)
     return null
   }
 
   if (att.kind === 'audio') {
     if (isUsableAttachmentPreviewUrl(att.previewUrl)) return att.previewUrl!.trim()
-    const abs = await resolveAttachmentAbsPath(att)
+    if (att.storageRelPath?.trim()) {
+      const fromStorage = await videoPreviewUrlFromStorage(att.storageRelPath, conversationId)
+      if (fromStorage) return fromStorage
+    }
+    const abs = await resolveAttachmentAbsPath(att, conversationId)
     if (abs) return convertFileSrc(abs)
     return null
   }

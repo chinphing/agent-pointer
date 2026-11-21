@@ -647,19 +647,18 @@ pub fn ensure_host_execution_allowed(conversation_id: &str, what: &str) -> Resul
     decide_host_execution(bound, deployment_is_remote(), what)
 }
 
-/// 指定工作区的宿主环境（面板在会话沙箱尚未创建时用）。
+/// 指定工作区的宿主环境。只用于本地档位：路径就是本机路径。
 ///
-/// Docker 后端下 `/workspace` 就是项目目录的 bind mount，宿主读到的字节与容器内一致，
-/// 所以面板可以先直接读宿主，不必抢先把沙箱创建出来（否则会用它手里的旧路径定死挂载）。
+/// 沙箱档位的项目和数据在容器里的 `/data` 卷上，不是本机目录的 bind mount。
+/// 容器路径必须走会话环境，不要用这个函数去打开 `/data/...`。
 pub fn host_env_at(root: &std::path::Path) -> Arc<dyn Environment> {
     Arc::new(local::LocalEnv::new(root.to_path_buf()))
 }
 
 /// 宿主本机环境（**固定**，不随部署档位变化）。
 ///
-/// 给那些"本来就该在宿主上"的操作用：worktree 创建/清理（git 仓库在宿主，
-/// 沙箱里根本没有 .git）、应用自身的数据整理等。会话内的工具/面板一律用
-/// [`effective_env`]，不要用这个。
+/// 给本地档位和进程自身的数据整理用。沙箱会话里的 git、文件工具和 stdio MCP
+/// 走会话环境，不要用这个去执行容器里的路径。
 pub fn host_env() -> Arc<dyn Environment> {
     static HOST: OnceLock<Arc<dyn Environment>> = OnceLock::new();
     HOST.get_or_init(|| Arc::new(LocalEnv::from_settings()) as Arc<dyn Environment>)

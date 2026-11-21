@@ -8,6 +8,9 @@
 use anyhow::{bail, Result};
 use std::path::PathBuf;
 
+use std::sync::Arc;
+
+use super::git::with_git_env;
 use super::{CreateWorktree, ManagedWorktree, WorktreeInfo, WorktreeManager};
 
 /// Create a checkout for `conversation_id`.
@@ -23,16 +26,36 @@ pub fn create_for_conversation(
     base: Option<&str>,
 ) -> Result<ManagedWorktree> {
     let source = resolve_source_for_conversation(conversation_id, source_workspace_hint)?;
-    // Reject unresolved host absolute paths for sandbox accounts (client smuggling).
-    if !crate::workspace_resolve::looks_like_sandbox_guest_path(&source) {
-        reject_client_host_source_for_sandbox(conversation_id, &source)?;
+    if crate::workspace_resolve::looks_like_sandbox_guest_path(&source) {
+        let env = crate::env::session_env::env_for_conversation(conversation_id).ok_or_else(|| {
+            anyhow::anyhow!(
+                "沙箱会话还没有执行环境，无法在容器里创建 worktree（conversation={conversation_id}）"
+            )
+        })?;
+        if env.is_denied() || env.path_map().is_host_passthrough() {
+            bail!("沙箱会话的执行环境不可用，无法在容器里创建 worktree");
+        }
+        log::info!(
+            "worktree: git via session environment conversation={conversation_id} source={source}"
+        );
+        let manager = WorktreeManager::with_root(PathBuf::from("/data/worktrees"));
+        let env: Arc<dyn crate::env::Environment> = env;
+        return with_git_env(env, || {
+            create_with_manager(
+                &manager,
+                conversation_id,
+                &source,
+                base,
+                conversation_still_exists,
+            )
+        });
     }
-    let host_source = host_path_for_source(conversation_id, &source)?;
+    reject_client_host_source_for_sandbox(conversation_id, &source)?;
     let manager = manager_for_conversation(conversation_id)?;
     create_with_manager(
         &manager,
         conversation_id,
-        host_source.to_string_lossy().as_ref(),
+        &source,
         base,
         conversation_still_exists,
     )
@@ -43,7 +66,8 @@ pub fn create_for_conversation(
 /// `keep_owner` answers "is this owning conversation still alive?" and decides
 /// whether an old checkout survives pruning.
 ///
-/// `source_workspace` must already be a host path the manager can run git against.
+/// `source_workspace` is a host path on the local tier, or a guest `/data/...` path
+/// when [`super::git::with_git_env`] has bound the session environment.
 pub fn create_with_manager(
     manager: &WorktreeManager,
     conversation_id: &str,
@@ -59,8 +83,8 @@ pub fn create_with_manager(
     if source.is_empty() {
         bail!("请先选择项目目录，再创建 worktree");
     }
-    // Source is already a host path suitable for git. Sandbox clients are
-    // rejected earlier when they smuggle a host path as the unresolved hint.
+    // Local sources are host paths. Guest `/data/...` sources run only while
+    // [`super::git::with_git_env`] has bound the session environment.
     let created = manager.create(&CreateWorktree {
         source_cwd: PathBuf::from(source),
         base: base.map(str::to_owned),
@@ -103,42 +127,6 @@ fn resolve_source_for_conversation(
     bail!("请先选择项目目录，再创建 worktree");
 }
 
-/// Map an Environment path to a host path for local git operations.
-fn host_path_for_source(conversation_id: &str, source: &str) -> Result<PathBuf> {
-    if crate::workspace_resolve::looks_like_sandbox_guest_path(source) {
-        if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
-            match env.path_map().to_host(std::path::Path::new(source)) {
-                Ok(host) => return Ok(host),
-                Err(e) => log::warn!(
-                    "worktree: path_map to_host failed conversation={conversation_id}: {e:#}"
-                ),
-            }
-        }
-        let uid = crate::conversation_store::global_store()
-            .ok()
-            .and_then(|store| store.session_user_id(conversation_id).ok())
-            .unwrap_or_default();
-        let data = crate::user_data_paths::user_data_host_root(&uid, conversation_id)?;
-        let rel = source
-            .trim()
-            .strip_prefix("/data/")
-            .or_else(|| source.trim().strip_prefix("/data"))
-            .unwrap_or("");
-        let host = if rel.is_empty() {
-            data.clone()
-        } else {
-            data.join(rel)
-        };
-        log::info!(
-            "worktree: mapped guest source {} -> {}",
-            source,
-            host.display()
-        );
-        return Ok(host);
-    }
-    Ok(PathBuf::from(source))
-}
-
 fn manager_for_conversation(conversation_id: &str) -> Result<WorktreeManager> {
     let uid = crate::conversation_store::global_store()
         .ok()
@@ -173,6 +161,9 @@ pub fn list_for_workspace(source_workspace: &str) -> Result<Vec<ManagedWorktree>
     if source.is_empty() {
         bail!("缺少项目目录，无法列出 worktree");
     }
+    if crate::workspace_resolve::looks_like_sandbox_guest_path(source) {
+        bail!("沙箱项目的 worktree 需要在会话环境里列出");
+    }
     WorktreeManager::for_app()?.list(&PathBuf::from(source))
 }
 
@@ -182,16 +173,46 @@ pub fn remove_for_workspace(source_workspace: &str, root: &str) -> Result<()> {
     if source.is_empty() || root.trim().is_empty() {
         bail!("缺少项目目录或 worktree 路径");
     }
+    if crate::workspace_resolve::looks_like_sandbox_guest_path(source)
+        || crate::workspace_resolve::looks_like_sandbox_guest_path(root)
+    {
+        bail!("沙箱项目的 worktree 需要在会话环境里删除");
+    }
     WorktreeManager::for_app()?.remove(&PathBuf::from(source), &PathBuf::from(root.trim()))
 }
 
 /// Describe `workspace_root` when it is a linked worktree.
-pub fn inspect_workspace(workspace_root: &str) -> Result<Option<WorktreeInfo>> {
+///
+/// Guest `/data/...` paths run git in the conversation's session environment.
+pub fn inspect_workspace(
+    workspace_root: &str,
+    conversation_id: Option<&str>,
+) -> Result<Option<WorktreeInfo>> {
     let path = workspace_root.trim();
     if path.is_empty() {
         return Ok(None);
     }
-    super::inspect(&PathBuf::from(path))
+    let path_buf = PathBuf::from(path);
+    if !crate::workspace_resolve::looks_like_sandbox_guest_path(path) {
+        return super::inspect(&path_buf);
+    }
+    let conversation_id = conversation_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("沙箱工作区需要会话才能检查 worktree"))?;
+    let env = crate::env::session_env::env_for_conversation(conversation_id).ok_or_else(|| {
+        anyhow::anyhow!("沙箱会话还没有执行环境，无法检查 worktree（conversation={conversation_id}）")
+    })?;
+    if env.is_denied() || env.path_map().is_host_passthrough() {
+        bail!("沙箱会话的执行环境不可用，无法检查 worktree");
+    }
+    log::info!(
+        "worktree: inspect via session environment conversation={conversation_id} path={path}"
+    );
+    let env: Arc<dyn crate::env::Environment> = env;
+    with_git_env(env, || {
+        super::inspect_with_root(&path_buf, Some(std::path::Path::new("/data/worktrees")))
+    })
 }
 
 /// Remove the managed worktree that belongs to a conversation that is going away.
@@ -205,6 +226,24 @@ pub fn remove_for_conversation(
     conversation_id: &str,
     workspace_root: &str,
 ) -> Result<Option<PathBuf>> {
+    if crate::workspace_resolve::looks_like_sandbox_guest_path(workspace_root) {
+        let env = crate::env::session_env::env_for_conversation(conversation_id).ok_or_else(|| {
+            anyhow::anyhow!(
+                "沙箱会话还没有执行环境，无法删除 worktree（conversation={conversation_id}）"
+            )
+        })?;
+        if env.is_denied() || env.path_map().is_host_passthrough() {
+            bail!("沙箱会话的执行环境不可用，无法删除 worktree");
+        }
+        log::info!(
+            "worktree: remove via session environment conversation={conversation_id} path={workspace_root}"
+        );
+        let manager = WorktreeManager::with_root(PathBuf::from("/data/worktrees"));
+        let env: Arc<dyn crate::env::Environment> = env;
+        return with_git_env(env, || {
+            remove_for_conversation_with_manager(&manager, conversation_id, workspace_root)
+        });
+    }
     let manager = WorktreeManager::for_app()?;
     remove_for_conversation_with_manager(&manager, conversation_id, workspace_root)
 }

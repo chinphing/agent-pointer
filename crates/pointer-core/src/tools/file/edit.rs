@@ -102,7 +102,7 @@ fn file_edit_apply_one(
         return Err(anyhow!("oldString 不能为空"));
     }
     let full = resolve_writable_path(root, path)?;
-    let env = tool_env(root);
+    let env = tool_env(root)?;
     if !env.exists(&full) {
         return Err(anyhow!("路径不存在: {}", full.display()));
     }

@@ -55,7 +55,7 @@ pub(crate) fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -
         .unwrap_or("all");
 
     let base = resolve_existing_read_path(root, path_str, "list")?;
-    let env = tool_env(root);
+    let env = tool_env(root)?;
     if !env.metadata(&base).map(|m| m.is_dir).unwrap_or(false) {
         return Err(anyhow!("不是目录: {}", base.display()));
     }

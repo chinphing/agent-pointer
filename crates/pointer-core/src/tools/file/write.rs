@@ -29,7 +29,7 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
     let content = resolve_file_write_content(args.get("content"))?;
 
     let full = resolve_writable_path(root, path)?;
-    let env = tool_env(root);
+    let env = tool_env(root)?;
     let old_content = if env.exists(&full) {
         env.read_to_string(&full)
             .map_err(|e| anyhow!("读取待覆盖文件失败 {}: {e}", full.display()))?

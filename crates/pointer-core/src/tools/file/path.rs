@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use globset::{Glob, GlobSetBuilder};
 use std::cell::RefCell;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use crate::env::{current_env, ReadScope, WriteScope};
 
@@ -230,37 +231,77 @@ impl Drop for AgentWorkspaceGuard {
 // ---------------------------------------------------------------------------
 // 环境感知的路径判定
 //
-// headless/desktop 档位的工作区是**沙箱路径**（`/workspace`），宿主上并不存在；
+// headless/desktop 档位的工作区是容器里的 `/data/...`，宿主上并不存在这条路径；
 // 直接用 `Path::is_dir()` / `canonicalize()` 会误判成"工作区不存在"，让文件工具全线失败。
 // 因此非 Local 档位一律走 `Environment`，且不再做宿主 canonicalize（沙箱路径已规范化）。
 // ---------------------------------------------------------------------------
 
+/// 本机路径在没绑环境时返回 `Ok(None)`（调用方按宿主读）。
+/// `/data/...` 在没绑环境时改用会话环境；会话环境也不在就报错。
+pub(super) fn runtime_env_for(path: &Path) -> Result<Option<Arc<dyn crate::env::Environment>>> {
+    if let Some(env) = current_env() {
+        return Ok(Some(env));
+    }
+    let text = path.to_string_lossy();
+    if !crate::workspace_resolve::looks_like_sandbox_guest_path(&text) {
+        return Ok(None);
+    }
+    let conversation_id = crate::tools::context::current_tool_context()
+        .map(|ctx| ctx.conversation_id().to_string())
+        .unwrap_or_default();
+    if let Some(env) = crate::env::session_env::env_for_conversation(&conversation_id) {
+        log::info!(
+            "file tool: using session environment conversation={conversation_id} path={}",
+            path.display()
+        );
+        return Ok(Some(env));
+    }
+    log::warn!(
+        "file tool: sandbox path has no session environment conversation={conversation_id} path={}",
+        path.display()
+    );
+    anyhow::bail!(
+        "工作区在沙箱内（{}），但当前没有会话环境",
+        path.display()
+    )
+}
+
 fn env_is_dir(path: &Path) -> bool {
-    // 没绑定环境 = 本线程按宿主判断。不能用 `effective_env()`：它会在未绑定时按
-    // **部署默认档位**返回 DeniedEnv，把 local 账号的宿主路径一律判定为不存在。
-    match crate::env::current_env() {
-        None => path.is_dir(),
-        Some(env) if env.kind() == crate::env::EnvKind::Local => path.is_dir(),
-        Some(env) => env.metadata(path).map(|m| m.is_dir).unwrap_or(false),
+    match runtime_env_for(path) {
+        Ok(None) => path.is_dir(),
+        Ok(Some(env)) if env.kind() == crate::env::EnvKind::Local => path.is_dir(),
+        Ok(Some(env)) => env.metadata(path).map(|m| m.is_dir).unwrap_or(false),
+        Err(error) => {
+            log::warn!("file tool: is_dir refused for {}: {error:#}", path.display());
+            false
+        }
     }
 }
 
 fn env_exists(path: &Path) -> bool {
-    match crate::env::current_env() {
-        None => path.exists(),
-        Some(env) if env.kind() == crate::env::EnvKind::Local => path.exists(),
-        Some(env) => env.exists(path),
+    match runtime_env_for(path) {
+        Ok(None) => path.exists(),
+        Ok(Some(env)) if env.kind() == crate::env::EnvKind::Local => path.exists(),
+        Ok(Some(env)) => env.exists(path),
+        Err(error) => {
+            log::warn!("file tool: exists refused for {}: {error:#}", path.display());
+            false
+        }
     }
 }
 
 fn env_canonicalize(path: &Path) -> PathBuf {
-    // 与 `env_is_dir` / `env_exists` / `effective_write_scope` 同一套约定：
-    // `current_env()` 为 `None` 就是 local 直跑（按宿主 canonicalize）。
-    // 不能用 `effective_env()`：它按**部署档位**兜底，沙箱部署下会给出 `DeniedEnv`，
-    // 把宿主路径一律当成「不需要规范化」，报错方向完全错。
-    let is_local = crate::env::current_env()
-        .map(|env| env.kind() == crate::env::EnvKind::Local)
-        .unwrap_or(true);
+    let is_local = match runtime_env_for(path) {
+        Ok(Some(env)) => env.kind() == crate::env::EnvKind::Local,
+        Ok(None) => true,
+        Err(error) => {
+            log::warn!(
+                "file tool: canonicalize refused for {}: {error:#}",
+                path.display()
+            );
+            return path.to_path_buf();
+        }
+    };
     if is_local {
         path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
     } else {
@@ -311,7 +352,8 @@ pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
     // 这里看**本线程实际绑定**的环境（`current_env()`），未绑定时按宿主判断，
     // 与 `env_is_dir` 同一套约定——不能换成 `effective_env()`，后者在未绑定时会按
     // 部署档位返回 `DeniedEnv`，把 local 账号的宿主路径一律判成不存在。
-    if let Some(err) = crate::env::workspace_dir_error(crate::env::current_env().as_deref(), &p) {
+    let bound = runtime_env_for(&p)?;
+    if let Some(err) = crate::env::workspace_dir_error(bound.as_deref(), &p) {
         return Err(err);
     }
     if is_filesystem_root(&p) {
@@ -713,8 +755,14 @@ fn collect_path_hints(workspace_root: &Path, user_path: &str) -> Vec<String> {
     // 提示只需要一个能列目录的句柄：有会话环境就用它，没绑定（测试 / 工具自检）
     // 就显式按宿主处理。不能用 `effective_env()`——沙箱部署下那是 `DeniedEnv`，
     // 连提示都列不出来，用户只看到一句干巴巴的「路径不存在」。
-    let env = crate::env::current_env()
-        .unwrap_or_else(|| crate::env::host_env_at(workspace_root));
+    let env = match runtime_env_for(workspace_root) {
+        Ok(Some(env)) => env,
+        Ok(None) => crate::env::host_env_at(workspace_root),
+        Err(error) => {
+            log::warn!("file tool: path hints skipped: {error:#}");
+            return Vec::new();
+        }
+    };
     let Ok(entries) = env.list_dir(&list_base) else {
         return Vec::new();
     };

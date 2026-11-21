@@ -158,7 +158,7 @@ pub(crate) fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -
             };
             (walk_root, pattern_raw.to_string())
         };
-    let env = tool_env(root);
+    let env = tool_env(root)?;
     let walk_root = env
         .canonicalize(&walk_root)
         .map_err(|e| anyhow!("glob 搜索根路径无效: {e}"))?;

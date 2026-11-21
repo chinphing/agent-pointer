@@ -250,9 +250,14 @@ pub async fn worktree_create(
 #[tauri::command]
 pub async fn worktree_inspect(
     workspace_root: String,
+    conversation_id: Option<String>,
 ) -> Result<Option<pointer_core::worktree::WorktreeInfo>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        pointer_core::worktree::session::inspect_workspace(&workspace_root).map_err(|e| e.to_string())
+        pointer_core::worktree::session::inspect_workspace(
+            &workspace_root,
+            conversation_id.as_deref(),
+        )
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
@@ -1000,7 +1005,27 @@ pub fn preview_chat_media(
 
 /// Absolute path for a saved conversation-media file (for desktop video preview via convertFileSrc).
 #[tauri::command]
-pub fn get_chat_media_local_path(storage_rel_path: String) -> Result<String, String> {
+pub fn get_chat_media_local_path(
+    storage_rel_path: String,
+    conversation_id: Option<String>,
+) -> Result<String, String> {
+    if let Some(id) = conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        if let Some(env) = pointer_core::env::session_env::env_for_conversation(id) {
+            if !env.is_denied()
+                && env.kind() != pointer_core::env::EnvKind::Local
+                && !env.path_map().is_host_passthrough()
+            {
+                log::info!(
+                    "chat media local path refused: sandbox environment conversation={id} rel={storage_rel_path}"
+                );
+                return Err("沙箱里的媒体没有本机文件地址".into());
+            }
+        }
+    }
     let path = pointer_core::media::media_abs_path(&storage_rel_path).map_err(|e| e.to_string())?;
     if !path.is_file() {
         return Err(format!("媒体文件不存在: {}", path.display()));

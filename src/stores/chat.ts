@@ -3954,7 +3954,7 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
     try {
-      const info = await inspectWorktree(root)
+      const info = await inspectWorktree(root, conv.id)
       worktreeInfoById.value = { ...worktreeInfoById.value, [conv.id]: info }
     } catch (error) {
       // A non-repository workspace is the normal case, not an error worth surfacing.

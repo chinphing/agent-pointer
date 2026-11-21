@@ -11,7 +11,8 @@ export function isUserFilesystemPath(path: string): boolean {
 
 /** Resolve a chat attachment to an absolute on-disk path (desktop only). */
 export async function resolveAttachmentAbsPath(
-  att: Pick<RenderableAttachment, 'localAbsPath' | 'storageRelPath' | 'mediaRef'>
+  att: Pick<RenderableAttachment, 'localAbsPath' | 'storageRelPath' | 'mediaRef'>,
+  conversationId?: string | null
 ): Promise<string | null> {
   const local = att.localAbsPath?.trim()
   if (local && isUserFilesystemPath(local)) return local
@@ -19,7 +20,7 @@ export async function resolveAttachmentAbsPath(
   const rel = att.storageRelPath?.trim()
   if (rel && isTauriRuntime()) {
     try {
-      return await getChatMediaLocalPath(rel)
+      return await getChatMediaLocalPath(rel, conversationId)
     } catch (err) {
       console.warn('resolveAttachmentAbsPath: storage rel failed', rel, err)
     }

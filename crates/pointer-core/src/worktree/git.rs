@@ -9,10 +9,187 @@
 //!
 //! This mirrors the hardening OpenAI Codex applies in `codex-rs/worktree/src/git.rs`.
 
-use crate::env::{host_env, ExecOptions, ExecOutput};
+use crate::env::{host_env, Environment, ExecOptions, ExecOutput};
 use anyhow::{bail, Context, Result};
+use std::cell::RefCell;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+thread_local! {
+    static GIT_ENV: RefCell<Option<Arc<dyn Environment>>> = const { RefCell::new(None) };
+}
+
+/// Run `body` with git and worktree path checks bound to `env`.
+///
+/// Local callers leave this unset and keep the host environment. Sandbox
+/// creation sets the conversation environment so `git` runs inside it.
+pub(crate) fn with_git_env<T>(env: Arc<dyn Environment>, body: impl FnOnce() -> T) -> T {
+    struct Guard(Option<Arc<dyn Environment>>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let prev = self.0.take();
+            GIT_ENV.with(|slot| *slot.borrow_mut() = prev);
+        }
+    }
+    let prev = GIT_ENV.with(|slot| slot.replace(Some(env)));
+    let _guard = Guard(prev);
+    body()
+}
+
+fn active_git_env() -> Arc<dyn Environment> {
+    GIT_ENV
+        .with(|slot| slot.borrow().clone())
+        .unwrap_or_else(host_env)
+}
+
+pub(crate) fn git_on_host() -> bool {
+    active_git_env().path_map().is_host_passthrough()
+}
+
+pub(crate) fn canonicalize_path(path: &Path) -> Result<PathBuf> {
+    let env = active_git_env();
+    if env.path_map().is_host_passthrough() {
+        std::fs::canonicalize(path)
+            .with_context(|| format!("cannot resolve {}", path.display()))
+    } else {
+        env.canonicalize(path).with_context(|| {
+            format!(
+                "cannot resolve {} in the session environment",
+                path.display()
+            )
+        })
+    }
+}
+
+pub(crate) fn canonicalize_path_or_original(path: &Path) -> PathBuf {
+    match canonicalize_path(path) {
+        Ok(path) => path,
+        Err(error) => {
+            log::warn!("worktree: canonicalize failed for {}: {error:#}", path.display());
+            path.to_path_buf()
+        }
+    }
+}
+
+pub(crate) fn path_is_dir(path: &Path) -> bool {
+    if git_on_host() {
+        path.is_dir()
+    } else {
+        active_git_env()
+            .metadata(path)
+            .map(|meta| meta.is_dir)
+            .unwrap_or(false)
+    }
+}
+
+pub(crate) fn path_is_file(path: &Path) -> bool {
+    if git_on_host() {
+        std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_file())
+    } else {
+        active_git_env()
+            .metadata(path)
+            .map(|meta| meta.is_file)
+            .unwrap_or(false)
+    }
+}
+
+pub(crate) fn ensure_dir_all(path: &Path) -> Result<()> {
+    let env = active_git_env();
+    if env.path_map().is_host_passthrough() {
+        std::fs::create_dir_all(path)
+            .with_context(|| format!("cannot create directory {}", path.display()))
+    } else {
+        env.create_dir_all(path).with_context(|| {
+            format!(
+                "cannot create directory {} in the session environment",
+                path.display()
+            )
+        })
+    }
+}
+
+/// Create `path` only when it does not exist. `Ok(true)` means this call created it.
+pub(crate) fn create_dir_exclusive(path: &Path) -> Result<bool> {
+    if git_on_host() {
+        match std::fs::create_dir(path) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+            Err(error) => Err(error)
+                .with_context(|| format!("cannot create directory {}", path.display())),
+        }
+    } else {
+        let env = active_git_env();
+        if env.metadata(path).is_ok() {
+            return Ok(false);
+        }
+        env.create_dir_all(path).with_context(|| {
+            format!(
+                "cannot create directory {} in the session environment",
+                path.display()
+            )
+        })?;
+        Ok(true)
+    }
+}
+
+pub(crate) fn remove_empty_dir(path: &Path) {
+    if git_on_host() {
+        let _ = std::fs::remove_dir(path);
+        return;
+    }
+    let env = active_git_env();
+    match env.list_dir(path) {
+        Ok(entries) if entries.is_empty() => {
+            if let Err(error) = env.remove_dir_all(path) {
+                log::warn!(
+                    "worktree: failed to remove empty directory {}: {error:#}",
+                    path.display()
+                );
+            }
+        }
+        Ok(_) => {}
+        Err(error) => {
+            log::warn!(
+                "worktree: cannot inspect directory {} before removal: {error:#}",
+                path.display()
+            );
+        }
+    }
+}
+
+pub(crate) fn read_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
+    if git_on_host() {
+        std::fs::read(path)
+    } else {
+        let env = active_git_env();
+        if env.metadata(path).is_err() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("not found: {}", path.display()),
+            ));
+        }
+        env.read_file(path)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, format!("{error:#}")))
+    }
+}
+
+pub(crate) fn write_bytes(path: &Path, data: &[u8]) -> Result<()> {
+    let env = active_git_env();
+    if env.path_map().is_host_passthrough() {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, data)
+            .with_context(|| format!("cannot write {}", path.display()))
+    } else {
+        if let Some(parent) = path.parent() {
+            env.create_dir_all(parent)?;
+        }
+        env.write_file(path, data)
+            .with_context(|| format!("cannot write {} in the session environment", path.display()))
+    }
+}
 
 const DISABLED_HOOKS_PATH: &str = if cfg!(windows) { "NUL" } else { "/dev/null" };
 
@@ -66,9 +243,8 @@ where
         args.into_iter()
             .map(|a| a.as_ref().to_string_lossy().into_owned()),
     );
-    // worktree 属于**宿主仓库**（沙箱里没有 .git）：固定用宿主环境，
-    // 不能跟着会话档位走，否则 headless 档位下会去沙箱里找仓库。
-    let output = host_env()
+    // 本地档位走宿主 git。沙箱档位由 `with_git_env` 绑到会话环境，在容器里执行。
+    let output = active_git_env()
         .exec(&argv, git_options(cwd))
         .context("failed to start git (is git installed?)")?;
     ensure_success(&output)?;
@@ -122,7 +298,7 @@ pub(crate) fn path_from_bytes(bytes: &[u8]) -> Result<PathBuf> {
 pub(crate) fn repository_root(cwd: &Path) -> Result<PathBuf> {
     let raw = git_path(cwd, ["rev-parse", "--show-toplevel"])
         .with_context(|| format!("{} is not inside a git repository", cwd.display()))?;
-    std::fs::canonicalize(&raw)
+    canonicalize_path(&raw)
         .with_context(|| format!("cannot resolve repository root {}", raw.display()))
 }
 
@@ -165,7 +341,7 @@ pub(crate) fn resolve_git_path(cwd: &Path, argument: &str) -> Result<PathBuf> {
             }
         }
     };
-    std::fs::canonicalize(&raw)
+    canonicalize_path(&raw)
         .with_context(|| format!("cannot resolve git path {}", raw.display()))
 }
 
@@ -210,7 +386,7 @@ fn configured_filters(cwd: &Path) -> Result<Vec<String>> {
         .into_iter()
         .map(str::to_string),
     );
-    let output = host_env()
+    let output = active_git_env()
         .exec(&argv, git_options(cwd))
         .context("failed to inspect git filter configuration")?;
     if output.status != 0 {

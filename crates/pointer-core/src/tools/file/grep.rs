@@ -364,7 +364,7 @@ pub(crate) fn execute_file_grep_payload_with(
         GrepScope::SingleFile { file } => (path_display_abs(file), true),
     };
 
-    let env = tool_env(&root);
+    let env = tool_env(&root)?;
     match scope {
         GrepScope::SingleFile { file } => {
             grep_one_path_with_searcher(

@@ -424,8 +424,14 @@ export async function previewChatMedia(
   })
 }
 
-export async function getChatMediaLocalPath(storageRelPath: string): Promise<string> {
-  return await invoke<string>('get_chat_media_local_path', { storageRelPath })
+export async function getChatMediaLocalPath(
+  storageRelPath: string,
+  conversationId?: string | null
+): Promise<string> {
+  return await invoke<string>('get_chat_media_local_path', {
+    storageRelPath,
+    conversationId: conversationId?.trim() || null
+  })
 }
 
 export async function previewMediaRef(
@@ -620,8 +626,14 @@ export async function createWorktree(
 }
 
 /** Describe a workspace when it is a linked worktree; null for a main checkout. */
-export async function inspectWorktree(workspaceRoot: string): Promise<WorktreeInfo | null> {
-  return await invoke<WorktreeInfo | null>('worktree_inspect', { workspaceRoot })
+export async function inspectWorktree(
+  workspaceRoot: string,
+  conversationId?: string | null
+): Promise<WorktreeInfo | null> {
+  return await invoke<WorktreeInfo | null>('worktree_inspect', {
+    workspaceRoot,
+    conversationId: conversationId?.trim() || null
+  })
 }
 
 export async function getWorkspacePolicy(): Promise<import('../types/chat').WorkspacePolicy> {

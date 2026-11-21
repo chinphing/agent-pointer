@@ -1,5 +1,6 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { isUsableAttachmentPreviewUrl } from './attachmentSupport'
+import { previewChatMedia } from './api'
 import { isTauriRuntime } from './runtime'
 import { getChatMediaLocalPath } from './tauri'
 import { chatMediaStreamObjectUrl } from './web'
@@ -14,10 +15,19 @@ export async function videoPreviewUrlFromStorage(
     return chatMediaStreamObjectUrl(storageRelPath.trim(), conversationId)
   }
   try {
-    const abs = await getChatMediaLocalPath(storageRelPath.trim())
+    const abs = await getChatMediaLocalPath(storageRelPath.trim(), conversationId)
     if (!abs.trim()) return null
     return convertFileSrc(abs)
   } catch (err) {
+    if (conversationId?.trim()) {
+      try {
+        const preview = await previewChatMedia(storageRelPath.trim(), conversationId)
+        const mime = preview.mimeType?.trim() || 'application/octet-stream'
+        return `data:${mime};base64,${preview.dataBase64}`
+      } catch (previewErr) {
+        console.warn('videoPreviewUrlFromStorage sandbox read failed', previewErr)
+      }
+    }
     console.warn('videoPreviewUrlFromStorage failed', err)
     return null
   }

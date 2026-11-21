@@ -2843,6 +2843,8 @@ async fn create_worktree(
 struct WorktreeInspectQuery {
     #[serde(rename = "workspaceRoot")]
     workspace_root: String,
+    #[serde(rename = "conversationId")]
+    conversation_id: Option<String>,
 }
 
 async fn inspect_worktree(
@@ -2851,7 +2853,10 @@ async fn inspect_worktree(
 ) -> Result<Json<Option<pointer_core::worktree::WorktreeInfo>>, ApiError> {
     require_platform_access(&state)?;
     let info = tokio::task::spawn_blocking(move || {
-        pointer_core::worktree::session::inspect_workspace(&q.workspace_root)
+        pointer_core::worktree::session::inspect_workspace(
+            &q.workspace_root,
+            q.conversation_id.as_deref(),
+        )
     })
     .await
     .map_err(|e| ApiError(anyhow::anyhow!(e)))?

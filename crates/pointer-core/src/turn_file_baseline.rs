@@ -11,7 +11,7 @@
 
 use crate::storage;
 use crate::text_diff::compute_diff_lines;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Skip baselines larger than this (bytes) to avoid blowing app-data disk.
 pub const MAX_BASELINE_BYTES: usize = 5 * 1024 * 1024;
@@ -441,17 +441,105 @@ fn read_next_path_baseline(
     Ok(None)
 }
 
-fn resolve_abs_path(workspace_root: &Path, path: &str) -> Result<PathBuf> {
+fn path_text(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn path_needs_session_env(workspace_root: &Path, path: &str) -> bool {
+    crate::workspace_resolve::looks_like_sandbox_guest_path(&path_text(workspace_root))
+        || crate::workspace_resolve::looks_like_sandbox_guest_path(path)
+}
+
+/// 沙箱路径走已缓存的会话环境。本机路径走宿主。
+///
+/// 不调用 `effective_env()`：沙箱部署下未绑定会得到 `DeniedEnv`。
+/// 也不在会话环境缺失时改读宿主上的 data 卷。
+fn env_for_turn_file_diff(
+    conversation_id: &str,
+    workspace_root: &Path,
+    path: &str,
+) -> Result<Arc<dyn crate::env::Environment>> {
+    let guest = path_needs_session_env(workspace_root, path);
+    if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
+        let sandbox = !env.is_denied() && !env.path_map().is_host_passthrough();
+        if guest {
+            if !sandbox {
+                warn!(
+                    "turn_file_diff: session environment unusable conversation_id={conversation_id} workspace={} path={path}",
+                    workspace_root.display()
+                );
+                bail!(
+                    "沙箱会话的执行环境不可用，无法读取回合文件（conversation={conversation_id}）"
+                );
+            }
+            info!(
+                "turn_file_diff: session environment conversation_id={conversation_id} workspace={} path={path}",
+                workspace_root.display()
+            );
+            return Ok(env);
+        }
+        if env.kind() == crate::env::EnvKind::Local
+            || (env.path_map().is_host_passthrough() && !env.is_denied())
+        {
+            info!(
+                "turn_file_diff: session environment conversation_id={conversation_id} workspace={} path={path}",
+                workspace_root.display()
+            );
+            return Ok(env);
+        }
+        info!(
+            "turn_file_diff: host path via host environment conversation_id={conversation_id} workspace={} path={path}",
+            workspace_root.display()
+        );
+        return Ok(crate::env::host_env_at(workspace_root));
+    }
+    if guest {
+        warn!(
+            "turn_file_diff: sandbox path has no session environment conversation_id={conversation_id} workspace={} path={path}",
+            workspace_root.display()
+        );
+        bail!(
+            "工作区在沙箱内（{}），但当前没有会话环境",
+            workspace_root.display()
+        );
+    }
+    Ok(crate::env::host_env_at(workspace_root))
+}
+
+fn join_guest(root: &Path, relative: &str) -> PathBuf {
+    let root = path_text(root);
+    let root = root.trim_end_matches('/');
+    let relative = relative.trim().replace('\\', "/");
+    let relative = relative.trim_start_matches('/');
+    PathBuf::from(format!("{root}/{relative}"))
+}
+
+fn resolve_diff_path(
+    workspace_root: &Path,
+    path: &str,
+    canonicalize_on_host: bool,
+) -> Result<PathBuf> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err(anyhow!("path is required"));
     }
-    let candidate = PathBuf::from(trimmed);
-    if candidate.is_absolute() {
-        return Ok(candidate.canonicalize().unwrap_or_else(|_| candidate));
+    let guest_file = crate::workspace_resolve::looks_like_sandbox_guest_path(trimmed);
+    let absolute = guest_file || Path::new(trimmed).is_absolute();
+    let joined = if !absolute {
+        if crate::workspace_resolve::looks_like_sandbox_guest_path(&path_text(workspace_root)) {
+            join_guest(workspace_root, trimmed)
+        } else {
+            workspace_root.join(trimmed)
+        }
+    } else if guest_file {
+        PathBuf::from(trimmed.replace('\\', "/"))
+    } else {
+        PathBuf::from(trimmed)
+    };
+    if canonicalize_on_host && !guest_file {
+        return Ok(joined.canonicalize().unwrap_or(joined));
     }
-    let joined = workspace_root.join(trimmed);
-    Ok(joined.canonicalize().unwrap_or(joined))
+    Ok(joined)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -465,28 +553,27 @@ pub struct TurnFileDiff {
 }
 
 /// Diff this turn's baseline against the next later baseline for the same path,
-/// or the current on-disk file when no later snapshot exists.
+/// or the current file when no later snapshot exists.
+///
+/// Web and the desktop client both call this. Guest `/data/...` paths are read
+/// through the cached session environment. Host paths are read on the host.
+/// Relative paths join `workspace_root` from the caller.
 pub fn turn_file_diff(
     conversation_id: &str,
     turn_id: &str,
     workspace_root: &Path,
     path: &str,
 ) -> Result<TurnFileDiff> {
-    // 执行环境：headless/desktop 档位下工作区在沙箱里（`/workspace`），
-    // 宿主路径不存在——这里必须按会话解析，否则 diff 永远是空的。
-    // 查不到会话环境（面板先于回合请求 diff / 本机直跑）就显式按宿主 + 调用方给的
-    // 工作区处理。不能用 `effective_env()`：沙箱部署下未绑定会拿到 `DeniedEnv`，
-    // 把「没绑定」伪装成「沙箱里没有这个文件」。
-    let env = crate::env::session_env::env_for_conversation(conversation_id)
-        .unwrap_or_else(|| crate::env::host_env_at(workspace_root));
-    let root = if env.kind() == crate::env::EnvKind::Local {
-        workspace_root
-            .canonicalize()
-            .with_context(|| format!("workspaceRoot does not exist: {}", workspace_root.display()))?
+    let env = env_for_turn_file_diff(conversation_id, workspace_root, path)?;
+    let on_host = env.kind() == crate::env::EnvKind::Local || env.path_map().is_host_passthrough();
+    let root = if on_host {
+        workspace_root.canonicalize().with_context(|| {
+            format!("workspaceRoot does not exist: {}", workspace_root.display())
+        })?
     } else {
-        env.workspace_root().to_path_buf()
+        workspace_root.to_path_buf()
     };
-    let abs = resolve_abs_path(&root, path)?;
+    let abs = resolve_diff_path(&root, path, on_host)?;
     let display_path = abs.to_string_lossy().replace('\\', "/");
     // Tool results often store a non-canonical absolute path; try both keys.
     let raw_abs = PathBuf::from(path.trim());
@@ -577,6 +664,7 @@ pub fn resolve_active_turn_id(conversation_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
 
     #[test]
     fn compute_diff_detects_insert() {
@@ -680,5 +768,179 @@ mod tests {
         let conv = format!("miss-{}", uuid::Uuid::new_v4());
         assert_eq!(resolve_active_turn_id(&conv), format!("orphan-{conv}"));
         assert!(!turn_id_map().contains_key(&conv));
+    }
+
+    #[test]
+    fn host_diff_reads_the_caller_workspace() {
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(dir.path().join("app"));
+        let workspace = dir.path().join("ws");
+        fs::create_dir_all(workspace.join("src")).unwrap();
+        let file = workspace.join("src/a.txt");
+        fs::write(&file, "now\n").unwrap();
+        let abs = file.canonicalize().unwrap();
+        let conv = format!("host-diff-{}", uuid::Uuid::new_v4());
+        {
+            let _guard = TurnBaselineGuard::enter(&conv, "u1");
+            ensure_baseline(&abs, "old\n").unwrap();
+        }
+        let diff = turn_file_diff(&conv, "u1", &workspace, "src/a.txt").unwrap();
+        assert!(!diff.baseline_missing);
+        assert_eq!(diff.diff_stats["adds"].as_u64().unwrap(), 1);
+    }
+
+    #[test]
+    fn guest_diff_without_session_env_errors() {
+        let conv = format!("guest-miss-{}", uuid::Uuid::new_v4());
+        let err = turn_file_diff(&conv, "u1", Path::new("/data/workspaces/proj"), "src/a.txt")
+            .unwrap_err();
+        assert!(err.to_string().contains("没有会话环境"), "{err}");
+    }
+
+    #[test]
+    fn guest_diff_rejects_a_host_passthrough_env() {
+        let conv = format!("guest-local-{}", uuid::Uuid::new_v4());
+        crate::env::session_env::remember_local_for_test(&conv, Path::new("/data/workspaces"));
+        let err = turn_file_diff(&conv, "u1", Path::new("/data/workspaces/proj"), "src/a.txt")
+            .unwrap_err();
+        assert!(err.to_string().contains("执行环境不可用"), "{err}");
+    }
+
+    #[test]
+    fn guest_diff_reads_the_caller_project_not_the_env_workdir() {
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(dir.path().join("app"));
+        let conv = format!("guest-diff-{}", uuid::Uuid::new_v4());
+        let project = "/data/workspaces/proj/src/a.rs";
+        let env = GuestDiffEnv::new("/data/workspaces");
+        env.put(project, b"now\n");
+        crate::env::session_env::remember_env_for_test(&conv, std::sync::Arc::new(env));
+        {
+            let _guard = TurnBaselineGuard::enter(&conv, "u1");
+            ensure_baseline(Path::new(project), "old\n").unwrap();
+        }
+        let diff =
+            turn_file_diff(&conv, "u1", Path::new("/data/workspaces/proj"), "src/a.rs").unwrap();
+        assert_eq!(diff.path, project);
+        assert!(!diff.baseline_missing);
+        assert_eq!(diff.diff_stats["adds"].as_u64().unwrap(), 1);
+    }
+
+    struct GuestDiffEnv {
+        workspace: PathBuf,
+        map: crate::env::PathMap,
+        files: std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
+    }
+
+    impl GuestDiffEnv {
+        fn new(workspace: &str) -> Self {
+            Self {
+                workspace: PathBuf::from(workspace),
+                map: crate::env::PathMap::new(vec![crate::env::Mount::new(
+                    "/tmp/pointer-data",
+                    "/data",
+                    false,
+                )]),
+                files: Mutex::new(HashMap::new()),
+            }
+        }
+
+        fn put(&self, path: &str, bytes: &[u8]) {
+            self.files
+                .lock()
+                .expect("files")
+                .insert(path.replace('\\', "/"), bytes.to_vec());
+        }
+
+        fn lookup(&self, path: &Path) -> Option<Vec<u8>> {
+            let key = path.to_string_lossy().replace('\\', "/");
+            self.files.lock().expect("files").get(&key).cloned()
+        }
+    }
+
+    impl crate::env::Environment for GuestDiffEnv {
+        fn kind(&self) -> crate::env::EnvKind {
+            crate::env::EnvKind::Headless
+        }
+        fn workspace_root(&self) -> &Path {
+            &self.workspace
+        }
+        fn skills_root(&self) -> &Path {
+            Path::new("/skills")
+        }
+        fn home_root(&self) -> &Path {
+            Path::new("/home/pointer")
+        }
+        fn capabilities(&self) -> crate::env::Capabilities {
+            crate::env::Capabilities::headless()
+        }
+        fn path_map(&self) -> &crate::env::PathMap {
+            &self.map
+        }
+        fn exec(
+            &self,
+            _argv: &[String],
+            _opts: crate::env::ExecOptions,
+        ) -> Result<crate::env::ExecOutput> {
+            Err(anyhow::anyhow!("guest diff env: exec"))
+        }
+        fn spawn(
+            &self,
+            _argv: &[String],
+            _opts: crate::env::SpawnOptions,
+        ) -> Result<Box<dyn crate::env::ChildHandle>> {
+            Err(anyhow::anyhow!("guest diff env: spawn"))
+        }
+        fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
+            self.lookup(path)
+                .ok_or_else(|| anyhow::anyhow!("guest diff env: missing {}", path.display()))
+        }
+        fn write_file(&self, _path: &Path, _data: &[u8]) -> Result<()> {
+            Ok(())
+        }
+        fn list_dir(&self, _path: &Path) -> Result<Vec<crate::env::DirEntry>> {
+            Ok(Vec::new())
+        }
+        fn metadata(&self, path: &Path) -> Result<crate::env::FileMetadata> {
+            let bytes = self
+                .lookup(path)
+                .ok_or_else(|| anyhow::anyhow!("guest diff env: missing {}", path.display()))?;
+            Ok(crate::env::FileMetadata {
+                is_file: true,
+                is_dir: false,
+                is_symlink: false,
+                len: bytes.len() as u64,
+            })
+        }
+        fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
+            Ok(path.to_path_buf())
+        }
+        fn create_dir_all(&self, _path: &Path) -> Result<()> {
+            Ok(())
+        }
+        fn read_to_string(&self, path: &Path) -> Result<String> {
+            Ok(String::from_utf8(self.read_file(path)?)?)
+        }
+        fn open_reader(&self, path: &Path) -> Result<Box<dyn std::io::Read + Send>> {
+            Ok(Box::new(std::io::Cursor::new(self.read_file(path)?)))
+        }
+        fn walk(
+            &self,
+            _root: &Path,
+            _opts: crate::env::WalkOptions,
+        ) -> Result<Vec<crate::env::WalkEntry>> {
+            Ok(Vec::new())
+        }
+        fn remove_file(&self, _path: &Path) -> Result<()> {
+            Ok(())
+        }
+        fn remove_dir_all(&self, _path: &Path) -> Result<()> {
+            Ok(())
+        }
+        fn set_executable(&self, _path: &Path) -> Result<()> {
+            Ok(())
+        }
     }
 }

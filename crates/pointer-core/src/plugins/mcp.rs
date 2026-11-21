@@ -74,6 +74,12 @@ enum Transport {
     },
 }
 
+impl McpClient {
+    fn is_stdio(&self) -> bool {
+        matches!(self.transport, Transport::Stdio { .. })
+    }
+}
+
 impl Drop for McpClient {
     fn drop(&mut self) {
         self.kill_child();
@@ -97,11 +103,12 @@ impl McpClient {
         Ok(candidate)
     }
 
-    /// 启动 stdio MCP server 并完成握手；失败时清理子进程。
-    pub fn connect_stdio(
+    /// 在指定环境里启动 stdio MCP。插件加载用宿主环境；沙箱会话调用时用会话环境。
+    pub fn connect_stdio_in(
         plugin_id: &str,
         plugin_dir: &Path,
         decl: &McpServerDecl,
+        env: &Arc<dyn crate::env::Environment>,
     ) -> Result<Arc<McpClient>> {
         if decl.transport != "stdio" {
             return Err(anyhow!(
@@ -111,10 +118,22 @@ impl McpClient {
             ));
         }
         let command_path = Self::resolve_command(plugin_dir, &decl.command)?;
+        let command_path = if env.kind() == crate::env::EnvKind::Local
+            || env.path_map().is_host_passthrough()
+        {
+            command_path
+        } else {
+            env.path_map().to_agent(&command_path).map_err(|error| {
+                anyhow!(
+                    "MCP 命令不在会话环境可见范围内（{}）：{error:#}",
+                    command_path.display()
+                )
+            })?
+        };
         let mut argv = vec![command_path.to_string_lossy().into_owned()];
         argv.extend(decl.args.iter().cloned());
         let uid = crate::session_user_env::current_session_user_id().unwrap_or_default();
-        let mut env: Vec<(String, String)> = decl
+        let mut process_env: Vec<(String, String)> = decl
             .env
             .iter()
             .map(|(k, v)| {
@@ -129,8 +148,8 @@ impl McpClient {
         match crate::secret_store::plugin_process_env(&uid, plugin_id, plugin_dir, None) {
             Ok(extra) => {
                 for (k, v) in extra {
-                    if !env.iter().any(|(ek, _)| ek == &k) {
-                        env.push((k, v));
+                    if !process_env.iter().any(|(ek, _)| ek == &k) {
+                        process_env.push((k, v));
                     }
                 }
             }
@@ -138,20 +157,12 @@ impl McpClient {
         }
         let opts = SpawnOptions {
             cwd: None,
-            env,
+            env: process_env,
         };
-        // MCP server 是**插件加载期**起的宿主子进程（stdio 管道对端），这里没有会话上下文，
-        // 所以显式按宿主起进程；**调用**侧（`register_mcp_tool`）已限制为 local 会话，
-        // 沙箱会话不能借它执行宿主命令。
-        // 不能用 `effective_env()`：沙箱部署下它会按部署档位返回 `DeniedEnv`，
-        // 把「插件加载没有会话」伪装成「启动 MCP server 失败」。
-        let mut child = crate::env::host_env()
-            .spawn(&argv, opts)
-            .map_err(|e| anyhow!("启动 MCP server 失败 ({}): {e}", command_path.display()))?;
+        let mut child = spawn_stdio_child(&command_path, &argv, opts, env)?;
         let stdout = child
             .reader()
             .map_err(|e| anyhow!("无法读取 MCP server stdout: {e}"))?;
-
         let client = Arc::new(McpClient {
             plugin_id: plugin_id.to_string(),
             server_name: decl.name.clone(),
@@ -163,8 +174,6 @@ impl McpClient {
             pending: Arc::new(Mutex::new(HashMap::new())),
         });
         client.spawn_reader(stdout);
-
-        // initialize 握手
         let init_result: Value = client
             .request(
                 "initialize",
@@ -183,9 +192,20 @@ impl McpClient {
                 decl.name
             );
         }
-        // notifications/initialized（无 id）
         client.notify("notifications/initialized", json!({}))?;
         Ok(client)
+    }
+
+    /// 启动 stdio MCP server 并完成握手；失败时清理子进程。
+    ///
+    /// 插件加载时没有会话，用宿主环境发现工具。沙箱会话的调用另走
+    /// [`Self::connect_stdio_in`]。
+    pub fn connect_stdio(
+        plugin_id: &str,
+        plugin_dir: &Path,
+        decl: &McpServerDecl,
+    ) -> Result<Arc<McpClient>> {
+        Self::connect_stdio_in(plugin_id, plugin_dir, decl, &crate::env::host_env())
     }
 
     /// 连接远程 MCP 服务（streamable HTTP，客户端场景）。
@@ -919,7 +939,7 @@ fn activate_mcp_servers_with(
             Ok(client) => match client.list_tools() {
                 Ok(tool_infos) => {
                     for info in tool_infos {
-                        register_mcp_tool(tools, plugin_id, decl, &client, info);
+                        register_mcp_tool(tools, plugin_id, base_dir, decl, &client, info);
                     }
                     clients.push(client);
                 }
@@ -971,9 +991,20 @@ fn sanitize_mcp_wire_name(server: &str, tool: &str) -> String {
     }
 }
 
+fn spawn_stdio_child(
+    command_path: &Path,
+    argv: &[String],
+    opts: SpawnOptions,
+    env: &Arc<dyn crate::env::Environment>,
+) -> Result<Box<dyn ChildHandle>> {
+    env.spawn(argv, opts)
+        .map_err(|e| anyhow!("启动 MCP server 失败 ({}): {e}", command_path.display()))
+}
+
 fn register_mcp_tool(
     tools: &crate::tools::ToolRegistry,
     plugin_id: &str,
+    plugin_dir: &Path,
     decl: &McpServerDecl,
     client: &Arc<McpClient>,
     info: McpToolInfo,
@@ -1001,13 +1032,35 @@ fn register_mcp_tool(
     } else {
         tool_name.clone()
     };
-    // MCP 子进程当前由宿主常驻（见 `connect_stdio`），调用即等于在宿主执行：
-    // 只允许 local 会话调用，沙箱会话在这里拒绝，不能借它触达宿主。
+    let plugin_dir = plugin_dir.to_path_buf();
+    let session_decl = decl.clone();
+    let plugin_id_owned = plugin_id.to_string();
+    let stdio = client.is_stdio();
+    // 宿主上的 stdio 进程只给本地档位用。沙箱会话在自己的环境里另起一份，
+    // 不能借宿主进程执行命令。HTTP MCP 连的是远端服务，不经过宿主进程。
     let handler: ToolHandler = Arc::new(move |args: Value| -> Result<String> {
         let cid = crate::tools::context::current_tool_context()
             .map(|ctx| ctx.conversation_id().to_string())
             .unwrap_or_default();
-        crate::env::ensure_host_execution_allowed(&cid, "MCP 工具调用")?;
+        let env = crate::env::current_env()
+            .or_else(|| crate::env::session_env::env_for_conversation(&cid));
+        let sandbox = env.as_ref().is_some_and(|env| {
+            !env.is_denied()
+                && env.kind() != crate::env::EnvKind::Local
+                && !env.path_map().is_host_passthrough()
+        });
+        if sandbox && stdio {
+            let env = env.expect("sandbox env checked above");
+            log::info!(
+                "mcp: stdio call in session environment conversation={cid} server={} tool={tool_name}",
+                session_decl.name
+            );
+            let session = McpClient::connect_stdio_in(&plugin_id_owned, &plugin_dir, &session_decl, &env)?;
+            return session.call_tool(&tool_name, args);
+        }
+        if stdio {
+            crate::env::ensure_host_execution_allowed(&cid, "MCP 工具调用")?;
+        }
         client.call_tool(&tool_name, args)
     });
 

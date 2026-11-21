@@ -303,7 +303,7 @@ export interface RuntimeApi {
   previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview>
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
   previewChatMedia(storageRelPath: string, conversationId?: string | null): Promise<ChatMediaPreview>
-  getChatMediaLocalPath?(storageRelPath: string): Promise<string>
+  getChatMediaLocalPath?(storageRelPath: string, conversationId?: string | null): Promise<string>
   previewMediaRef(mediaRef: string, conversationId?: string | null): Promise<ChatMediaPreview>
   saveChatAttachment(
     payload: SaveChatAttachmentPayload,
@@ -337,7 +337,7 @@ export interface RuntimeApi {
   /** Create a managed worktree for a conversation, based on the source HEAD. */
   createWorktree(conversationId: string, sourceWorkspaceRoot?: string, base?: string): Promise<ManagedWorktree>
   /** Describe the workspace when it is a linked worktree; null for a main checkout. */
-  inspectWorktree(workspaceRoot: string): Promise<WorktreeInfo | null>
+  inspectWorktree(workspaceRoot: string, conversationId?: string | null): Promise<WorktreeInfo | null>
   createDirectory(parentPath: string, name: string): Promise<string>
   getWorkspacePolicy(): Promise<import('../types/chat').WorkspacePolicy>
   listWorkspaceChooserDirs(parent?: string, conversationId?: string): Promise<import('../types/chat').WorkspaceListResult>

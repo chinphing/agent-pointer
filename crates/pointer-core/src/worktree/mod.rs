@@ -25,7 +25,10 @@ mod settings;
 pub(crate) mod test_support;
 
 use anyhow::{bail, Context, Result};
-use git::{git_output, git_path, git_stdout, repository_root, resolve_git_path, rev_parse_commit};
+use git::{
+    canonicalize_path, canonicalize_path_or_original, git_output, git_path, git_stdout, path_is_dir,
+    path_is_file, repository_root, resolve_git_path, rev_parse_commit,
+};
 use git::{simplify_path, GitOperation};
 use paths::{allocate_worktree_root, remove_empty_bucket};
 use serde::Serialize;
@@ -116,7 +119,7 @@ impl WorktreeManager {
     pub fn create(&self, request: &CreateWorktree) -> Result<ManagedWorktree> {
         self.settings.validate()?;
 
-        let source_cwd = fs::canonicalize(&request.source_cwd)
+        let source_cwd = canonicalize_path(&request.source_cwd)
             .with_context(|| format!("cannot resolve {}", request.source_cwd.display()))?;
         let source_root = repository_root(&source_cwd)?;
         let relative_cwd = source_cwd
@@ -200,9 +203,9 @@ impl WorktreeManager {
         // Report canonical paths: macOS temp dirs (and user-chosen symlinks) resolve
         // to a different prefix, and every later comparison (`list`, `remove`,
         // ownership lookups) works on canonical paths.
-        let canonical_root = fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+        let canonical_root = canonicalize_path_or_original(&root);
         let canonical_cwd = canonical_root.join(&relative_cwd);
-        let canonical_source = fs::canonicalize(&source_root).unwrap_or_else(|_| source_root.clone());
+        let canonical_source = canonicalize_path_or_original(&source_root);
 
         Ok(ManagedWorktree {
             root: simplify_path(&canonical_root),
@@ -217,15 +220,14 @@ impl WorktreeManager {
 
     /// Managed checkouts of the repository that contains `source_cwd`.
     pub fn list(&self, source_cwd: &Path) -> Result<Vec<ManagedWorktree>> {
-        let source_cwd = fs::canonicalize(source_cwd)
+        let source_cwd = canonicalize_path(source_cwd)
             .with_context(|| format!("cannot resolve {}", source_cwd.display()))?;
         let source_root = repository_root(&source_cwd)?;
         let relative_cwd = source_cwd
             .strip_prefix(&source_root)
             .context("working directory is outside the repository root")?
             .to_path_buf();
-        let managed_root = fs::canonicalize(&self.settings.root)
-            .unwrap_or_else(|_| self.settings.root.clone());
+        let managed_root = canonicalize_path_or_original(&self.settings.root);
         let source_common_dir = resolve_git_path(&source_root, "--git-common-dir")?;
         let output = git_output(
             &source_cwd,
@@ -239,15 +241,14 @@ impl WorktreeManager {
                 continue;
             };
             // Reject aliases: both the checkout and its bucket must be real directories.
-            if !bucket.is_dir() {
+            if !path_is_dir(bucket) {
                 continue;
             }
-            let canonical_root = fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+            let canonical_root = canonicalize_path_or_original(&root);
             if !has_managed_layout(&managed_root, &canonical_root) {
                 continue;
             }
-            let linked_git_file = fs::symlink_metadata(canonical_root.join(".git"))
-                .is_ok_and(|metadata| metadata.file_type().is_file());
+            let linked_git_file = path_is_file(&canonical_root.join(".git"));
             if !linked_git_file {
                 continue;
             }
@@ -283,7 +284,7 @@ impl WorktreeManager {
 
     /// Remove one managed checkout, refusing anything with local content.
     pub fn remove(&self, source_cwd: &Path, root: &Path) -> Result<()> {
-        let target = fs::canonicalize(root)
+        let target = canonicalize_path(root)
             .with_context(|| format!("cannot resolve worktree {}", root.display()))?;
         let checkout = self
             .list(source_cwd)?
@@ -391,16 +392,15 @@ impl WorktreeManager {
 
     /// Whether `path` is one of this app's managed checkouts.
     pub fn is_managed_path(&self, path: &Path) -> bool {
-        let Ok(canonical) = fs::canonicalize(path) else {
+        let Ok(canonical) = canonicalize_path(path) else {
             return false;
         };
-        let managed_root = fs::canonicalize(&self.settings.root)
-            .unwrap_or_else(|_| self.settings.root.clone());
+        let managed_root = canonicalize_path_or_original(&self.settings.root);
         has_managed_layout(&managed_root, &canonical)
     }
 
     fn managed_checkout(&self, checkout: &Path) -> Result<PathBuf> {
-        let canonical = fs::canonicalize(checkout)
+        let canonical = canonicalize_path(checkout)
             .with_context(|| format!("cannot resolve worktree {}", checkout.display()))?;
         if !self.is_managed_path(&canonical) {
             bail!("{} is not a managed worktree", checkout.display());
@@ -420,7 +420,7 @@ pub fn inspect(cwd: &Path) -> Result<Option<WorktreeInfo>> {
 
 /// Same as [`inspect`], with an explicit managed root (tests, alternate profiles).
 pub fn inspect_with_root(cwd: &Path, managed_root: Option<&Path>) -> Result<Option<WorktreeInfo>> {
-    let Ok(canonical_cwd) = fs::canonicalize(cwd) else {
+    let Ok(canonical_cwd) = canonicalize_path(cwd) else {
         return Ok(None);
     };
     let Ok(root) = repository_root(&canonical_cwd) else {
@@ -439,8 +439,7 @@ pub fn inspect_with_root(cwd: &Path, managed_root: Option<&Path>) -> Result<Opti
         .unwrap_or_else(|| root.clone());
     let managed = managed_root
         .map(|managed_root| {
-            let managed_root =
-                fs::canonicalize(managed_root).unwrap_or_else(|_| managed_root.to_path_buf());
+            let managed_root = canonicalize_path_or_original(managed_root);
             has_managed_layout(&managed_root, &root)
         })
         .unwrap_or(false);
@@ -471,10 +470,10 @@ fn remove_worktree(source_root: &Path, root: &Path) -> Result<()> {
 }
 
 fn is_safe_worktree_cwd(root: &Path, cwd: &Path) -> bool {
-    let Ok(root) = fs::canonicalize(root) else {
+    let Ok(root) = canonicalize_path(root) else {
         return false;
     };
-    fs::canonicalize(cwd).is_ok_and(|resolved| resolved.is_dir() && resolved.starts_with(&root))
+    canonicalize_path(cwd).is_ok_and(|resolved| path_is_dir(&resolved) && resolved.starts_with(&root))
 }
 
 fn modified_at(path: &Path) -> std::time::SystemTime {

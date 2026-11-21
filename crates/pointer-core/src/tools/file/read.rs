@@ -79,7 +79,15 @@ fn file_read_one_json(
         }
     };
     let full_display = path_display_abs(&full);
-    let env = tool_env(root);
+    let env = match tool_env(root) {
+        Ok(env) => env,
+        Err(error) => {
+            return serde_json::json!({
+                "path": full_display,
+                "error": format!("{error:#}"),
+            });
+        }
+    };
     match env.metadata(&full) {
         Ok(meta) if meta.is_file => {}
         Ok(_) => {

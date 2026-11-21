@@ -933,10 +933,14 @@ export async function createWorktree(
 }
 
 /** Describe a workspace when it is a linked worktree; null for a main checkout. */
-export async function inspectWorktree(workspaceRoot: string): Promise<WorktreeInfo | null> {
-  return await request<WorktreeInfo | null>(
-    `/api/worktrees/inspect?workspaceRoot=${encodeURIComponent(workspaceRoot)}`
-  )
+export async function inspectWorktree(
+  workspaceRoot: string,
+  conversationId?: string | null
+): Promise<WorktreeInfo | null> {
+  const params = new URLSearchParams({ workspaceRoot })
+  const id = conversationId?.trim()
+  if (id) params.set('conversationId', id)
+  return await request<WorktreeInfo | null>(`/api/worktrees/inspect?${params.toString()}`)
 }
 
 export async function createDirectory(parentPath: string, name: string): Promise<string> {

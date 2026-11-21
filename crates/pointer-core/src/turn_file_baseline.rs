@@ -1,7 +1,9 @@
 //! Per-turn file content baselines for review (first read before edit/write).
 //!
-//! Storage: `{app_data}/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt`
-//! plus a sibling `.path` file recording the absolute path for debugging,
+//! Storage follows the execution environment. Local writes
+//! `{app_data}/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt`.
+//! A sandbox writes `{data_root}/turn-baselines/...` (guest `/data/turn-baselines`).
+//! Each baseline has a sibling `.path` file recording the absolute path,
 //! and `summary.json` for the page-footer file list (written once when the UI
 //! freezes the turn — same rows the user already sees).
 //!
@@ -17,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 
@@ -98,16 +99,87 @@ fn current_ctx() -> Option<(String, String)> {
     TURN_BASELINE_CTX.with(|cell| cell.borrow().clone())
 }
 
-fn baseline_root(conversation_id: &str, turn_id: &str) -> Result<PathBuf> {
+fn sandbox_baseline_env(env: &dyn crate::env::Environment) -> bool {
+    !env.is_denied() && !env.path_map().is_host_passthrough()
+}
+
+/// 基线目录跟着执行环境走。沙箱写在自己的 `/data/turn-baselines`，本地写应用数据目录。
+fn baseline_root(
+    env: &dyn crate::env::Environment,
+    conversation_id: &str,
+    turn_id: &str,
+) -> Result<PathBuf> {
     let conv = sanitize_id(conversation_id);
     let turn = sanitize_id(turn_id);
     if conv.is_empty() || turn.is_empty() {
         return Err(anyhow!("conversation_id and turn_id are required"));
     }
+    if sandbox_baseline_env(env) {
+        let data = path_text(env.data_root());
+        let data = data.trim_end_matches('/');
+        if data.is_empty() {
+            bail!("沙箱环境没有数据目录，无法读写回合基线");
+        }
+        return Ok(PathBuf::from(format!(
+            "{data}/turn-baselines/{conv}/{turn}"
+        )));
+    }
     Ok(storage::app_data_dir()?
         .join("turn-baselines")
         .join(conv)
         .join(turn))
+}
+
+fn child_path(root: &Path, name: &str) -> PathBuf {
+    let text = path_text(root);
+    if crate::workspace_resolve::looks_like_sandbox_guest_path(&text) {
+        let root = text.trim_end_matches('/');
+        return PathBuf::from(format!("{root}/{name}"));
+    }
+    root.join(name)
+}
+
+/// 页脚和 diff 用的环境。沙箱没缓存到会话环境就报错，不读本机应用数据目录。
+fn env_for_baseline_store(conversation_id: &str) -> Result<Arc<dyn crate::env::Environment>> {
+    if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
+        if env.is_denied() {
+            warn!(
+                "turn_file_baseline: session environment unusable conversation_id={conversation_id}"
+            );
+            bail!("沙箱会话的执行环境不可用，无法读写回合基线（conversation={conversation_id}）");
+        }
+        if sandbox_baseline_env(&*env) {
+            info!("turn_file_baseline: session environment conversation_id={conversation_id}");
+        }
+        return Ok(env);
+    }
+    match conversation_workspace_is_guest(conversation_id) {
+        Ok(true) => {
+            warn!(
+                "turn_file_baseline: sandbox workspace has no session environment conversation_id={conversation_id}"
+            );
+            bail!(
+                "工作区在沙箱内，但当前没有会话环境，无法读写回合基线（conversation={conversation_id}）"
+            );
+        }
+        Ok(false) => Ok(crate::env::host_env()),
+        Err(error) => {
+            warn!(
+                "turn_file_baseline: workspace lookup failed conversation_id={conversation_id}: {error:#}"
+            );
+            bail!("无法确认会话工作区，已拒绝读写回合基线（conversation={conversation_id}）");
+        }
+    }
+}
+
+fn conversation_workspace_is_guest(conversation_id: &str) -> Result<bool> {
+    let store = crate::conversation_store::global_store().context("读取会话工作区失败")?;
+    let workspace = store
+        .workspace_root(conversation_id)
+        .with_context(|| format!("读取会话工作区失败（conversation={conversation_id}）"))?;
+    Ok(crate::workspace_resolve::looks_like_sandbox_guest_path(
+        workspace.trim(),
+    ))
 }
 
 fn sanitize_id(id: &str) -> String {
@@ -130,15 +202,15 @@ fn path_key(abs_path: &Path) -> String {
 }
 
 fn content_path(root: &Path, abs_path: &Path) -> PathBuf {
-    root.join(format!("{}.txt", path_key(abs_path)))
+    child_path(root, &format!("{}.txt", path_key(abs_path)))
 }
 
 fn meta_path(root: &Path, abs_path: &Path) -> PathBuf {
-    root.join(format!("{}.path", path_key(abs_path)))
+    child_path(root, &format!("{}.path", path_key(abs_path)))
 }
 
 fn summary_json_path(root: &Path) -> PathBuf {
-    root.join("summary.json")
+    child_path(root, "summary.json")
 }
 
 /// One path changed in a lead turn (page-footer summary / reload hydrate).
@@ -234,8 +306,9 @@ pub fn save_turn_file_changes(
         info!("turn_file_baseline: skip empty summary conversation_id={conv} turn_id={turn}");
         return Ok(());
     }
-    let root = baseline_root(conv, turn)?;
-    fs::create_dir_all(&root)
+    let env = env_for_baseline_store(conv)?;
+    let root = baseline_root(env.as_ref(), conv, turn)?;
+    env.create_dir_all(&root)
         .with_context(|| format!("create turn baseline dir {}", root.display()))?;
     let file = summary_json_path(&root);
     let payload = TurnFileChangeSummaryFile {
@@ -243,7 +316,7 @@ pub fn save_turn_file_changes(
     };
     let json = serde_json::to_string_pretty(&payload)
         .with_context(|| format!("serialize turn summary {}", file.display()))?;
-    fs::write(&file, json.as_bytes())
+    env.write_file(&file, json.as_bytes())
         .with_context(|| format!("write turn summary {}", file.display()))?;
     info!(
         "turn_file_baseline: saved summary conversation_id={conv} turn_id={turn} files={}",
@@ -253,16 +326,18 @@ pub fn save_turn_file_changes(
 }
 
 fn list_one_turn_file_changes(
+    env: &dyn crate::env::Environment,
     conversation_id: &str,
     turn_id: &str,
 ) -> Result<Vec<TurnFileChangeEntry>> {
-    let root = baseline_root(conversation_id, turn_id)?;
-    if !root.exists() {
+    let root = baseline_root(env, conversation_id, turn_id)?;
+    if !env.exists(&root) {
         return Ok(Vec::new());
     }
     let summary = summary_json_path(&root);
-    if summary.exists() {
-        let text = fs::read_to_string(&summary)
+    if env.exists(&summary) {
+        let text = env
+            .read_to_string(&summary)
             .with_context(|| format!("read turn summary {}", summary.display()))?;
         match serde_json::from_str::<TurnFileChangeSummaryFile>(&text) {
             Ok(parsed) => return Ok(normalize_entries(&parsed.files)),
@@ -275,28 +350,40 @@ fn list_one_turn_file_changes(
     }
     // Legacy / no UI freeze yet: paths from baseline sidecars (no +/-).
     let mut by_key: BTreeMap<String, TurnFileChangeEntry> = BTreeMap::new();
-    let entries = fs::read_dir(&root)
+    let entries = env
+        .list_dir(&root)
         .with_context(|| format!("read turn baseline dir {}", root.display()))?;
     for entry in entries {
-        let entry = entry.with_context(|| format!("read dir entry under {}", root.display()))?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if let Some(key) = name.strip_suffix(".path") {
-            let path_text = fs::read_to_string(entry.path()).unwrap_or_default();
-            let path = path_text.trim().replace('\\', "/");
-            if path.is_empty() {
+        let Some(key) = entry.name.strip_suffix(".path") else {
+            continue;
+        };
+        let path_text = match env.read_to_string(&entry.path) {
+            Ok(text) => text,
+            Err(error) => {
+                warn!(
+                    "turn_file_baseline: read path sidecar failed conversation_id={conversation_id} turn_id={turn_id} path={}: {error:#}",
+                    entry.path.display()
+                );
                 continue;
             }
-            by_key.insert(
-                key.to_string(),
-                TurnFileChangeEntry {
-                    path,
-                    kind: "edit".into(),
-                    adds: 0,
-                    dels: 0,
-                },
+        };
+        let path = path_text.trim().replace('\\', "/");
+        if path.is_empty() {
+            warn!(
+                "turn_file_baseline: empty path sidecar conversation_id={conversation_id} turn_id={turn_id} path={}",
+                entry.path.display()
             );
+            continue;
         }
+        by_key.insert(
+            key.to_string(),
+            TurnFileChangeEntry {
+                path,
+                kind: "edit".into(),
+                adds: 0,
+                dels: 0,
+            },
+        );
     }
     let mut files: Vec<_> = by_key.into_values().collect();
     files.sort_by(|a, b| {
@@ -319,6 +406,7 @@ pub fn list_turn_file_changes(
     if conv.is_empty() {
         return Err(anyhow!("conversation_id is required"));
     }
+    let env = env_for_baseline_store(conv)?;
     let mut out = Vec::with_capacity(turn_ids.len());
     for turn_id in turn_ids {
         let turn = turn_id.trim();
@@ -326,7 +414,7 @@ pub fn list_turn_file_changes(
             warn!("turn_file_baseline: skip empty turn_id in list_turn_file_changes");
             continue;
         }
-        let files = list_one_turn_file_changes(conv, turn)?;
+        let files = list_one_turn_file_changes(env.as_ref(), conv, turn)?;
         info!(
             "turn_file_baseline: list changes conversation_id={conv} turn_id={turn} files={}",
             files.len()
@@ -340,7 +428,14 @@ pub fn list_turn_file_changes(
 }
 
 /// Persist pre-write content once per (conversation, turn, path). No-op if ctx unset or already stored.
-pub fn ensure_baseline(abs_path: &Path, content_before: &str) -> Result<()> {
+///
+/// `env` is the environment that just read the file. Sandbox baselines stay in that
+/// environment's data root; local baselines stay in app data.
+pub fn ensure_baseline(
+    env: &dyn crate::env::Environment,
+    abs_path: &Path,
+    content_before: &str,
+) -> Result<()> {
     let Some((conversation_id, turn_id)) = current_ctx() else {
         warn!(
             "turn_file_baseline: skip ensure (no turn context) path={}",
@@ -356,19 +451,27 @@ pub fn ensure_baseline(abs_path: &Path, content_before: &str) -> Result<()> {
         );
         return Ok(());
     }
-    let root = baseline_root(&conversation_id, &turn_id)?;
-    fs::create_dir_all(&root)
+    if env.is_denied() {
+        bail!("执行环境不可用，无法保存回合基线（conversation={conversation_id}）");
+    }
+    let root = baseline_root(env, &conversation_id, &turn_id)?;
+    env.create_dir_all(&root)
         .with_context(|| format!("create turn baseline dir {}", root.display()))?;
     let file = content_path(&root, abs_path);
-    if file.exists() {
+    if env.exists(&file) {
         return Ok(());
     }
-    fs::write(&file, content_before.as_bytes())
+    env.write_file(&file, content_before.as_bytes())
         .with_context(|| format!("write turn baseline {}", file.display()))?;
-    let _ = fs::write(
-        meta_path(&root, abs_path),
-        abs_path.to_string_lossy().as_bytes(),
-    );
+    if let Err(error) = env.write_file(
+        meta_path(&root, abs_path).as_path(),
+        path_text(abs_path).as_bytes(),
+    ) {
+        warn!(
+            "turn_file_baseline: path sidecar write failed conversation_id={conversation_id} turn_id={turn_id} path={}: {error:#}",
+            abs_path.display()
+        );
+    }
     info!(
         "turn_file_baseline: saved conversation_id={conversation_id} turn_id={turn_id} path={} bytes={}",
         abs_path.display(),
@@ -378,30 +481,33 @@ pub fn ensure_baseline(abs_path: &Path, content_before: &str) -> Result<()> {
 }
 
 fn read_baseline_content(
+    env: &dyn crate::env::Environment,
     conversation_id: &str,
     turn_id: &str,
     abs_path: &Path,
 ) -> Result<Option<String>> {
-    let root = baseline_root(conversation_id, turn_id)?;
+    let root = baseline_root(env, conversation_id, turn_id)?;
     let file = content_path(&root, abs_path);
-    if !file.exists() {
+    if !env.exists(&file) {
         return Ok(None);
     }
-    let text = fs::read_to_string(&file)
+    let text = env
+        .read_to_string(&file)
         .with_context(|| format!("read turn baseline {}", file.display()))?;
     Ok(Some(text))
 }
 
 fn read_baseline_either(
+    env: &dyn crate::env::Environment,
     conversation_id: &str,
     turn_id: &str,
     abs: &Path,
     raw_abs: &Path,
 ) -> Result<Option<String>> {
-    match read_baseline_content(conversation_id, turn_id, abs)? {
+    match read_baseline_content(env, conversation_id, turn_id, abs)? {
         Some(text) => Ok(Some(text)),
         None if raw_abs.as_os_str() != abs.as_os_str() => {
-            read_baseline_content(conversation_id, turn_id, raw_abs)
+            read_baseline_content(env, conversation_id, turn_id, raw_abs)
         }
         None => Ok(None),
     }
@@ -428,13 +534,14 @@ fn load_subsequent_lead_turn_ids(conversation_id: &str, turn_id: &str) -> Vec<St
 }
 
 fn read_next_path_baseline(
+    env: &dyn crate::env::Environment,
     conversation_id: &str,
     subsequent_turn_ids: &[String],
     abs: &Path,
     raw_abs: &Path,
 ) -> Result<Option<(String, String)>> {
     for next_turn in subsequent_turn_ids {
-        if let Some(text) = read_baseline_either(conversation_id, next_turn, abs, raw_abs)? {
+        if let Some(text) = read_baseline_either(env, conversation_id, next_turn, abs, raw_abs)? {
             return Ok(Some((next_turn.clone(), text)));
         }
     }
@@ -577,12 +684,13 @@ pub fn turn_file_diff(
     let display_path = abs.to_string_lossy().replace('\\', "/");
     // Tool results often store a non-canonical absolute path; try both keys.
     let raw_abs = PathBuf::from(path.trim());
-    let baseline = read_baseline_either(conversation_id, turn_id, &abs, &raw_abs)?;
+    let baseline = read_baseline_either(env.as_ref(), conversation_id, turn_id, &abs, &raw_abs)?;
     let baseline_missing = baseline.is_none();
     let before = baseline.unwrap_or_default();
 
     let subsequent = load_subsequent_lead_turn_ids(conversation_id, turn_id);
-    let next_baseline = read_next_path_baseline(conversation_id, &subsequent, &abs, &raw_abs)?;
+    let next_baseline =
+        read_next_path_baseline(env.as_ref(), conversation_id, &subsequent, &abs, &raw_abs)?;
     let after = if let Some((next_turn_id, text)) = next_baseline {
         info!(
             "turn_file_baseline: after=next_baseline conversation_id={conversation_id} turn_id={turn_id} next_turn_id={next_turn_id} path={display_path}"
@@ -688,14 +796,20 @@ mod tests {
         let path = Path::new("/ws/file.ts");
         {
             let _guard = TurnBaselineGuard::enter("conv", "u2");
-            ensure_baseline(path, "after-u1").unwrap();
+            ensure_baseline(crate::env::host_env().as_ref(), path, "after-u1").unwrap();
         }
         {
             let _guard = TurnBaselineGuard::enter("conv", "u3");
-            ensure_baseline(path, "after-u2").unwrap();
+            ensure_baseline(crate::env::host_env().as_ref(), path, "after-u2").unwrap();
         }
-        let found =
-            read_next_path_baseline("conv", &["u2".into(), "u3".into()], path, path).unwrap();
+        let found = read_next_path_baseline(
+            crate::env::host_env().as_ref(),
+            "conv",
+            &["u2".into(), "u3".into()],
+            path,
+            path,
+        )
+        .unwrap();
         assert_eq!(found, Some(("u2".into(), "after-u1".into())));
     }
 
@@ -743,7 +857,7 @@ mod tests {
         let path = Path::new("/ws/legacy.ts");
         {
             let _guard = TurnBaselineGuard::enter("conv", "u1");
-            ensure_baseline(path, "x").unwrap();
+            ensure_baseline(crate::env::host_env().as_ref(), path, "x").unwrap();
         }
         let listed = list_turn_file_changes("conv", &["u1".into()]).unwrap();
         assert_eq!(listed[0].files.len(), 1);
@@ -776,14 +890,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         crate::storage::set_test_app_data_dir(dir.path().join("app"));
         let workspace = dir.path().join("ws");
-        fs::create_dir_all(workspace.join("src")).unwrap();
+        std::fs::create_dir_all(workspace.join("src")).unwrap();
         let file = workspace.join("src/a.txt");
-        fs::write(&file, "now\n").unwrap();
+        std::fs::write(&file, "now\n").unwrap();
         let abs = file.canonicalize().unwrap();
         let conv = format!("host-diff-{}", uuid::Uuid::new_v4());
         {
             let _guard = TurnBaselineGuard::enter(&conv, "u1");
-            ensure_baseline(&abs, "old\n").unwrap();
+            ensure_baseline(crate::env::host_env().as_ref(), &abs, "old\n").unwrap();
         }
         let diff = turn_file_diff(&conv, "u1", &workspace, "src/a.txt").unwrap();
         assert!(!diff.baseline_missing);
@@ -814,13 +928,21 @@ mod tests {
         crate::storage::set_test_app_data_dir(dir.path().join("app"));
         let conv = format!("guest-diff-{}", uuid::Uuid::new_v4());
         let project = "/data/workspaces/proj/src/a.rs";
-        let env = GuestDiffEnv::new("/data/workspaces");
+        let env = std::sync::Arc::new(GuestDiffEnv::new("/data/workspaces"));
         env.put(project, b"now\n");
-        crate::env::session_env::remember_env_for_test(&conv, std::sync::Arc::new(env));
         {
             let _guard = TurnBaselineGuard::enter(&conv, "u1");
-            ensure_baseline(Path::new(project), "old\n").unwrap();
+            ensure_baseline(env.as_ref(), Path::new(project), "old\n").unwrap();
         }
+        assert!(
+            env.has_under("/data/turn-baselines/"),
+            "sandbox baseline must stay in the session environment"
+        );
+        assert!(
+            !dir.path().join("app").join("turn-baselines").exists(),
+            "sandbox baseline must not be copied into host app data"
+        );
+        crate::env::session_env::remember_env_for_test(&conv, env.clone());
         let diff =
             turn_file_diff(&conv, "u1", Path::new("/data/workspaces/proj"), "src/a.rs").unwrap();
         assert_eq!(diff.path, project);
@@ -830,6 +952,7 @@ mod tests {
 
     struct GuestDiffEnv {
         workspace: PathBuf,
+        data: PathBuf,
         map: crate::env::PathMap,
         files: std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
     }
@@ -838,12 +961,13 @@ mod tests {
         fn new(workspace: &str) -> Self {
             Self {
                 workspace: PathBuf::from(workspace),
+                data: PathBuf::from("/data"),
                 map: crate::env::PathMap::new(vec![crate::env::Mount::new(
                     "/tmp/pointer-data",
                     "/data",
                     false,
                 )]),
-                files: Mutex::new(HashMap::new()),
+                files: std::sync::Mutex::new(std::collections::HashMap::new()),
             }
         }
 
@@ -852,6 +976,14 @@ mod tests {
                 .lock()
                 .expect("files")
                 .insert(path.replace('\\', "/"), bytes.to_vec());
+        }
+
+        fn has_under(&self, prefix: &str) -> bool {
+            self.files
+                .lock()
+                .expect("files")
+                .keys()
+                .any(|key| key.starts_with(prefix))
         }
 
         fn lookup(&self, path: &Path) -> Option<Vec<u8>> {
@@ -872,6 +1004,9 @@ mod tests {
         }
         fn home_root(&self) -> &Path {
             Path::new("/home/pointer")
+        }
+        fn data_root(&self) -> &Path {
+            &self.data
         }
         fn capabilities(&self) -> crate::env::Capabilities {
             crate::env::Capabilities::headless()
@@ -897,7 +1032,8 @@ mod tests {
             self.lookup(path)
                 .ok_or_else(|| anyhow::anyhow!("guest diff env: missing {}", path.display()))
         }
-        fn write_file(&self, _path: &Path, _data: &[u8]) -> Result<()> {
+        fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+            self.put(&path.to_string_lossy(), data);
             Ok(())
         }
         fn list_dir(&self, _path: &Path) -> Result<Vec<crate::env::DirEntry>> {

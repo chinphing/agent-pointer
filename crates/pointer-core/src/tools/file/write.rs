@@ -40,7 +40,9 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
         );
         String::new()
     };
-    if let Err(error) = crate::turn_file_baseline::ensure_baseline(&full, &old_content) {
+    if let Err(error) =
+        crate::turn_file_baseline::ensure_baseline(env.as_ref(), &full, &old_content)
+    {
         log::warn!(
             "file_write: turn baseline save failed path={}: {error:#}",
             path_display_abs(&full)

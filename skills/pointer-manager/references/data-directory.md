@@ -28,7 +28,7 @@
 | `generated-media/` | AI 生成图片/视频等输出 | ⚠️ 按需清理 |
 | `memories/` | 持久化记忆存储 | ❌ 除非用户明确要求清空记忆 |
 | `session-sandboxes/` | 每个会话的隔离工作目录（`_anonymous`、会话 ID、项目名） | ⚠️ 删后该会话的工作区文件丢失 |
-| `turn-baselines/` | 每轮改动前的文件内容快照，供「变更审阅」对比 diff | ✅ 可删；仅影响历史 diff 展示 |
+| `turn-baselines/` | 本地档位每轮改动前的文件快照，供「变更审阅」对比 diff。沙箱档位的快照在该环境的 `/data/turn-baselines/`，不在这个目录 | ✅ 可删；仅影响本地档位的历史 diff |
 | `worktrees/` | 项目托管 git worktree | ❌ 删后需重新创建 |
 | `agents/` | 用户自定义智能体覆盖（`AGENT.md` / `COMMUNICATION.md`） | ❌ 有内容时不可删 |
 | `skills/` | 应用内置 Skill 同步副本（带 `.bundled_manifest`） | ❌ 由应用维护 |

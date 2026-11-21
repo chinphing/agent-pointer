@@ -118,7 +118,7 @@ fn file_edit_apply_one(
     let text = env
         .read_to_string(&full)
         .map_err(|e| anyhow!("读取失败: {e}"))?;
-    if let Err(error) = crate::turn_file_baseline::ensure_baseline(&full, &text) {
+    if let Err(error) = crate::turn_file_baseline::ensure_baseline(env.as_ref(), &full, &text) {
         log::warn!(
             "file_edit: turn baseline save failed path={}: {error:#}",
             path_display_abs(&full)

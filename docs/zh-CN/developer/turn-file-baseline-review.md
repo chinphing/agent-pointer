@@ -21,7 +21,11 @@
 
 ## 存储
 
-`{app_data}/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt`
+本地档位：`{app_data}/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt`
+
+沙箱档位：该环境数据根下的 `/data/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt`
+
+读写都走当前执行环境。沙箱会话的环境还没缓存时直接报错，不把全文写进本机应用数据目录，也不读宿主上的 data 卷挂载。Web 和 Client 共用这组函数。
 
 - `turn_id` = 该轮 lead 用户消息 id（与 task board main-turn 锚点一致；`latest_real_user_message_id` 会跳过 scoped / 合成用户行）
 - 单文件上限 5MB；超限跳过并打 warn
@@ -79,7 +83,7 @@
 
 ## 跨端
 
-桌面与 Web 共用 `turn_file_diff`。`/data/...` 通过已缓存的会话环境读取，相对路径拼调用方传来的项目目录；本机路径在宿主读取。会话环境还没缓存时直接报错。两端入口只传会话、项目目录和文件路径。
+桌面与 Web 共用 `turn_file_diff`、基线写入和页脚列表。本地档位的快照在应用数据目录，沙箱档位的快照在该环境的 `/data/turn-baselines`。相对路径拼调用方传来的项目目录。会话环境还没缓存时直接报错。两端入口只传会话、项目目录和文件路径。
 
 ## 已知问题（先不做）
 

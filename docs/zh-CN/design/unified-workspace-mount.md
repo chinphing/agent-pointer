@@ -22,7 +22,8 @@
   ├── attachments/{conversation_id}/
   ├── media/chat/{conversation_id}/
   ├── media/generated/{conversation_id}/
-  └── captures/{date}/{conversation_id}/
+  ├── captures/{date}/{conversation_id}/
+  └── turn-baselines/{conversation_id}/{turn_id}/
 ```
 
 - `user_key` 是碰撞安全、不含个人信息的稳定哈希，满足 envd 扁平卷名。
@@ -97,3 +98,4 @@ v2 附件在沙箱里是 `/data/...`。预览、下载和流式播放按当前�
 - HTTP MCP 连的是远端服务，不按宿主进程拒绝。
 - 沙箱 worktree 的创建、检查和删除都在会话环境里对 `/data/worktrees` 执行 git。本地档位仍用本机 git。
 - 回合文件 diff 与文件工具相同：`/data/...` 走已缓存的会话环境，相对路径拼调用方传来的项目目录。环境还没缓存就报错。Web 和 Client 都调用这一段。
+- 回合基线跟执行环境走。本地写应用数据目录的 `turn-baselines/`。沙箱写该环境的 `/data/turn-baselines/`。全文、路径旁路和页脚摘要都通过这份环境读写。

@@ -21,7 +21,11 @@ English | [简体中文](../../zh-CN/developer/turn-file-baseline-review.md)
 
 ## Storage
 
-`{app_data}/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt`
+Local tier: `{app_data}/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt`
+
+Sandbox tier: `/data/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt` under that environment's data root.
+
+Reads and writes go through the current execution environment. A sandbox conversation with no cached environment is an error: the full text is not written to host app data, and the host mount of the data volume is not read. Web and the desktop client share these functions.
 
 - `turn_id` = that turn's lead user message id (the same anchor as the task board main turn; `latest_real_user_message_id` skips scoped / synthetic user rows)
 - Per-file cap 5MB; over the cap it is skipped with a warn
@@ -79,7 +83,7 @@ For the footer display strategy see the "Performance" section of [`../ui/turn-ch
 
 ## Cross-platform
 
-Desktop and web share `turn_file_diff`. `/data/...` is read through the cached session environment, and relative paths join the caller-supplied project directory. Host paths are read on the host. A missing session environment is an error. Both entry points only pass the conversation, project directory, and file path.
+Desktop and web share `turn_file_diff`, baseline capture, and the footer list. Local snapshots live in app data. Sandbox snapshots live in that environment's `/data/turn-baselines`. Relative paths join the caller-supplied project directory. A missing session environment is an error. Both entry points only pass the conversation, project directory, and file path.
 
 ## Known issues (not addressed for now)
 

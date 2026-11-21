@@ -35,7 +35,20 @@ pub fn replace_global_platform_config_for_test(platform: PlatformSettings) {
 
 /// Effective settings when only user persistence + optional global platform config exist.
 pub fn effective_settings_global() -> ModelSettings {
-    let user = test_user_settings_or_default();
+    effective_settings_global_for(None)
+}
+
+/// [`effective_settings_global`] plus an explicit user's runtime overlay
+/// (`terminalEnvOverrides` / 并行上限).
+///
+/// 后台线程上没有会话 thread-local，身份必须由调用方显式传下来；`None` 与
+/// [`effective_settings_global`] 完全一致（不额外做身份解析，避免回落到进程级
+/// auth 造成跨用户取值）。
+pub fn effective_settings_global_for(uid: Option<&str>) -> ModelSettings {
+    let mut user = test_user_settings_or_default();
+    if let Some(uid) = uid.map(str::trim).filter(|uid| !uid.is_empty()) {
+        storage::apply_user_runtime_overlay(&mut user, uid);
+    }
     let platform = GLOBAL_PLATFORM_CONFIG
         .get()
         .map(|p| p.read().clone())

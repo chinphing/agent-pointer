@@ -1193,6 +1193,25 @@ impl AppState {
         storage::load_user_settings().unwrap_or_default()
     }
 
+    /// 用户级运行时设置（终端环境 / 并行上限）的归属用户。
+    ///
+    /// 线程内会话用户优先（Web 请求、会话执行），否则回落到当前平台身份
+    /// ——桌面端与 `require_platform_user_id` 同一套解析（standalone 为本地操作者）。
+    /// 读写两侧都用它，保证「保存到哪个用户」和「读哪个用户」是同一个答案。
+    pub fn runtime_settings_user_id(&self) -> Option<String> {
+        match crate::session_user_env::current_session_user_id() {
+            Some(uid) => {
+                let uid = uid.trim();
+                if uid.is_empty() {
+                    None
+                } else {
+                    Some(uid.to_string())
+                }
+            }
+            None => crate::platform_auth::owner_user_id(self.active_platform_auth().as_ref()),
+        }
+    }
+
     /// Resolved UI locale from `UserSettings.ui_locale` (same rules as frontend `resolveUiLocale`).
     pub fn ui_locale(&self) -> crate::i18n::UiLocale {
         crate::i18n::resolve_ui_locale(&self.load_user_settings().ui_locale)
@@ -1234,10 +1253,48 @@ impl AppState {
         settings
     }
 
+    /// 带上指定用户运行时覆盖（`terminalEnvOverrides` / 并行上限）的有效设置。
+    ///
+    /// 消费侧（终端环境注入、并行上限）可能跑在阻塞线程池 / 后台任务里，
+    /// `current_session_user_id()` 的 thread-local 在那里是空的，所以身份必须由
+    /// 调用方从会话上下文显式传入——不要在这里做身份解析，后台线程会回落到
+    /// 进程级 auth，等于跨用户取值。`uid = None` 与 [`Self::effective_settings`]
+    /// 完全一致。
+    pub fn effective_settings_for(&self, uid: Option<&str>) -> crate::models::ModelSettings {
+        let mut settings = self.effective_settings();
+        if let Some(uid) = uid.map(str::trim).filter(|uid| !uid.is_empty()) {
+            storage::apply_user_runtime_overlay_to_model_settings(&mut settings, uid);
+        }
+        settings
+    }
+
+    /// 会话级有效设置：按该会话持久化的 `session_user_id` 取用户覆盖。
+    ///
+    /// 会话 id → uid 走会话行（阻塞线程上同样可靠），不读 thread-local。
+    pub fn effective_settings_for_session(
+        &self,
+        conversation_id: &str,
+    ) -> crate::models::ModelSettings {
+        let uid = self
+            .session_index
+            .session_user_id(conversation_id)
+            .ok()
+            .map(|uid| uid.trim().to_string())
+            .filter(|uid| !uid.is_empty());
+        self.effective_settings_for(uid.as_deref())
+    }
+
     pub fn effective_settings_view(&self) -> EffectiveSettingsView {
-        let user = self.load_user_settings();
+        let mut user = self.load_user_settings();
         let platform = self.platform_config.read().clone();
-        let merged = self.effective_settings();
+        let mut merged = self.effective_settings();
+        // 运行时设置按用户覆盖：读取和保存同源。Web 请求里线程内会话用户优先；
+        // 桌面端没有线程内会话用户时按当前平台身份读回自己那份，否则设置面板
+        // 保存后读回来永远是全局默认值（全局文件不存这三项）。
+        if let Some(uid) = self.runtime_settings_user_id() {
+            storage::apply_user_runtime_overlay(&mut user, &uid);
+            storage::apply_user_runtime_overlay_to_model_settings(&mut merged, &uid);
+        }
         // 管理员口径见 `is_platform_admin_session`：会话票标记是第一来源；
         // standalone 部署额外放行「本地运维会话」（桌面端无 Web 会话 / 本地密码登录），
         // 但 SSO 会话一律不是管理员——standalone 只是没有控制面，不是没有身份。
@@ -1373,7 +1430,13 @@ impl AppState {
             }
         }
         let existing = self.load_user_settings();
-        if !self.active_platform_auth().is_platform_admin() {
+        // 只有 Web 响应会按 `DEBUG_WEB_SETTINGS_JSON_KEYS` 剥掉调试字段，
+        // 回传的 serde 默认值才会清掉服务端配置，所以兜底只在「确实经过
+        // 脱敏响应」的 Web 请求里生效。桌面端 `get_settings` 不脱敏，incoming
+        // 就是完整快照；继续强改回会让用户改动直接回弹（终端环境覆盖、
+        // 子任务看板开关、Agent UI 覆盖等一律存不进去）。
+        let response_was_redacted = crate::web_request_auth::scoped_auth_kind().is_some();
+        if response_was_redacted && !self.active_platform_auth().is_platform_admin() {
             crate::models::preserve_platform_debug_settings_in_user(&mut incoming, &existing);
         }
         // 后端内存 key 池：user 层现有 key（load 时已从 json 解密回填到内存）
@@ -1410,15 +1473,19 @@ impl AppState {
             max_parallel_tool_calls: incoming.max_parallel_tool_calls,
             max_parallel_sub_agents: incoming.max_parallel_sub_agents,
         };
-        match crate::session_user_env::current_session_user_id() {
-            Some(uid) if !uid.trim().is_empty() => {
-                if let Err(err) = storage::save_user_runtime_overlay(uid.trim(), &overlay) {
+        match self.runtime_settings_user_id() {
+            Some(uid) => {
+                if let Err(err) = storage::save_user_runtime_overlay(&uid, &overlay) {
                     log::warn!("user-settings: save overlay for {uid} failed: {err:#}");
                 }
                 // 全局文件不保存这三项（`save_user_settings` 会清掉），
                 // 所以不需要还原旧值。
             }
-            _ => {}
+            // 身份缺失时不再静默丢弃：全局文件会清掉这三项，值就真的没了。
+            None => log::warn!(
+                "user-settings: no owner user id for runtime settings; \
+                 terminal env / parallel limits not persisted"
+            ),
         }
         self.save_user_settings(&incoming)?;
         Ok(self.effective_settings_view())
@@ -2840,8 +2907,267 @@ mod automation_execution_auth_tests {
     }
 }
 
+/// 用户级运行时设置（终端环境 / 并行上限）的读写同源回归测试。
+///
+/// 桌面端没有线程内会话用户（Web 请求才有），身份来自平台登录态；
+/// 这些用例不进入 `SessionUserIdGuard`，等价于桌面端 `get_settings` /
+/// `update_user_settings` 的调用现场。
+#[cfg(test)]
+mod user_runtime_settings_tests {
+    use super::AppState;
+    use crate::models::{UserRuntimeOverlay, UserSettings};
+    use crate::platform_auth::{PlatformSession, PlatformUserSummary};
+    use std::path::PathBuf;
+
+    struct TestDataDirGuard {
+        dir: PathBuf,
+        _tmp: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for TestDataDirGuard {
+        fn drop(&mut self) {
+            crate::storage::clear_test_app_data_dir();
+        }
+    }
+
+    fn isolate_app_data_dir() -> TestDataDirGuard {
+        let lock = crate::storage::test_app_data_dir_lock();
+        let tmp = tempfile::tempdir().expect("temp data dir");
+        crate::storage::set_test_app_data_dir(tmp.path().to_path_buf());
+        TestDataDirGuard {
+            dir: tmp.path().to_path_buf(),
+            _tmp: tmp,
+            _lock: lock,
+        }
+    }
+
+    /// 桌面端等价现场：进程级平台登录态已就绪，但没有线程内会话用户。
+    fn desktop_state(user_id: &str) -> AppState {
+        let state = AppState::new();
+        state.platform_auth.set_session(PlatformSession {
+            access_token: "test-access".into(),
+            refresh_token: String::new(),
+            expires_at: i64::MAX,
+            agent_id: "test-agent".into(),
+            user: PlatformUserSummary {
+                id: user_id.into(),
+                nickname: None,
+                is_platform_admin: false,
+                included_tokens: 0,
+                consumed_tokens: 0,
+                token_quota_exhausted: false,
+            },
+        });
+        state
+    }
+
+    fn global_user_settings_json(dir: &std::path::Path) -> serde_json::Value {
+        let raw = std::fs::read_to_string(dir.join("user_settings.json")).expect("global file");
+        serde_json::from_str(&raw).expect("global json")
+    }
+
+    /// 读取侧：桌面端（无线程内会话用户）也要读回自己那份覆盖，
+    /// 而不是全局文件里被清空后的默认值。
+    #[test]
+    fn settings_view_reads_overlay_without_session_thread_local() {
+        let guard = isolate_app_data_dir();
+        let state = desktop_state("desk-user");
+        crate::storage::save_user_runtime_overlay(
+            "desk-user",
+            &UserRuntimeOverlay {
+                terminal_env_overrides: Some(
+                    [("POINTER_TEST".to_string(), "1".to_string())]
+                        .into_iter()
+                        .collect(),
+                ),
+                max_parallel_tool_calls: Some(3),
+                max_parallel_sub_agents: Some(2),
+            },
+        )
+        .expect("save overlay");
+
+        let view = state.effective_settings_view();
+        assert_eq!(view.user.max_parallel_tool_calls, Some(3));
+        assert_eq!(view.user.max_parallel_sub_agents, Some(2));
+        assert_eq!(
+            view.user.terminal_env_overrides.get("POINTER_TEST"),
+            Some(&"1".to_string())
+        );
+        // 合并后的运行时设置同样带上覆盖值（终端/并行实际取这里）。
+        assert_eq!(view.merged.max_parallel_tool_calls, Some(3));
+        assert_eq!(view.merged.max_parallel_sub_agents, Some(2));
+        assert!(guard.dir.join("user-settings").join("desk-user.json").exists());
+    }
+
+    /// 写入侧：桌面端保存落到 `user-settings/<uid>.json`，全局文件不再保存这三项，
+    /// 并且立刻能读回（保存不再静默丢失）。
+    #[test]
+    fn desktop_save_writes_user_overlay_and_reads_back() {
+        let guard = isolate_app_data_dir();
+        let state = desktop_state("desk-user");
+
+        let mut incoming = UserSettings::default();
+        incoming
+            .terminal_env_overrides
+            .insert("POINTER_TEST".into(), "1".into());
+        incoming.max_parallel_tool_calls = Some(3);
+        incoming.max_parallel_sub_agents = Some(2);
+
+        let view = state.update_user_settings(incoming).expect("save settings");
+        assert_eq!(view.user.max_parallel_tool_calls, Some(3));
+        assert_eq!(view.user.max_parallel_sub_agents, Some(2));
+        assert_eq!(
+            view.user.terminal_env_overrides.get("POINTER_TEST"),
+            Some(&"1".to_string())
+        );
+
+        // 覆盖文件按用户落盘
+        let overlay = crate::storage::load_user_runtime_overlay("desk-user");
+        assert_eq!(overlay.max_parallel_tool_calls, Some(3));
+        assert_eq!(overlay.max_parallel_sub_agents, Some(2));
+        assert_eq!(
+            overlay
+                .terminal_env_overrides
+                .as_ref()
+                .and_then(|m| m.get("POINTER_TEST")),
+            Some(&"1".to_string())
+        );
+
+        // 全局文件不含这三项
+        let doc = global_user_settings_json(&guard.dir);
+        assert!(
+            doc.get("maxParallelToolCalls").is_none(),
+            "global file must not keep maxParallelToolCalls: {doc}"
+        );
+        assert!(
+            doc.get("maxParallelSubAgents").is_none(),
+            "global file must not keep maxParallelSubAgents: {doc}"
+        );
+        let env_overrides = doc
+            .get("terminalEnvOverrides")
+            .and_then(|v| v.as_object())
+            .map(|o| o.len())
+            .unwrap_or(0);
+        assert_eq!(env_overrides, 0, "global file must not keep env overrides");
+
+        // 再读一次（等价 get_settings）仍然读得回
+        let reread = state.effective_settings_view();
+        assert_eq!(reread.user.max_parallel_tool_calls, Some(3));
+    }
+
+    /// 迁移：全局文件里还有旧值、且该用户没有覆盖文件时，桌面端首次读取
+    /// 把它落成该用户自己的覆盖（不再人人共享一份默认值）。
+    #[test]
+    fn desktop_read_migrates_legacy_global_values_to_user_overlay() {
+        let guard = isolate_app_data_dir();
+        let state = desktop_state("desk-user");
+
+        let mut legacy = UserSettings::default();
+        legacy
+            .terminal_env_overrides
+            .insert("POINTER_TEST".into(), "legacy".into());
+        legacy.max_parallel_tool_calls = Some(5);
+        std::fs::write(
+            guard.dir.join("user_settings.json"),
+            serde_json::to_vec_pretty(&legacy).expect("legacy json"),
+        )
+        .expect("write legacy global settings");
+
+        let view = state.effective_settings_view();
+        assert_eq!(view.user.max_parallel_tool_calls, Some(5));
+        assert_eq!(
+            view.user.terminal_env_overrides.get("POINTER_TEST"),
+            Some(&"legacy".to_string())
+        );
+
+        // 迁移落盘成该用户的覆盖
+        let overlay = crate::storage::load_user_runtime_overlay("desk-user");
+        assert_eq!(overlay.max_parallel_tool_calls, Some(5));
+        assert!(guard.dir.join("user-settings").join("desk-user.json").exists());
+    }
+
+    /// 消费侧：显式传 uid 时拿到该用户的运行时覆盖；不传时与 `effective_settings()`
+    /// 完全一致（后台线程不传 uid 的旧行为不变）。
+    #[test]
+    fn effective_settings_for_applies_explicit_user_overlay() {
+        let _guard = isolate_app_data_dir();
+        let state = desktop_state("desk-user");
+        crate::storage::save_user_runtime_overlay(
+            "conv-user",
+            &UserRuntimeOverlay {
+                terminal_env_overrides: Some(
+                    [("POINTER_CONV_USER".to_string(), "1".to_string())]
+                        .into_iter()
+                        .collect(),
+                ),
+                max_parallel_tool_calls: Some(3),
+                max_parallel_sub_agents: Some(2),
+            },
+        )
+        .expect("save overlay");
+
+        let for_user = state.effective_settings_for(Some("conv-user"));
+        assert_eq!(for_user.max_parallel_tool_calls, Some(3));
+        assert_eq!(for_user.max_parallel_sub_agents, Some(2));
+        assert_eq!(
+            for_user.terminal_env_overrides.get("POINTER_CONV_USER"),
+            Some(&"1".to_string())
+        );
+        // 消费侧（并行上限）取到的就是这份
+        let limits = crate::tools::parallel::ParallelLimits::from_settings(&for_user);
+        assert_eq!(limits.max_parallel_sub_agents, 2);
+
+        // 别的用户拿不到
+        let other = state.effective_settings_for(Some("someone-else"));
+        assert!(other.terminal_env_overrides.get("POINTER_CONV_USER").is_none());
+
+        // 无 uid：与 effective_settings() 逐字段一致（行为不变）
+        let without = state.effective_settings_for(None);
+        assert_eq!(
+            serde_json::to_value(&without).expect("json"),
+            serde_json::to_value(&state.effective_settings()).expect("json")
+        );
+    }
+
+    /// 会话级解析：uid 从会话行取，不依赖 thread-local（阻塞线程上为空）。
+    #[test]
+    fn effective_settings_for_session_uses_conversation_owner() {
+        let _guard = isolate_app_data_dir();
+        let state = desktop_state("desk-user");
+        crate::storage::save_user_runtime_overlay(
+            "conv-owner",
+            &UserRuntimeOverlay {
+                terminal_env_overrides: Some(
+                    [("POINTER_CONV_OWNER".to_string(), "1".to_string())]
+                        .into_iter()
+                        .collect(),
+                ),
+                max_parallel_tool_calls: Some(4),
+                max_parallel_sub_agents: Some(6),
+            },
+        )
+        .expect("save overlay");
+
+        let conversation_id = "conv-runtime-uid-test";
+        state
+            .session_index
+            .set_session_user_id(conversation_id, "conv-owner")
+            .expect("set session user");
+
+        let settings = state.effective_settings_for_session(conversation_id);
+        assert_eq!(settings.max_parallel_tool_calls, Some(4));
+        assert_eq!(settings.max_parallel_sub_agents, Some(6));
+        assert_eq!(
+            settings.terminal_env_overrides.get("POINTER_CONV_OWNER"),
+            Some(&"1".to_string())
+        );
+    }
+}
+
 impl Default for AppState {
     fn default() -> Self {
         Self::new()
     }
 }
+

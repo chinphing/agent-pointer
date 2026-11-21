@@ -80,6 +80,29 @@ struct CachedBalance {
 /// Missing, older, or exhausted snapshots fall back to `GET /auth/partner/balance`.
 const BALANCE_CACHE_TTL: Duration = Duration::from_secs(30 * 60);
 
+/// 本地操作者 id：standalone 部署没有控制面时，会话 / 附件 / 用户级设置
+/// 都归属于这一个本地身份（桌面端单用户）。
+pub const LOCAL_USER_ID: &str = "local";
+
+/// 当前身份归属的用户 id：登录用户优先，standalone 回落到 [`LOCAL_USER_ID`]。
+///
+/// 桌面端 `require_platform_user_id`、Web 端 `platform_session_user_id`
+/// 与用户级运行时设置（`user-settings/<uid>.json`）共用这一套解析，
+/// 不另起第二套「谁算当前用户」的规则。
+pub fn owner_user_id(auth: &PlatformAuthManager) -> Option<String> {
+    if let Some(uid) = auth.platform_user_id() {
+        let uid = uid.trim();
+        if !uid.is_empty() {
+            return Some(uid.to_string());
+        }
+    }
+    if crate::deployment_mode::is_standalone() {
+        Some(LOCAL_USER_ID.to_string())
+    } else {
+        None
+    }
+}
+
 #[derive(Debug)]
 pub struct PlatformAuthManager {
     inner: RwLock<Option<PlatformSession>>,

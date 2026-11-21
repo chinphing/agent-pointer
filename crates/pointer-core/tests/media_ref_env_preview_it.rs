@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
@@ -17,7 +17,8 @@ use pointer_core::env::{
     FileMetadata, Mount, PathMap, SpawnOptions, WalkEntry, WalkOptions,
 };
 use pointer_core::media::{
-    media_ref_body_in_env, read_media_ref_preview_in_env, MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES,
+    chat_media_body_in_env, media_ref_body_in_env, read_chat_media_preview_in_env,
+    read_media_ref_preview_in_env, MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES,
 };
 use pointer_core::workspace_read::WorkspaceMediaBody;
 
@@ -273,6 +274,78 @@ fn reference_image_resolves_sandbox_workspace_path() {
             .decode(encoded)
             .expect("decode data url"),
         PNG_BYTES
+    );
+}
+
+#[test]
+fn sandbox_chat_media_preview_reads_data_volume_from_env() {
+    let env = SandboxEnv::new(Vec::new());
+    env.put("/data/attachments/conv1/pic.png", PNG_BYTES);
+    let arc: Arc<dyn Environment> = Arc::new(env);
+
+    let preview = read_chat_media_preview_in_env(
+        "v2/uabc/attachments/conv1/pic.png",
+        Some(arc),
+    )
+    .expect("env preview");
+
+    assert_eq!(decode(&preview), PNG_BYTES);
+    assert_eq!(preview.mime_type, "image/png");
+    assert_eq!(preview.file_name, "pic.png");
+}
+
+#[test]
+fn sandbox_chat_media_body_reads_env_when_host_mount_has_no_file() {
+    let host = tempfile::tempdir().expect("temp data");
+    let env = SandboxEnv::new(vec![Mount::new(host.path(), "/data", false)]);
+    env.put("/data/media/chat/conv1/clip.mp4", b"fake-mp4");
+
+    let (body, mime, name) = chat_media_body_in_env(
+        "v2/uabc/media/chat/conv1/clip.mp4",
+        Some(&env),
+        MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES,
+    )
+    .expect("env body");
+
+    assert_eq!(body, WorkspaceMediaBody::Inline(b"fake-mp4".to_vec()));
+    assert_eq!(mime, "video/mp4");
+    assert_eq!(name, "clip.mp4");
+}
+
+#[test]
+fn sandbox_chat_media_body_streams_host_mount_when_present() {
+    let host = tempfile::tempdir().expect("temp data");
+    let host_file = host.path().join("attachments").join("conv1").join("pic.png");
+    std::fs::create_dir_all(host_file.parent().expect("parent")).expect("dirs");
+    std::fs::write(&host_file, PNG_BYTES).expect("write host file");
+    let env = SandboxEnv::new(vec![Mount::new(host.path(), "/data", false)]);
+
+    let (body, _, _) = chat_media_body_in_env(
+        "v2/uabc/attachments/conv1/pic.png",
+        Some(&env),
+        MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES,
+    )
+    .expect("mounted body");
+
+    match body {
+        WorkspaceMediaBody::HostPath(path) => {
+            assert_eq!(
+                path.canonicalize().expect("canonical host path"),
+                host_file.canonicalize().expect("canonical file")
+            );
+        }
+        WorkspaceMediaBody::Inline(_) => panic!("有宿主挂载时不该整段读进内存"),
+    }
+}
+
+#[test]
+fn chat_media_without_env_does_not_read_guest_path() {
+    let err = read_chat_media_preview_in_env("v2/uabc/attachments/conv1/pic.png", None)
+        .expect_err("no session environment");
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("media file not found") || message.contains("not found"),
+        "unexpected error: {message}"
     );
 }
 

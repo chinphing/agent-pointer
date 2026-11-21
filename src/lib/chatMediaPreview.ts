@@ -6,11 +6,12 @@ import { chatMediaStreamObjectUrl } from './web'
 
 /** Desktop: streamable file URL for a saved conversation-media video. Web: same-origin stream endpoint. */
 export async function videoPreviewUrlFromStorage(
-  storageRelPath: string
+  storageRelPath: string,
+  conversationId?: string | null
 ): Promise<string | null> {
   if (!storageRelPath.trim()) return null
   if (!isTauriRuntime()) {
-    return chatMediaStreamObjectUrl(storageRelPath.trim())
+    return chatMediaStreamObjectUrl(storageRelPath.trim(), conversationId)
   }
   try {
     const abs = await getChatMediaLocalPath(storageRelPath.trim())
@@ -31,12 +32,13 @@ export interface VideoPreviewSource {
 
 /** Local file (desktop) or HTTPS OSS URL for inline video preview. */
 export async function resolveVideoPreviewUrl(
-  att: VideoPreviewSource
+  att: VideoPreviewSource,
+  conversationId?: string | null
 ): Promise<string | null> {
   if (isUsableAttachmentPreviewUrl(att.previewUrl)) return att.previewUrl!.trim()
   if (att.kind !== 'video') return null
   if (att.storageRelPath?.trim()) {
-    const local = await videoPreviewUrlFromStorage(att.storageRelPath)
+    const local = await videoPreviewUrlFromStorage(att.storageRelPath, conversationId)
     if (local) return local
   }
   const remote = att.remoteUrl?.trim()

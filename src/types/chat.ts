@@ -284,18 +284,6 @@ export interface MediaModelOverrides {
   videoGeneration?: AgentModelRef
 }
 
-export type FfmpegToolStatus = 'ready' | 'not_found' | 'partial' | 'not_executable'
-
-export interface MediaDepsStatus {
-  /** True only when ffmpeg and ffprobe are found and respond to `-version`. */
-  ffmpegAvailable: boolean
-  status: FfmpegToolStatus
-  ffprobeAvailable: boolean
-  ffmpegPath?: string
-  ffprobePath?: string
-  detail?: string
-}
-
 /** Pending composer attachment (metadata + optional preview URL). */
 export interface ComposerAttachment extends MediaAttachment {
   previewUrl?: string

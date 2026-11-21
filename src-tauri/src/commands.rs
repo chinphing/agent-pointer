@@ -985,8 +985,17 @@ pub fn preview_computer_round_screen(rel_path: String) -> Result<ComputerAnnotat
 }
 
 #[tauri::command]
-pub fn preview_chat_media(storage_rel_path: String) -> Result<ChatMediaPreview, String> {
-    pointer_core::media::read_chat_media_preview(&storage_rel_path).map_err(|e| e.to_string())
+pub fn preview_chat_media(
+    storage_rel_path: String,
+    conversation_id: Option<String>,
+) -> Result<ChatMediaPreview, String> {
+    let env = conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(pointer_core::env::session_env::env_for_conversation);
+    pointer_core::media::read_chat_media_preview_in_env(&storage_rel_path, env)
+        .map_err(|e| e.to_string())
 }
 
 /// Absolute path for a saved conversation-media file (for desktop video preview via convertFileSrc).
@@ -1300,11 +1309,6 @@ pub async fn save_chat_attachment_from_path(
     .await
     .map_err(|e| format!("save attachment from path join: {e}"))?
     .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn check_media_deps() -> pointer_core::media::MediaDepsStatus {
-    pointer_core::media::MediaDepsStatus::probe()
 }
 
 #[tauri::command]

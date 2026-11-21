@@ -20,7 +20,6 @@ import type {
   ConversationSearchHit,
   DebugSessionSettings,
   EffectiveSettingsView,
-  MediaDepsStatus,
   PlatformSettings,
   SkillDef,
   SkillImportResult,
@@ -590,8 +589,13 @@ export async function previewComputerRoundScreen(relPath: string): Promise<Compu
   return await request<ComputerAnnotatedPreview>(`/api/computer/round-screen-preview?${q}`)
 }
 
-export async function previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview> {
+export async function previewChatMedia(
+  storageRelPath: string,
+  conversationId?: string | null
+): Promise<ChatMediaPreview> {
   const q = new URLSearchParams({ storageRelPath })
+  const conv = conversationId?.trim()
+  if (conv) q.set('conversationId', conv)
   return await request<ChatMediaPreview>(`/api/chat/media-preview?${q}`)
 }
 
@@ -633,10 +637,6 @@ export async function saveChatAttachment(
   return res.storageRelPath
 }
 
-export async function checkMediaDeps(): Promise<MediaDepsStatus> {
-  return await request<MediaDepsStatus>('/api/media/deps')
-}
-
 export async function revealInFinder(_path: string): Promise<void> {
   // Web 端不支持在 Finder 中显示
   throw new Error('revealInFinder is not supported in web runtime')
@@ -657,11 +657,14 @@ export async function openChatMedia(storageRelPath: string, fileName?: string): 
  */
 export async function downloadChatMedia(
   storageRelPath: string,
-  fileName?: string
+  fileName?: string,
+  conversationId?: string | null
 ): Promise<void> {
   const params = new URLSearchParams({ storageRelPath: storageRelPath.trim() })
   const name = fileName?.trim()
   if (name) params.set('fileName', name)
+  const conv = conversationId?.trim()
+  if (conv) params.set('conversationId', conv)
   triggerNativeDownload(
     `${WEB_API_BASE}/api/chat/media-download?${params}`,
     name || 'attachment'
@@ -685,8 +688,13 @@ export async function downloadChatMediaRef(
 }
 
 /** Inline video preview URL with auth (object URL; revoke when the element unmounts). */
-export async function chatMediaStreamObjectUrl(storageRelPath: string): Promise<string> {
+export async function chatMediaStreamObjectUrl(
+  storageRelPath: string,
+  conversationId?: string | null
+): Promise<string> {
   const q = new URLSearchParams({ storageRelPath: storageRelPath.trim() })
+  const conv = conversationId?.trim()
+  if (conv) q.set('conversationId', conv)
   const blob = await requestBlob(`/api/chat/media-stream?${q}`)
   return URL.createObjectURL(blob)
 }

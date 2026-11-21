@@ -17,7 +17,6 @@ import type {
   ConversationSearchHit,
   DebugSessionSettings,
   EffectiveSettingsView,
-  MediaDepsStatus,
   ManagedWorktree,
   PlatformSettings,
   SkillDef,
@@ -303,7 +302,7 @@ export interface RuntimeApi {
   getTaskBoardSnapshot(conversationId: string, taskId?: string): Promise<import('../types/chat').TaskBoardDocument>
   previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview>
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
-  previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview>
+  previewChatMedia(storageRelPath: string, conversationId?: string | null): Promise<ChatMediaPreview>
   getChatMediaLocalPath?(storageRelPath: string): Promise<string>
   previewMediaRef(mediaRef: string, conversationId?: string | null): Promise<ChatMediaPreview>
   saveChatAttachment(
@@ -311,7 +310,6 @@ export interface RuntimeApi {
     onProgress?: (p: AttachmentUploadProgress) => void,
     options?: { signal?: AbortSignal }
   ): Promise<string>
-  checkMediaDeps(): Promise<MediaDepsStatus>
   listComputerMonitors(): Promise<ComputerMonitor[]>
   setComputerCompactChrome(compact: boolean): Promise<void>
   beginComputerCompactWindow(): Promise<void>
@@ -468,12 +466,11 @@ export const previewChatMedia = api.previewChatMedia
 export const getChatMediaLocalPath = api.getChatMediaLocalPath
 export const previewMediaRef = api.previewMediaRef
 export const saveChatAttachment = api.saveChatAttachment
-export const checkMediaDeps = api.checkMediaDeps
 export const revealInFinder = api.revealInFinder
 export const openPathWithDefaultApp = api.openPathWithDefaultApp
 export const openChatMedia = api.openChatMedia
 export const downloadChatMedia = isTauriRuntime()
-  ? async (_path: string, _fileName?: string) => {
+  ? async (_path: string, _fileName?: string, _conversationId?: string | null) => {
       throw new Error('downloadChatMedia is not supported in desktop runtime')
     }
   : webApi.downloadChatMedia

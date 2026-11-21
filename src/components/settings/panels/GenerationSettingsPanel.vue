@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
 import type { UiLocalePreference } from '../../../types/chat'
-import { ChevronRight, CircleHelp, Film, Languages, Monitor, Plus, Sparkles, Terminal, Users, Volume2, Wrench, X } from 'lucide-vue-next'
+import { ChevronRight, CircleHelp, Languages, Monitor, Plus, Sparkles, Terminal, Users, Volume2, Wrench, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
@@ -68,12 +68,6 @@ const {
   commitMaxParallelToolCalls,
   commitMaxParallelSubAgents,
   commitMaxParallelMediaJobs,
-  mediaDeps,
-  ffmpegStatusLabel,
-  ffmpegStatusDetail,
-  ffmpegNeedsInstall,
-  refreshMediaDeps,
-  askAssistantInstallFfmpeg,
   terminalEnvRows,
   addTerminalEnvRow,
   removeTerminalEnvRow,
@@ -155,7 +149,6 @@ watch(activeSection, section => {
 }, { immediate: true })
 
 const queueModalOpen = ref(false)
-const mediaDepsModalOpen = ref(false)
 
 const queueBusy = computed(() => pendingRunCount.value > 0 || totalLaneWaiting.value > 0)
 
@@ -537,31 +530,6 @@ async function onPlaySoundToggle(checked: boolean) {
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
         <h4 id="system-runtime-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.runtime.heading') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
-      </div>
-
-      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-        <div class="flex items-center justify-between gap-2">
-          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <Film class="w-4 h-4 text-accent" />{{ t('settings.runtime.mediaUnderstanding') }}
-          </h4>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
-            @click="mediaDepsModalOpen = true"
-          >
-            {{ t('settings.runtime.manage') }}
-            <ChevronRight class="w-3 h-3" />
-          </button>
-        </div>
-        <div class="flex items-center gap-2 rounded-lg border border-border bg-card/50 px-3 py-2.5">
-          <span
-            class="h-2 w-2 rounded-full shrink-0"
-            :class="mediaDeps?.status === 'ready' ? 'bg-success' : 'bg-warning'"
-            aria-hidden="true"
-          />
-          <span class="text-[12px] text-foreground">{{ ffmpegStatusLabel }}</span>
-          <span class="ml-auto text-[11px] text-muted">ffmpeg / ffprobe</span>
-        </div>
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
@@ -1105,66 +1073,6 @@ async function onPlaySoundToggle(checked: boolean) {
             <p v-else-if="!queueSnapshot && !queueLoading" class="text-[11px] text-muted text-center py-4">
               {{ t('settings.queue.unavailable') }}
             </p>
-          </div>
-        </div>
-      </div>
-    </Teleport>
-
-    <!-- ffmpeg modal -->
-    <Teleport to="body">
-      <div
-        v-if="mediaDepsModalOpen"
-        class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-foreground/32 p-4"
-        role="presentation"
-        @click.self="mediaDepsModalOpen = false"
-      >
-        <div class="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-5 space-y-4" @click.stop>
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <h4 class="text-sm font-semibold text-foreground">{{ t('settings.ffmpeg.modalTitle') }}</h4>
-              <p class="mt-0.5 text-[11px] text-muted">{{ t('settings.ffmpeg.modalHint') }}</p>
-            </div>
-            <button
-              type="button"
-              class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
-              :aria-label="t('common.close')"
-              @click="mediaDepsModalOpen = false"
-            >
-              <X class="w-4 h-4" />
-            </button>
-          </div>
-          <div class="rounded-lg border border-border bg-card/50 px-3 py-2.5 space-y-1">
-            <p class="text-[12px] font-medium text-foreground">ffmpeg / ffprobe</p>
-            <p class="text-[11px] text-muted">{{ t('settings.ffmpeg.needInstall') }}</p>
-            <p
-              class="text-[11px] mt-1"
-              :class="mediaDeps?.status === 'ready' ? 'text-success' : 'text-warning'"
-            >
-              {{ ffmpegStatusLabel }}
-            </p>
-            <p v-if="ffmpegStatusDetail" class="text-[10px] text-muted mt-0.5 break-all">
-              {{ ffmpegStatusDetail }}
-            </p>
-            <p v-if="mediaDeps?.status === 'ready'" class="text-[10px] text-muted mt-0.5">
-              {{ t('settings.ffmpeg.frameFailNote') }}
-            </p>
-          </div>
-          <div class="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              class="h-8 px-3 rounded-lg border border-border text-xs text-foreground hover:bg-muted/50 cursor-pointer transition-colors"
-              @click="refreshMediaDeps()"
-            >
-              {{ t('settings.ffmpeg.redetect') }}
-            </button>
-            <button
-              v-if="ffmpegNeedsInstall"
-              type="button"
-              class="h-8 px-3 rounded-lg bg-accent text-accent-foreground text-xs hover:opacity-90 cursor-pointer transition-colors"
-              @click="askAssistantInstallFfmpeg()"
-            >
-              {{ t('settings.ffmpeg.askInstall') }}
-            </button>
           </div>
         </div>
       </div>

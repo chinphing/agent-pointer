@@ -22,7 +22,6 @@ import type {
   ConversationSearchHit,
   DebugSessionSettings,
   EffectiveSettingsView,
-  MediaDepsStatus,
   PlatformSettings,
   SkillDef,
   SkillImportResult,
@@ -415,8 +414,14 @@ export async function previewComputerRoundScreen(relPath: string): Promise<Compu
   return await invoke<ComputerAnnotatedPreview>('preview_computer_round_screen', { relPath })
 }
 
-export async function previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview> {
-  return await invoke<ChatMediaPreview>('preview_chat_media', { storageRelPath })
+export async function previewChatMedia(
+  storageRelPath: string,
+  conversationId?: string | null
+): Promise<ChatMediaPreview> {
+  return await invoke<ChatMediaPreview>('preview_chat_media', {
+    storageRelPath,
+    conversationId: conversationId?.trim() || null
+  })
 }
 
 export async function getChatMediaLocalPath(storageRelPath: string): Promise<string> {
@@ -471,10 +476,6 @@ export async function saveChatAttachment(
   }
   onProgress?.({ loaded: 1, total: 1, percent: 100 })
   return rel
-}
-
-export async function checkMediaDeps(): Promise<MediaDepsStatus> {
-  return await invoke<MediaDepsStatus>('check_media_deps')
 }
 
 export async function listComputerMonitors(): Promise<ComputerMonitor[]> {

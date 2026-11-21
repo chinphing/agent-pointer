@@ -1,6 +1,3 @@
-use serde::{Deserialize, Serialize};
-
-use super::ffmpeg::{probe_ffmpeg_tools, FfmpegToolStatus};
 use super::filename::recovery_mode_for_filename;
 use super::path_hint::append_recovery_paths;
 
@@ -108,41 +105,6 @@ pub fn image_understanding_failed_hint(
         file_name,
         storage_rel_path,
     )
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MediaDepsStatus {
-    /// True only when ffmpeg and ffprobe are found and respond to `-version`.
-    pub ffmpeg_available: bool,
-    pub status: FfmpegToolStatus,
-    pub ffprobe_available: bool,
-    pub ffmpeg_path: Option<String>,
-    pub ffprobe_path: Option<String>,
-    pub detail: Option<String>,
-}
-
-impl MediaDepsStatus {
-    /// 面板 / 服务端健康检查入口（无会话上下文）：按**宿主**环境探测。
-    ///
-    /// 这里没有会话，媒体工具该装在哪一侧由部署档位决定，而这两个调用点
-    /// （server 路由、tauri command）问的都是「本机装没装 ffmpeg」，所以显式用宿主环境。
-    pub fn probe() -> Self {
-        Self::probe_with_env(&crate::env::host_env())
-    }
-
-    /// 显式按给定环境探测（会话内调用请用这个，不要用 [`Self::probe`]）。
-    pub fn probe_with_env(env: &std::sync::Arc<dyn crate::env::Environment>) -> Self {
-        let tools = probe_ffmpeg_tools(env);
-        Self {
-            ffmpeg_available: tools.ffmpeg_available,
-            status: tools.status,
-            ffprobe_available: tools.ffprobe_available,
-            ffmpeg_path: tools.ffmpeg_path,
-            ffprobe_path: tools.ffprobe_path,
-            detail: tools.detail,
-        }
-    }
 }
 
 pub fn video_ffmpeg_missing(file_name: &str, storage_rel_path: Option<&str>) -> String {

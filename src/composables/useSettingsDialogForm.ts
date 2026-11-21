@@ -33,7 +33,7 @@ import { applyTheme } from '../lib/theme'
 import { randomUuid } from '../lib/randomUuid'
 import { resolveAgentUi, composerAgentLabel } from '../lib/agentUi'
 import { sortComposerAgents } from '../lib/agentIcons'
-import { listAgents, checkMediaDeps } from '../lib/api'
+import { listAgents } from '../lib/api'
 import { usePlatformAuthStore } from '../stores/platformAuth'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
@@ -522,7 +522,6 @@ function createSettingsDialogForm(deps: {
 
   const agentPerformanceModesLocal = ref<Record<string, PerformanceMode>>({})
 
-  const mediaDeps = ref<import('../types/chat').MediaDepsStatus | null>(null)
   const agents = ref<AgentDef[]>([])
 
   const TOOL_CALL_UI_FIELDS = computed(() => [
@@ -735,63 +734,6 @@ function createSettingsDialogForm(deps: {
     autosaveReady = true
   })
   void loadAgents()
-  // Defer ffmpeg probe so opening settings → IM 通道 stays responsive on Windows.
-  window.setTimeout(() => {
-    if (activeSection.value === 'generation' && mediaDeps.value === null) {
-      void refreshMediaDeps()
-    }
-  }, 400)
-  }
-
-  watch(activeSection, section => {
-  if (section === 'generation' && mediaDeps.value === null) {
-    void refreshMediaDeps()
-  }
-  })
-
-  async function refreshMediaDeps() {
-  try {
-    mediaDeps.value = await checkMediaDeps()
-  } catch (e) {
-    console.warn('[settings] checkMediaDeps failed', e)
-    mediaDeps.value = null
-  }
-  }
-
-  const ffmpegStatusLabel = computed(() => {
-  const deps = mediaDeps.value
-  if (!deps) return t('settings.ffmpeg.checking')
-  switch (deps.status) {
-    case 'ready':
-      return t('settings.ffmpeg.ready')
-    case 'partial':
-      return t('settings.ffmpeg.partial')
-    case 'not_executable':
-      return t('settings.ffmpeg.notExecutable')
-    default:
-      return t('settings.ffmpeg.notFound')
-  }
-  })
-
-  const ffmpegStatusDetail = computed(() => {
-  const deps = mediaDeps.value
-  if (!deps?.detail?.trim()) {
-    if (deps?.status === 'ready' && deps.ffmpegPath) {
-      return deps.ffmpegPath
-    }
-    return ''
-  }
-  return deps.detail.trim()
-  })
-
-  const ffmpegNeedsInstall = computed(() => {
-  const status = mediaDeps.value?.status
-  return status === 'not_found' || status === 'partial' || status === 'not_executable'
-  })
-
-  async function askAssistantInstallFfmpeg() {
-  onClose()
-  await chat.sendUserMessage(t('settings.ffmpeg.installPrompt'))
   }
 
   watch(activeUiAgentId, id => {
@@ -1293,7 +1235,6 @@ function createSettingsDialogForm(deps: {
     mediaImageGenerationModel,
     mediaVideoGenerationModel,
     agentPerformanceModesLocal,
-    mediaDeps,
     agents,
     enabledWorkers,
     selectableWorkers,
@@ -1312,11 +1253,6 @@ function createSettingsDialogForm(deps: {
     themeLabel,
     cycleTheme,
     currentThemeIcon,
-    refreshMediaDeps,
-    ffmpegStatusLabel,
-    ffmpegStatusDetail,
-    ffmpegNeedsInstall,
-    askAssistantInstallFfmpeg,
     selectMediaModelWithProvider,
     selectAgentModeModel,
     webSearchLlm,

@@ -930,7 +930,6 @@ async fn run() -> anyhow::Result<()> {
             "/api/chat/upload-video-oss",
             post(upload_composer_video_oss),
         )
-        .route("/api/media/deps", get(check_media_deps))
         .route("/api/chat", post(send_chat))
         .route("/api/console/sessions", post(create_console_session))
         .route(
@@ -1597,6 +1596,10 @@ struct ChatMediaQuery {
     /// Optional display name for Content-Disposition (UTF-8 via filename*).
     #[serde(default, rename = "fileName")]
     file_name: Option<String>,
+    /// 会话 id。v2 附件在沙箱里是 `/data/...`，只有按会话取到环境才读得到。
+    /// 缺省按本机文件读（本地档位，或调用方没有会话）。
+    #[serde(default, rename = "conversationId")]
+    conversation_id: Option<String>,
 }
 
 async fn preview_chat_media(
@@ -1605,10 +1608,15 @@ async fn preview_chat_media(
 ) -> Result<Json<ChatMediaPreview>, ApiError> {
     require_platform_access(&state)?;
     require_media_rel_access(&state, &q.storage_rel_path)?;
-    Ok(Json(
-        pointer_core::media::read_chat_media_preview(&q.storage_rel_path)
-            .map_err(ApiError::from)?,
-    ))
+    let env = media_ref_env(&state, q.conversation_id.as_deref())?;
+    let storage_rel_path = q.storage_rel_path.clone();
+    let preview = tokio::task::spawn_blocking(move || {
+        pointer_core::media::read_chat_media_preview_in_env(&storage_rel_path, env)
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!("chat media preview task failed: {e}")))?
+    .map_err(ApiError::from)?;
+    Ok(Json(preview))
 }
 
 #[derive(Deserialize)]
@@ -1829,15 +1837,35 @@ async fn download_chat_media(
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
     require_media_rel_access(&state, &q.storage_rel_path)?;
-    let (path, mime_type, stored_name) =
-        pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
+    let env = media_ref_env(&state, q.conversation_id.as_deref())?;
+    let storage_rel_path = q.storage_rel_path.clone();
+    let (body, mime_type, stored_name) = tokio::task::spawn_blocking(move || {
+        pointer_core::media::chat_media_body_in_env(
+            &storage_rel_path,
+            env.as_deref(),
+            pointer_core::media::MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES,
+        )
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!("chat media download task failed: {e}")))?
+    .map_err(ApiError::from)?;
     let file_name = preferred_download_file_name(q.file_name.as_deref(), &stored_name);
     log::info!(
-        "chat media download stream path={} file={}",
-        path.display(),
-        file_name
+        "chat media download file={} source={}",
+        file_name,
+        body.source_label()
     );
-    stream_media_file_response(&path, &mime_type, &file_name, false).await
+    match body {
+        WorkspaceMediaBody::HostPath(path) => {
+            stream_media_file_response(&path, &mime_type, &file_name, false).await
+        }
+        WorkspaceMediaBody::Inline(bytes) => Ok(media_bytes_response(
+            bytes,
+            &mime_type,
+            &file_name,
+            false,
+        )),
+    }
 }
 
 async fn stream_chat_media(
@@ -1846,10 +1874,32 @@ async fn stream_chat_media(
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
     require_media_rel_access(&state, &q.storage_rel_path)?;
-    let (path, mime_type, stored_name) =
-        pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
+    let env = media_ref_env(&state, q.conversation_id.as_deref())?;
+    let storage_rel_path = q.storage_rel_path.clone();
+    let (body, mime_type, stored_name) = tokio::task::spawn_blocking(move || {
+        pointer_core::media::chat_media_body_in_env(
+            &storage_rel_path,
+            env.as_deref(),
+            pointer_core::media::MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES,
+        )
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!("chat media stream task failed: {e}")))?
+    .map_err(ApiError::from)?;
     let file_name = preferred_download_file_name(q.file_name.as_deref(), &stored_name);
-    stream_media_file_response(&path, &mime_type, &file_name, true).await
+    log::info!(
+        "chat media stream file={} source={}",
+        file_name,
+        body.source_label()
+    );
+    match body {
+        WorkspaceMediaBody::HostPath(path) => {
+            stream_media_file_response(&path, &mime_type, &file_name, true).await
+        }
+        WorkspaceMediaBody::Inline(bytes) => {
+            Ok(media_bytes_response(bytes, &mime_type, &file_name, true))
+        }
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -2084,10 +2134,6 @@ async fn upload_composer_video_oss(
         oss_object_key: result.object_key,
         storage_rel_path: result.storage_rel_path,
     }))
-}
-
-async fn check_media_deps() -> Json<pointer_core::media::MediaDepsStatus> {
-    Json(pointer_core::media::MediaDepsStatus::probe())
 }
 
 async fn list_computer_monitors(

@@ -57,7 +57,7 @@ export async function openAttachmentWithSystemDefault(
     return
   }
   if (att.storageRelPath?.trim()) {
-    await downloadChatMedia(att.storageRelPath.trim(), att.fileName || 'attachment')
+    await downloadChatMedia(att.storageRelPath.trim(), att.fileName || 'attachment', conversationId)
     return
   }
   const mediaRef = att.localAbsPath?.trim() || att.mediaRef?.trim()

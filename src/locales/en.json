@@ -681,8 +681,6 @@
     },
     "runtime": {
       "heading": "Runtime",
-      "mediaUnderstanding": "Media understanding",
-      "manage": "Manage",
       "terminalEnv": "Terminal environment",
       "add": "Add",
       "terminalEnvHint": "KEY→VALUE overrides for agent terminal subprocesses (after process env and .env; highest priority). Saved persistently.",
@@ -751,20 +749,6 @@
       "sourceChat": "Chat",
       "sourceCron": "Schedule",
       "sourceInternal": "Internal"
-    },
-    "ffmpeg": {
-      "modalTitle": "Media understanding runtime",
-      "modalHint": "IM video and frame extraction need local ffmpeg",
-      "needInstall": "Install on this machine for IM video and frame extraction; not bundled with the app.",
-      "frameFailNote": "A single video may still fail due to codec or corruption even when ffmpeg is installed.",
-      "redetect": "Check again",
-      "askInstall": "Ask assistant to install",
-      "checking": "Checking…",
-      "ready": "Ready (can extract frames)",
-      "partial": "Not ready: missing components",
-      "notExecutable": "Not ready: found but not runnable",
-      "notFound": "Not found",
-      "installPrompt": "Help me install ffmpeg"
     },
     "debug": {
       "saveRequests": "Save each chat request",

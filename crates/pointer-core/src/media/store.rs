@@ -512,8 +512,155 @@ fn wav_sibling_abs_path(path: &Path) -> Option<PathBuf> {
 }
 
 pub fn read_chat_media_preview(storage_rel_path: &str) -> Result<ChatMediaPreview> {
+    read_chat_media_preview_in_env(storage_rel_path, None)
+}
+
+/// 聊天附件预览。
+///
+/// 沙箱环境且路径是 v2（用户 data 卷，guest `/data/...`）时，用该环境的读文件接口
+/// 取字节再交给浏览器。本地档位、没有会话环境、以及仍在应用数据目录里的旧路径，
+/// 继续读本机文件。
+pub fn read_chat_media_preview_in_env(
+    storage_rel_path: &str,
+    env: Option<std::sync::Arc<dyn crate::env::Environment>>,
+) -> Result<ChatMediaPreview> {
+    let sandbox = env
+        .as_ref()
+        .filter(|env| is_sandbox_data_env(env.as_ref()));
+    if let Some(env) = sandbox {
+        if let Ok(guest) = v2_guest_data_path(storage_rel_path) {
+            let path = wav_sibling_in_env(env.as_ref(), &guest);
+            log::info!(
+                "chat media preview via environment rel={storage_rel_path} guest={}",
+                path.display()
+            );
+            let body = crate::workspace_read::media_body_for_streaming(
+                env.as_ref(),
+                &path,
+                MEDIA_REF_ENV_PREVIEW_MAX_BYTES,
+            )
+            .with_context(|| {
+                format!("read chat media {storage_rel_path} via environment")
+            })?;
+            let bytes = read_media_body(body)?;
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|n| !n.is_empty())
+                .unwrap_or("attachment")
+                .to_string();
+            let mime_type = mime_from_path(&path);
+            return finish_media_preview(bytes, &file_name, &mime_type, None, env);
+        }
+        log::info!(
+            "chat media preview: sandbox environment has no /data layout for {storage_rel_path}; reading host file"
+        );
+    }
     let path = media_abs_path(storage_rel_path)?;
     read_file_preview(&path)
+}
+
+/// 聊天附件下载 / 流式播放的字节来源。规则同 [`read_chat_media_preview_in_env`]。
+pub fn chat_media_body_in_env(
+    storage_rel_path: &str,
+    env: Option<&dyn crate::env::Environment>,
+    max_bytes: u64,
+) -> Result<(crate::workspace_read::WorkspaceMediaBody, String, String)> {
+    if let Some(env) = env {
+        if is_sandbox_data_env(env) {
+            match v2_guest_data_path(storage_rel_path) {
+                Ok(guest) => {
+                    log::info!(
+                        "chat media body via environment rel={storage_rel_path} guest={}",
+                        guest.display()
+                    );
+                    let body = crate::workspace_read::media_body_for_streaming(
+                        env, &guest, max_bytes,
+                    )
+                    .with_context(|| {
+                        format!("read chat media {storage_rel_path} via environment")
+                    })?;
+                    let file_name = guest
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or("attachment")
+                        .to_string();
+                    let mime_type = mime_from_path(&guest);
+                    return Ok((body, mime_type, file_name));
+                }
+                Err(error) => {
+                    log::info!(
+                        "chat media body: sandbox environment, path is not v2 /data layout ({error:#}); reading host file"
+                    );
+                }
+            }
+        }
+    }
+    let (path, mime_type, file_name) = chat_media_file_meta(storage_rel_path)?;
+    Ok((
+        crate::workspace_read::WorkspaceMediaBody::HostPath(path),
+        mime_type,
+        file_name,
+    ))
+}
+
+fn is_sandbox_data_env(env: &dyn crate::env::Environment) -> bool {
+    !env.is_denied() && !env.path_map().is_host_passthrough()
+}
+
+/// v2 `storage_rel_path` → guest `/data/{kind}/{conversation}/{file}`.
+fn v2_guest_data_path(storage_rel_path: &str) -> Result<PathBuf> {
+    let parsed = parse_storage_rel(storage_rel_path)?;
+    if !parsed.versioned {
+        anyhow::bail!("not a v2 data-volume path");
+    }
+    let kind = parsed.kind.as_deref().unwrap_or("attachments");
+    let mut path = PathBuf::from(crate::env::mounts::GUEST_DATA);
+    for segment in kind.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." {
+            anyhow::bail!("invalid v2 data kind");
+        }
+        path.push(segment);
+    }
+    if parsed.conversation_segment.is_empty()
+        || parsed.conversation_segment == "."
+        || parsed.conversation_segment == ".."
+        || parsed.file_name.is_empty()
+        || parsed.file_name.contains('/')
+        || parsed.file_name == "."
+        || parsed.file_name == ".."
+    {
+        anyhow::bail!("invalid v2 data path");
+    }
+    path.push(&parsed.conversation_segment);
+    path.push(&parsed.file_name);
+    Ok(path)
+}
+
+fn wav_sibling_in_env(env: &dyn crate::env::Environment, path: &Path) -> PathBuf {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return path.to_path_buf();
+    };
+    let lower = name.to_ascii_lowercase();
+    if !lower.ends_with(".bin") {
+        return path.to_path_buf();
+    }
+    let wav_name = format!("{}wav", &name[..name.len() - 3]);
+    let wav_path = path.with_file_name(wav_name);
+    match env.metadata(&wav_path) {
+        Ok(meta) if meta.is_file => wav_path,
+        Ok(_) => path.to_path_buf(),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+fn read_media_body(body: crate::workspace_read::WorkspaceMediaBody) -> Result<Vec<u8>> {
+    match body {
+        crate::workspace_read::WorkspaceMediaBody::HostPath(host) => fs::read(&host)
+            .with_context(|| format!("read media file {}", host.display())),
+        crate::workspace_read::WorkspaceMediaBody::Inline(bytes) => Ok(bytes),
+    }
 }
 
 /// Preview a media reference from assistant `MEDIA:` markers or attachment metadata.
@@ -648,8 +795,6 @@ pub fn read_media_ref_preview_in_env(
 
 fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
     assert_app_media_preview_allowed(path)?;
-    // 媒体库预览是宿主侧能力（应用数据目录里的附件），调用方是面板 / 服务端路由，
-    // 没有会话上下文——这里显式按宿主环境处理，不再靠 `effective_env()` 猜。
     let env = crate::env::host_env();
     if let Some(wav_path) = wav_sibling_abs_path(path) {
         let bytes = fs::read(&wav_path)
@@ -672,11 +817,21 @@ fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
         .unwrap_or("attachment")
         .to_string();
     let mime_type = mime_from_path(path);
+    finish_media_preview(bytes, &file_name, &mime_type, Some(path), &env)
+}
+
+fn finish_media_preview(
+    bytes: Vec<u8>,
+    file_name: &str,
+    mime_type: &str,
+    storage_abs: Option<&Path>,
+    env: &std::sync::Arc<dyn crate::env::Environment>,
+) -> Result<ChatMediaPreview> {
     let mime_lower = mime_type.to_ascii_lowercase();
     let needs_audio_transcode = mime_lower.starts_with("audio/") && mime_lower != "audio/wav"
         || file_name.to_ascii_lowercase().ends_with(".bin");
-    if needs_audio_transcode && crate::media::ffmpeg::ffmpeg_available(&env) {
-        let storage_ctx = conversation_media_abs_to_rel(path).map(|rel| {
+    if needs_audio_transcode && crate::media::ffmpeg::ffmpeg_available(env) {
+        let storage_ctx = storage_abs.and_then(conversation_media_abs_to_rel).map(|rel| {
             let (conv, id) =
                 parse_conversation_media_ids(&rel).unwrap_or((String::new(), String::new()));
             crate::media::audio::AudioStorageContext {
@@ -686,10 +841,10 @@ fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
             }
         });
         match crate::media::audio::prepare_audio_bytes_for_asr_cached(
-            &env,
+            env,
             &bytes,
-            &mime_type,
-            &file_name,
+            mime_type,
+            file_name,
             storage_ctx.as_ref(),
         ) {
             Ok(prepared) if prepared.mime_type == "audio/wav" => {
@@ -711,8 +866,8 @@ fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
     }
     Ok(ChatMediaPreview {
         data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
-        mime_type,
-        file_name,
+        mime_type: mime_type.to_string(),
+        file_name: file_name.to_string(),
     })
 }
 

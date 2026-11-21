@@ -46,7 +46,6 @@ pub use delegation::{
     merge_attachments_into_context, parse_attachment_specs_from_args, resolve_attachment_specs,
     AttachmentRefSpec,
 };
-pub use deps_hint::MediaDepsStatus;
 pub use ffmpeg::{ffmpeg_available, probe_ffmpeg_tools, FfmpegToolProbe, FfmpegToolStatus};
 pub use filename::{
     merge_inbound_filename, normalize_inbound_filename, recovery_mode_for_filename,
@@ -91,9 +90,11 @@ pub use public_download::{
 pub use reply_attachments::attachments_from_reply_paths;
 pub use resolve::{is_storage_rel_path, resolve_local_media_path};
 pub use store::{
-    chat_media_file_meta, chat_media_ref_file_meta, composer_attachment_max_bytes,
+    chat_media_body_in_env, chat_media_file_meta, chat_media_ref_file_meta,
+    composer_attachment_max_bytes,
     ensure_composer_attachment_size, is_app_data_subtree_rel, media_abs_path,
     media_ref_body_in_env, media_ref_env_path, path_is_under_app_data, read_chat_media_preview,
+    read_chat_media_preview_in_env,
     read_media_bytes, read_media_ref_preview, read_media_ref_preview_in_env, save_attachment_bytes,
     save_attachment_from_path, MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES, MEDIA_REF_ENV_PREVIEW_MAX_BYTES,
 };

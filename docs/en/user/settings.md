@@ -79,7 +79,7 @@ Seven blocks, all on one page you scroll down:
 | **Notifications** | Play sound on finish (a short chime when a chat turn ends) |
 | **Desktop automation** | Human-like mouse (curved path with micro-jitter; off is straight uniform motion), follow active display (primary by default, follows the display the window is on after opening apps) |
 | **Media generation** | Pick a model for image generation and one for video generation; the default entry shows "Platform default ({model})", and a changed one is marked "Overridden" |
-| **Runtime** | **Media understanding**: whether ffmpeg is ready; click **Manage** for details, **Check again**, or **Ask assistant to install**; **Terminal environment**: `KEY→VALUE` overrides for the agent's terminal subprocesses |
+| **Runtime** | **Terminal environment**: `KEY→VALUE` overrides for the agent's terminal subprocesses |
 | **Execution** | Parallelism and limits, content limits, terminal timeouts — see the tables below |
 | **Tool permissions** | **Auto-run** (the AI runs tools straight away) or **Confirm sensitive actions** (ask you first for file, command and similar actions) |
 
@@ -161,10 +161,6 @@ Those three are required for a custom service; you cannot save if one is missing
 **"Provider not found; cancel and edit again"**
 
 The service was deleted while you were editing it. Cancel the dialog, refresh the list and edit it again.
-
-**"Not found" / "Not ready: missing components"**
-
-Media understanding under Runtime is not ready. Click **Manage** for details; you can **Check again**, or **Ask assistant to install** and let it install itself. **IM video and frame extraction depend on a local ffmpeg**; an individual video can still fail to extract frames because of its codec or a corrupt file, and that does not mean the install is broken.
 
 **"No overrides yet. Click Add to create one."**
 

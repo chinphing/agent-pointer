@@ -32,7 +32,7 @@ export async function resolveImagePreviewDataUrl(
   } else if (att.localAbsPath) {
     preview = await previewMediaRef(att.localAbsPath, conversationId)
   } else if (att.storageRelPath) {
-    preview = await previewChatMedia(att.storageRelPath)
+    preview = await previewChatMedia(att.storageRelPath, conversationId)
   } else if (att.mediaRef) {
     preview = await previewMediaRef(att.mediaRef, conversationId)
   } else {
@@ -48,12 +48,13 @@ export async function resolveImagePreviewDataUrl(
 
 /** Desktop local file URL for inline video/audio playback (no preview API). */
 export async function resolveDesktopPlaybackUrl(
-  att: RenderableAttachment
+  att: RenderableAttachment,
+  conversationId?: string | null
 ): Promise<string | null> {
   if (!isTauriRuntime()) return null
 
   if (att.kind === 'video') {
-    const fromStorage = await resolveVideoPreviewUrl(att)
+    const fromStorage = await resolveVideoPreviewUrl(att, conversationId)
     if (fromStorage) return fromStorage
     if (att.localAbsPath?.trim()) {
       return videoPreviewUrlFromLocalPath(att.localAbsPath)
@@ -79,7 +80,7 @@ export async function resolveEagerPreviewUrl(
 ): Promise<string | null> {
   if (att.kind === 'image') return resolveImagePreviewDataUrl(att, conversationId)
   if (isTauriRuntime() && (att.kind === 'video' || att.kind === 'audio')) {
-    return resolveDesktopPlaybackUrl(att)
+    return resolveDesktopPlaybackUrl(att, conversationId)
   }
   return null
 }

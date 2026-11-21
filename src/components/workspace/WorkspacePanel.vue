@@ -1471,6 +1471,7 @@ onBeforeUnmount(() => {
             :absolute-path="workspaceAbsolutePath(workspaceRoot, previewTab.path)"
             :workspace-root="workspaceRoot"
             :relative-path="previewTab.path"
+            :conversation-id="conversationId"
             @open-reference="openMarkdownReference"
           />
           <div v-else class="workspace-empty">{{ t('workspace.cannotShowFile') }}</div>

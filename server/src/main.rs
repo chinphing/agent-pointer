@@ -34,6 +34,7 @@ use pointer_core::{
     plugins::registry::PluginView,
     provider::OpenAIProvider,
     storage,
+    workspace_read::WorkspaceMediaBody,
 };
 mod access_host;
 mod auth_doctor;
@@ -165,27 +166,56 @@ async fn read_workspace_file(
 }
 
 /// Stream workspace file bytes for inline image/PDF preview in the web UI.
+///
+/// 沙箱档位下 `resolve_file_for_media` 返回的是**环境内路径**（`/workspace/x.png`），
+/// 宿主上没有这个文件，直接 `File::open` 必然失败——图片 / 视频预览就没了。
+/// 所以先让核心层决定字节来源：有宿主挂载（local / docker）照旧流式打开，
+/// 远端后端（envd 云端）才整段读进内存（有上限）。
 async fn stream_workspace_file_media(
     State(state): State<ServerState>,
     Query(q): Query<WorkspacePathQuery>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
     let relative_path = q.relative_path.as_deref().unwrap_or("");
-    let media = {
+    let (body, mime_type, file_name) = {
         let env = bind_workspace_env(&state, q.conversation_id.as_deref(), &q.workspace_root)?;
-        pointer_core::workspace_read::resolve_file_for_media(
+        let media = pointer_core::workspace_read::resolve_file_for_media(
             env.env(),
             std::path::Path::new(&q.workspace_root),
             relative_path,
         )
-        .map_err(ApiError::from)?
+        .map_err(ApiError::from)?;
+        // 远端后端的读取走网络（阻塞），丢到阻塞线程池，别卡住 tokio worker。
+        let env_arc = env.env_arc();
+        let media_path = media.path.clone();
+        let body = tokio::task::spawn_blocking(move || {
+            pointer_core::workspace_read::media_body_for_streaming(
+                env_arc.as_ref(),
+                &media_path,
+                pointer_core::workspace_read::WORKSPACE_MEDIA_INLINE_MAX_BYTES,
+            )
+        })
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("workspace media task failed: {e}")))?
+        .map_err(ApiError::from)?;
+        (body, media.mime_type, media.file_name)
     };
     log::info!(
-        "workspace media stream path={} file={}",
-        media.path.display(),
-        media.file_name
+        "workspace media stream source={} file={}",
+        body.source_label(),
+        file_name
     );
-    stream_media_file_response(&media.path, &media.mime_type, &media.file_name, true).await
+    match body {
+        WorkspaceMediaBody::HostPath(path) => {
+            stream_media_file_response(&path, &mime_type, &file_name, true).await
+        }
+        WorkspaceMediaBody::Inline(bytes) => Ok(media_bytes_response(
+            bytes,
+            &mime_type,
+            &file_name,
+            true,
+        )),
+    }
 }
 
 async fn delete_workspace_path(
@@ -1697,6 +1727,34 @@ async fn stream_media_file_response(
         }
     };
     let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file));
+    Ok(media_response(body, len, mime_type, file_name, inline))
+}
+
+/// 已在内存里的媒体字节（远端后端宿主上没有文件，没有可流式打开的句柄）。
+fn media_bytes_response(
+    bytes: Vec<u8>,
+    mime_type: &str,
+    file_name: &str,
+    inline: bool,
+) -> Response {
+    let len = bytes.len() as u64;
+    media_response(
+        axum::body::Body::from(bytes),
+        Some(len),
+        mime_type,
+        file_name,
+        inline,
+    )
+}
+
+/// 组媒体响应头：Content-Type / Content-Disposition（+ 已知长度时的 Content-Length）。
+fn media_response(
+    body: axum::body::Body,
+    len: Option<u64>,
+    mime_type: &str,
+    file_name: &str,
+    inline: bool,
+) -> Response {
     let mut response = Response::new(body);
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -1712,7 +1770,7 @@ async fn stream_media_file_response(
             response.headers_mut().insert(header::CONTENT_LENGTH, v);
         }
     }
-    Ok(response)
+    response
 }
 
 async fn download_chat_media(

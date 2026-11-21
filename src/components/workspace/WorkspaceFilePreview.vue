@@ -57,6 +57,8 @@ const props = defineProps<{
   workspaceRoot?: string
   /** Path relative to workspace root; required on web for image/PDF byte streaming. */
   relativePath?: string
+  /** Active conversation; required on web so sandbox tiers resolve the right environment. */
+  conversationId?: string
 }>()
 const emit = defineEmits<{
   (e: 'open-reference', href: string): void
@@ -215,7 +217,7 @@ async function refreshMediaUrl() {
     if (!root || !relative) {
       throw new Error(t('workspace.missingPathForPreview'))
     }
-    const url = await workspaceFileMediaObjectUrl(root, relative)
+    const url = await workspaceFileMediaObjectUrl(root, relative, props.conversationId)
     if (seq !== mediaLoadSeq) {
       URL.revokeObjectURL(url)
       return
@@ -240,7 +242,8 @@ watch(
       isPdf.value,
       props.absolutePath,
       props.workspaceRoot,
-      props.relativePath
+      props.relativePath,
+      props.conversationId
     ] as const,
   () => {
     void refreshMediaUrl()

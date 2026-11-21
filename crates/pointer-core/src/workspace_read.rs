@@ -344,6 +344,83 @@ pub fn resolve_file_for_media(
     })
 }
 
+/// 工作区媒体「整段读进内存」的上限（32 MB）。
+///
+/// 只有宿主上没有文件的远端后端（envd 云端等）才会走这条路；本地 / 容器档位
+/// 直接流式读宿主文件，不占内存。超过上限就明确报错，让用户去下载，
+/// **不静默截断**——截断的图片 / 视频在预览里是坏文件，比报错更难排查。
+pub const WORKSPACE_MEDIA_INLINE_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// 工作区媒体文件的字节来源。
+///
+/// 沙箱档位下 [`resolve_file_for_media`] 返回的是**环境内路径**（`/workspace/x.png`），
+/// 宿主上没有这个文件，直接 `tokio::fs::File::open` 会失败——图片 / 视频预览就没了。
+/// 这里把「怎么拿到字节」定下来，HTTP 层只负责按结果组响应。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkspaceMediaBody {
+    /// 宿主上能直接流式打开（local 档位 / 有宿主挂载的容器后端）。
+    HostPath(PathBuf),
+    /// 宿主上没有，已整段读进内存（远端后端）。
+    Inline(Vec<u8>),
+}
+
+impl WorkspaceMediaBody {
+    /// 日志用：不泄露内容，只标来源。
+    pub fn source_label(&self) -> &'static str {
+        match self {
+            Self::HostPath(_) => "host-stream",
+            Self::Inline(_) => "env-inline",
+        }
+    }
+}
+
+/// 把已解析的工作区媒体路径落到「宿主流式」或「整段读内存」。
+///
+/// 规则（顺序有意义）：
+///
+/// 1. 路径映射恒等（local 档位：宿主就是环境）→ 原样流式打开，行为不变；
+/// 2. `to_host` 映射成功且宿主上确实有该文件（docker / e2b-local 的 bind mount）
+///    → 用宿主路径流式返回，零额外内存；
+/// 3. 宿主上没有该文件：**只有环境里确实存在**时才回落整段读（云端 envd 的挂载点
+///    只是模板，宿主侧本来就没有文件）；
+/// 4. 环境里也没有 → 报「文件不存在」，不猜、不静默回落。
+pub fn media_body_for_streaming(
+    env: &dyn crate::env::Environment,
+    path: &Path,
+    max_bytes: u64,
+) -> Result<WorkspaceMediaBody> {
+    if !env.is_denied() && env.path_map().is_host_passthrough() {
+        return Ok(WorkspaceMediaBody::HostPath(path.to_path_buf()));
+    }
+    let mapped = env.path_map().to_host(path);
+    if let Ok(host) = &mapped {
+        if host.is_file() {
+            return Ok(WorkspaceMediaBody::HostPath(host.clone()));
+        }
+    }
+    // 宿主上没有：容器后端说明文件真的不在了（`env.metadata` 也读宿主，会直接失败），
+    // 远端后端才可能「宿主没有、沙箱里有」。
+    let meta = env
+        .metadata(path)
+        .with_context(|| format!("workspace file does not exist: {}", path.display()))?;
+    if !meta.is_file {
+        return Err(anyhow!(
+            "workspace path is not a file: {}",
+            path.display()
+        ));
+    }
+    if meta.len > max_bytes {
+        return Err(anyhow!(
+            "工作区文件 {} 有 {} 字节，超过在线预览上限 {} 字节；请下载后查看",
+            path.display(),
+            meta.len,
+            max_bytes
+        ));
+    }
+    let bytes = env.read_file_capped(path, max_bytes)?;
+    Ok(WorkspaceMediaBody::Inline(bytes))
+}
+
 fn resolve_workspace_file_path_in(
     env: &dyn crate::env::Environment,
     workspace_root: &Path,
@@ -813,6 +890,244 @@ mod tests {
         assert_eq!(media.mime_type, "image/jpeg");
         assert_eq!(media.file_name, "shot.jpg");
         assert_eq!(media.path, file.canonicalize().unwrap());
+    }
+
+    /// 沙箱风格环境：路径是环境内路径（`/workspace/...`），IO 走内存假文件系统。
+    ///
+    /// `map` 由用例决定：容器后端有「guest `/workspace` → 宿主目录」的挂载表，
+    /// 云端 envd 的挂载点只是模板（宿主上没有文件）。
+    struct SandboxEnv {
+        workspace: PathBuf,
+        map: crate::env::PathMap,
+        files: std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
+        reads: std::sync::atomic::AtomicUsize,
+    }
+
+    impl SandboxEnv {
+        fn new(mounts: Vec<crate::env::Mount>) -> Self {
+            Self {
+                workspace: PathBuf::from("/workspace"),
+                map: crate::env::PathMap::new(mounts),
+                files: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+                reads: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        fn put(&self, guest: &str, bytes: &[u8]) {
+            self.files
+                .lock()
+                .expect("files")
+                .insert(guest.to_string(), bytes.to_vec());
+        }
+
+        /// 环境读文件次数：用来证明「映射成功但缺文件」没有回落去读环境。
+        fn reads(&self) -> usize {
+            self.reads.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        fn lookup(&self, path: &Path) -> Option<Vec<u8>> {
+            self.files
+                .lock()
+                .expect("files")
+                .get(&path.to_string_lossy().into_owned())
+                .cloned()
+        }
+    }
+
+    impl crate::env::Environment for SandboxEnv {
+        fn kind(&self) -> crate::env::EnvKind {
+            crate::env::EnvKind::Headless
+        }
+        fn workspace_root(&self) -> &Path {
+            &self.workspace
+        }
+        fn skills_root(&self) -> &Path {
+            Path::new("/skills")
+        }
+        fn home_root(&self) -> &Path {
+            Path::new("/home/pointer")
+        }
+        fn capabilities(&self) -> crate::env::Capabilities {
+            crate::env::Capabilities::headless()
+        }
+        fn path_map(&self) -> &crate::env::PathMap {
+            &self.map
+        }
+        fn exec(
+            &self,
+            _argv: &[String],
+            _opts: crate::env::ExecOptions,
+        ) -> Result<crate::env::ExecOutput> {
+            Err(anyhow!("sandbox env: exec not supported"))
+        }
+        fn spawn(
+            &self,
+            _argv: &[String],
+            _opts: crate::env::SpawnOptions,
+        ) -> Result<Box<dyn crate::env::ChildHandle>> {
+            Err(anyhow!("sandbox env: spawn not supported"))
+        }
+        fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
+            self.reads
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.lookup(path)
+                .ok_or_else(|| anyhow!("sandbox env: not found: {}", path.display()))
+        }
+        fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+            self.put(&path.to_string_lossy(), data);
+            Ok(())
+        }
+        fn list_dir(&self, _path: &Path) -> Result<Vec<crate::env::DirEntry>> {
+            Ok(Vec::new())
+        }
+        fn metadata(&self, path: &Path) -> Result<crate::env::FileMetadata> {
+            let bytes = self
+                .lookup(path)
+                .ok_or_else(|| anyhow!("sandbox env: not found: {}", path.display()))?;
+            Ok(crate::env::FileMetadata {
+                is_file: true,
+                is_dir: false,
+                is_symlink: false,
+                len: bytes.len() as u64,
+            })
+        }
+        fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
+            Ok(path.to_path_buf())
+        }
+        fn create_dir_all(&self, _path: &Path) -> Result<()> {
+            Ok(())
+        }
+        fn read_to_string(&self, path: &Path) -> Result<String> {
+            let bytes = self.read_file(path)?;
+            Ok(String::from_utf8(bytes)?)
+        }
+        fn open_reader(&self, path: &Path) -> Result<Box<dyn std::io::Read + Send>> {
+            let bytes = self.read_file(path)?;
+            Ok(Box::new(std::io::Cursor::new(bytes)))
+        }
+        fn walk(
+            &self,
+            _root: &Path,
+            _opts: crate::env::WalkOptions,
+        ) -> Result<Vec<crate::env::WalkEntry>> {
+            Ok(Vec::new())
+        }
+        fn remove_file(&self, _path: &Path) -> Result<()> {
+            Ok(())
+        }
+        fn remove_dir_all(&self, _path: &Path) -> Result<()> {
+            Ok(())
+        }
+        fn set_executable(&self, _path: &Path) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn media_body_streams_host_path_for_docker_mount() {
+        // 容器后端：`/workspace` 是宿主目录的 bind mount，guest 路径能映射回宿主。
+        let host_ws = tempfile::tempdir().unwrap();
+        let file = host_ws.path().join("pic.png");
+        fs::write(&file, b"\x89PNG\r\n").unwrap();
+        let env = SandboxEnv::new(vec![crate::env::Mount::new(
+            host_ws.path(),
+            "/workspace",
+            false,
+        )]);
+        env.put("/workspace/pic.png", b"\x89PNG\r\n");
+
+        let media = resolve_file_for_media(&env, Path::new("/workspace"), "pic.png").unwrap();
+        assert_eq!(media.path, PathBuf::from("/workspace/pic.png"), "沙箱里拿到的是 guest 路径");
+
+        let body =
+            media_body_for_streaming(&env, &media.path, WORKSPACE_MEDIA_INLINE_MAX_BYTES).unwrap();
+        assert_eq!(
+            body,
+            // 映射表里的宿主根是按词法存的（macOS 上 `/var` 与 `/private/var` 是同一处），
+            // 这里按词法比较，再断言两边指向同一个文件。
+            WorkspaceMediaBody::HostPath(host_ws.path().join("pic.png")),
+            "映射成功就走宿主流式，不进内存"
+        );
+        if let WorkspaceMediaBody::HostPath(host) = &body {
+            assert_eq!(host.canonicalize().unwrap(), file.canonicalize().unwrap());
+            // 宿主路径能直接打开：HTTP 层就是这么流式返回的。
+            assert_eq!(fs::read(host).unwrap(), b"\x89PNG\r\n");
+        }
+        assert_eq!(env.reads(), 0, "宿主流式不该再读一遍环境");
+    }
+
+    #[test]
+    fn media_body_reads_env_bytes_when_host_has_no_file() {
+        // 云端 envd：挂载点只是模板，宿主目录里没有这个文件 → 整段读进内存。
+        let host_ws = tempfile::tempdir().unwrap();
+        let env = SandboxEnv::new(vec![crate::env::Mount::new(
+            host_ws.path(),
+            "/workspace",
+            false,
+        )]);
+        env.put("/workspace/out.mp4", b"video-bytes");
+
+        let body = media_body_for_streaming(
+            &env,
+            Path::new("/workspace/out.mp4"),
+            WORKSPACE_MEDIA_INLINE_MAX_BYTES,
+        )
+        .unwrap();
+        assert_eq!(body, WorkspaceMediaBody::Inline(b"video-bytes".to_vec()));
+        assert_eq!(body.source_label(), "env-inline");
+    }
+
+    #[test]
+    fn media_body_rejects_oversize_env_file_with_clear_error() {
+        let env = SandboxEnv::new(Vec::new());
+        env.put("/workspace/huge.mp4", &vec![7u8; 2048]);
+
+        let err = media_body_for_streaming(&env, Path::new("/workspace/huge.mp4"), 1024)
+            .expect_err("超过上限必须报错，不能静默截断");
+        let msg = err.to_string();
+        assert!(msg.contains("超过在线预览上限"), "{msg}");
+        assert!(msg.contains("请下载"), "{msg}");
+    }
+
+    #[test]
+    fn media_body_errors_when_mapped_path_is_gone_without_env_fallback() {
+        // 容器后端映射成功但宿主上文件没了（挂载目录里没有），环境里也没有：
+        // 直接报「文件不存在」，不回落去读环境（否则会掩盖路径问题）。
+        let host_ws = tempfile::tempdir().unwrap();
+        let env = SandboxEnv::new(vec![crate::env::Mount::new(
+            host_ws.path(),
+            "/workspace",
+            false,
+        )]);
+
+        let err = media_body_for_streaming(
+            &env,
+            Path::new("/workspace/missing.png"),
+            WORKSPACE_MEDIA_INLINE_MAX_BYTES,
+        )
+        .expect_err("文件不存在应报错");
+        assert!(
+            err.to_string().contains("workspace file does not exist")
+                || err.to_string().contains("not found"),
+            "{err}"
+        );
+        assert_eq!(env.reads(), 0, "不允许回落到环境读");
+    }
+
+    #[test]
+    fn media_body_keeps_host_path_for_local_env() {
+        // local 档位：路径映射恒等，行为与改动前完全一致（原样交给流式打开）。
+        let root = tempfile::tempdir().unwrap();
+        let env = host(root.path());
+        let file = root.path().join("shot.png");
+        fs::write(&file, b"\x89PNG").unwrap();
+
+        let media = resolve_file_for_media(env.as_ref(), root.path(), "shot.png").unwrap();
+        let body =
+            media_body_for_streaming(env.as_ref(), &media.path, WORKSPACE_MEDIA_INLINE_MAX_BYTES)
+                .unwrap();
+        assert_eq!(body, WorkspaceMediaBody::HostPath(media.path.clone()));
+        assert_eq!(body.source_label(), "host-stream");
     }
 
     #[test]

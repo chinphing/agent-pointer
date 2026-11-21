@@ -242,10 +242,11 @@ export async function readWorkspaceFile(
  */
 export async function workspaceFileMediaObjectUrl(
   workspaceRoot: string,
-  relativePath: string
+  relativePath: string,
+  conversationId?: string
 ): Promise<string> {
   const blob = await requestBlob(
-    `/api/workspace/file-media?${workspaceQuery(workspaceRoot, relativePath)}`,
+    `/api/workspace/file-media?${workspaceQuery(workspaceRoot, relativePath, { conversationId })}`,
     {
       timeoutMs: UPLOAD_TIMEOUT_MS,
       timeoutMessage: `加载工作区预览超时（>${UPLOAD_TIMEOUT_MS / 1000}s）`

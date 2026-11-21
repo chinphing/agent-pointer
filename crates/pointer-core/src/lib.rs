@@ -84,6 +84,7 @@ pub mod provider;
 pub mod shell_env;
 pub mod skills;
 pub mod storage;
+pub mod storage_migration;
 pub mod stream_broadcast;
 pub mod tls;
 pub mod tool_envelope;

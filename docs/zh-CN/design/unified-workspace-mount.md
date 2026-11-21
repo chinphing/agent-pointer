@@ -67,3 +67,15 @@
 5. 附件媒体写切到 `/data`
 6. Environment worktree
 7. 迁移与旧布局退役
+
+
+## 布局迁移工具
+
+`pointer_core::storage_migration::migrate_user_layout(user_id, dry_run)`：
+
+1. 扫描 `conversation-media/`、`generated-media/`、`computer-captures/`；
+2. dry-run 写入 journal（`{user-home}/.pointer/layout-migration-journal.json`）为 `planned`；
+3. 正式迁移按文件 copy + size/sha256 校验，journal 记 `copied`；
+4. 再次运行幂等跳过已完成项。
+
+新写入已走用户 data 卷的 v2 `storage_rel_path`；旧路径 dual-read 保留至兼容窗口结束。

@@ -34,20 +34,28 @@ Configuration lives in `server.toml`; every key has an environment-variable over
 ```toml
 [environment]
 provider = "container"          # local | light | container
-backend  = "docker"             # host | envd | docker
+backend  = "docker"             # host | envd | docker (global default, **not applied to local**)
 template = "pointer-sandbox-container:latest"
 # sandbox_url        = "http://10.0.0.5:3000"   # required for envd
 # volume_host_path   = "/data/pointer/volumes"  # optional for envd
 cpus      = 2                   # 0 = unlimited
 memory_mb = 4096
 disk_mb   = 10240
+desktop   = false               # optional override; defaults to the tier (container has one)
 accounts  = { alice = "light" } # per-user tier override
+
+# Per-tier backends (optional): wins over the global `backend` above
+[environment.backends]
+local     = "host"
+light     = "docker"
+container = "docker"
 ```
 
 | Key | Environment variable | Notes |
 |---|---|---|
 | `provider` | `POINTER_SERVER_ENVIRONMENT_PROVIDER` | Tier: `local` / `light` / `container` |
-| `backend` | `POINTER_SERVER_ENVIRONMENT_BACKEND` | Backend: `host` / `envd` / `docker` |
+| `backend` | `POINTER_SERVER_ENVIRONMENT_BACKEND` | Global default backend: `host` / `envd` / `docker`; **not applied to the `local` tier** |
+| `backends` | `POINTER_SERVER_ENVIRONMENT_BACKENDS` | Per-tier backend: `[environment.backends] light = "docker"`, env form `local=host,light=docker` |
 | `template` | `POINTER_SERVER_ENVIRONMENT_TEMPLATE` | Image name (docker) or template ID (envd) |
 | `sandbox_url` | `POINTER_SERVER_ENVIRONMENT_SANDBOX_URL` | envd control-plane URL; required for `envd` |
 | `volume_host_path` | `POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH` | envd volume root; empty means raw host mounts |
@@ -55,6 +63,7 @@ accounts  = { alice = "light" } # per-user tier override
 | `memory_mb` | `POINTER_SERVER_ENVIRONMENT_MEMORY_MB` | Memory per sandbox |
 | `disk_mb` | `POINTER_SERVER_ENVIRONMENT_DISK_MB` | Disk per sandbox |
 | `accounts` | `POINTER_SERVER_ENVIRONMENT_ACCOUNTS` | Per-user tier, e.g. `user=tier,user2=tier` |
+| `admin_tier` | `POINTER_SERVER_ENVIRONMENT_ADMIN_TIER` | Tier for accounts listed in `[auth] admins`: `local` (default, run on host) / `inherit` (follow the deployment default tier). `accounts` overrides always win |
 
 **Tier and backend must agree** — a mismatch fails at startup:
 
@@ -63,6 +72,38 @@ accounts  = { alice = "light" } # per-user tier override
 | `local` | `host` |
 | `light` | `envd` / `docker` |
 | `container` | `envd` / `docker` |
+
+### 1.1 How the backend is chosen
+
+For a given tier, the backend comes from the first match:
+
+1. `[environment.backends].<tier>` (explicit)
+2. the global `backend` — **but never for the `local` tier**
+3. the tier default: `local` → `host` / `light` → `envd` / `container` → `docker`
+
+That second exception matters: listed admins are pinned to the `local` tier
+(see `admin_tier`), so "global `backend = "docker"` + admin" now resolves to
+`local + host` instead of tripping the "`local` only allows `host`" check.
+To give `light` / `container` a different backend, change the global `backend`
+or pin it per tier with `[environment.backends]`.
+
+### 1.2 When it is validated
+
+**At startup**: every tier that can actually be resolved (deployment default,
+`[environment.accounts]` overrides, and any tier listed in
+`[environment.backends]`) is resolved and validated once. A bad combination
+exits the process immediately instead of surfacing later as a broken assistant
+message.
+
+Unknown keys under `[environment]` (a typo like `provder` / `bakend`) now
+**fail at startup** and name the offending key. They used to be ignored
+silently — which looked like it worked.
+
+> **Desktop capability follows the tier; `desktop` is only an override.** The
+> `container` tier ships a desktop, `light` does not, and both backends
+> (`docker` / `envd`) follow the same rule. Configure `desktop` only for the
+> rare exception (e.g. a desktop on a non-`container` tier); a value that
+> contradicts the tier logs a warning.
 
 ---
 

@@ -1702,23 +1702,50 @@ async fn run_platform_login_flow_inner(
     result
 }
 
-/// 管理员判定口径：`standalone` 部署也要区分会话身份。
+/// 管理员判定：**唯一入口**。会话列表可见范围、设置入口可见性、平台设置写入
+/// 全部走这里，不要再各自拼规则（那样会出现「能进设置页但看不到别人的会话」）。
 ///
-/// 会话票里的 `is_platform_admin` 永远是第一来源，也是平台模式（绑定控制面）下的
-/// **唯一**来源——那里管理员由控制面签发，部署模式不改变这一点。
+/// 三条规则取并集：
+/// 1. 会话票 `is_platform_admin` —— 控制面签发的身份，两种部署模式都认。
+/// 2. `[auth] admins` 名单命中（[`crate::server_config::is_admin_account`]）——
+///    部署方声明的「这台机器的管理员」，两种部署模式都认。平台模式下控制面把
+///    `is_platform_admin` 固定为 false（admin 侧 `user_json` 还没接角色表），
+///    名单是部署方唯一的声明途径。
+/// 3. `standalone` + 本地运维会话（桌面端无 Web 会话 / 本地密码登录）——
+///    见 [`is_local_operator_session`]。放行的只是机主，不是所有连上来的人：
+///    SSO 会话的 user id 是 `provider:subject`（`server/src/auth_routes.rs` 的
+///    `federated_user_id`，且会话票里写死非管理员），他们只是这台机器接入的普通
+///    成员，改不了平台级设置与调试开关。standalone 只是没有控制面，不是没有身份。
 ///
-/// `standalone` 部署没有控制面可管，本地运维者自持这台机器，所以「本地运维会话」
-/// 也放行（见 [`is_local_operator_session`]）。但放行的只是机主，不是所有连上来的
-/// 人：SSO 会话的 user id 是 `provider:subject`（`server/src/auth_routes.rs` 的
-/// `federated_user_id`，且会话票里写死非管理员），他们只是这台机器接入的普通成员，
-/// 改不了平台级设置与调试开关。此前按 `is_standalone()` 一律放行，等于把每个 SSO
-/// 用户都当成了管理员。
-pub fn is_platform_admin_session(
+/// **不包含执行环境档位**：`env::provider::ProviderConfig::is_admin` 只看
+/// `[auth] admins` 名单，不要改成调用本函数。平台模式是多租户，管理员身份由
+/// 控制面签发，不等于可以在这台机器上绕过沙箱；把票管理员降级成「宿主直跑」
+/// 是安全回退。这条边界是刻意的，不是遗漏。
+pub fn is_admin_session(
     ticket_is_admin: bool,
     standalone: bool,
     session_user_id: Option<&str>,
 ) -> bool {
-    ticket_is_admin || (standalone && is_local_operator_session(session_user_id))
+    is_admin_session_with(
+        &crate::server_config::admin_accounts(),
+        ticket_is_admin,
+        standalone,
+        session_user_id,
+    )
+}
+
+/// [`is_admin_session`] 的纯函数形态：管理员名单由调用方给出，便于矩阵单测。
+pub(crate) fn is_admin_session_with(
+    admin_accounts: &[String],
+    ticket_is_admin: bool,
+    standalone: bool,
+    session_user_id: Option<&str>,
+) -> bool {
+    ticket_is_admin
+        || session_user_id
+            .map(|uid| crate::server_config::admin_account_matches(admin_accounts, uid))
+            .unwrap_or(false)
+        || (standalone && is_local_operator_session(session_user_id))
 }
 
 /// 本地运维会话：没有 Web 会话（桌面客户端），或本地密码登录会话。
@@ -1738,35 +1765,95 @@ pub fn is_local_operator_session(session_user_id: Option<&str>) -> bool {
 mod tests {
     use super::*;
 
-    /// standalone 只放行本地运维会话；SSO 会话（`provider:subject`）照样是普通用户。
+    const LISTED_ADMIN: &str = "ops-listed-1";
+
+    fn admin_list() -> Vec<String> {
+        vec![LISTED_ADMIN.to_string()]
+    }
+
+    /// 管理员判定的完整矩阵：`(票) × (名单命中) × (standalone/platform) × (会话形态)`。
+    ///
+    /// 会话形态覆盖：桌面端无 Web 会话、空白 id、本地密码登录、SSO、名单命中、
+    /// 普通平台账号。期望值按形态给出 `(standalone, platform)` 两个答案，票为
+    /// true 时一律是管理员。
+    #[test]
+    fn admin_session_matrix_covers_every_viewer_shape() {
+        let list = admin_list();
+        let cases: Vec<(&str, Option<&str>, bool, bool)> = vec![
+            // (形态, 会话 id, standalone 下是管理员?, platform 下是管理员?)
+            ("桌面端无 Web 会话", None, true, false),
+            ("空白会话 id", Some("   "), true, false),
+            ("本地密码登录", Some(crate::local_auth::local_user_id()), true, false),
+            ("SSO 会话", Some("dingtalk:union-1"), false, false),
+            ("名单命中", Some(LISTED_ADMIN), true, true),
+            ("普通平台账号", Some("u-1001"), false, false),
+        ];
+        for standalone in [true, false] {
+            for ticket in [true, false] {
+                for (shape, uid, admin_standalone, admin_platform) in &cases {
+                    let expected = if ticket {
+                        true
+                    } else if standalone {
+                        *admin_standalone
+                    } else {
+                        *admin_platform
+                    };
+                    assert_eq!(
+                        is_admin_session_with(&list, ticket, standalone, *uid),
+                        expected,
+                        "shape={shape} ticket={ticket} standalone={standalone} uid={uid:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// 名单命中在两种部署模式都算管理员——平台模式没有别的管理员来源。
+    #[test]
+    fn listed_admin_is_admin_in_both_deployment_modes() {
+        let list = admin_list();
+        assert!(is_admin_session_with(&list, false, false, Some(LISTED_ADMIN)));
+        assert!(is_admin_session_with(&list, false, true, Some(LISTED_ADMIN)));
+        // 名单是精确匹配：前缀 / 大小写都不算。
+        assert!(!is_admin_session_with(&list, false, false, Some("ops-listed")));
+        assert!(!is_admin_session_with(&list, false, false, Some("OPS-LISTED-1")));
+        assert!(!is_admin_session_with(&list, false, false, None));
+    }
+
+    /// 回归：standalone + SSO 用户 → 不是管理员（上一轮刚修的结论不能回退）。
     #[test]
     fn platform_admin_session_keeps_sso_users_out_of_standalone_admin() {
-        assert!(!is_platform_admin_session(
+        let list = admin_list();
+        assert!(!is_admin_session_with(
+            &list,
             false,
             true,
             Some("dingtalk:union-1")
         ));
-        assert!(!is_platform_admin_session(false, true, Some("u-1001")));
-        assert!(is_platform_admin_session(
+        assert!(!is_admin_session_with(&list, false, true, Some("u-1001")));
+        assert!(is_admin_session_with(
+            &list,
             false,
             true,
             Some(crate::local_auth::local_user_id())
         ));
         // 桌面客户端没有 Web 会话，机主就是本地运维者。
-        assert!(is_platform_admin_session(false, true, None));
-        assert!(is_platform_admin_session(false, true, Some("   ")));
+        assert!(is_admin_session_with(&list, false, true, None));
+        assert!(is_admin_session_with(&list, false, true, Some("   ")));
     }
 
-    /// 平台模式（绑定控制面）行为不变：只看会话票里的管理员标记。
+    /// 平台模式（绑定控制面）不看本地运维会话：只看票与名单。
     #[test]
-    fn platform_mode_admin_scope_reads_only_the_ticket() {
-        assert!(!is_platform_admin_session(
+    fn platform_mode_admin_scope_reads_ticket_and_list_only() {
+        let list = admin_list();
+        assert!(!is_admin_session_with(
+            &list,
             false,
             false,
             Some(crate::local_auth::local_user_id())
         ));
-        assert!(!is_platform_admin_session(false, false, None));
-        assert!(is_platform_admin_session(true, false, Some("u-1001")));
+        assert!(!is_admin_session_with(&list, false, false, None));
+        assert!(is_admin_session_with(&list, true, false, Some("u-1001")));
     }
 
     #[test]

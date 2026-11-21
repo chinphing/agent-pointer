@@ -536,6 +536,10 @@ async fn run() -> anyhow::Result<()> {
         log::info!("pointer-server: config file {}", result.path.display());
     }
     pointer_core::license::validate_license_at_startup()?;
+    // 执行环境配置在启动时一次性校验：把实际会用到的档位各解析一次
+    // （档位/后端自洽、envd 必须配 sandbox_url），配错在这里就退出，
+    // 不留到运行时变成「助手消息异常」。
+    pointer_core::env::provider::ProviderConfig::from_env()?.validate_deployment()?;
     pointer_core::tls::ensure_rustls_crypto_provider();
 
     if let Err(err) = pointer_core::skills::external::install_deploy_bundled_skills() {
@@ -2005,10 +2009,13 @@ fn platform_session_user_id(state: &ServerState) -> String {
 }
 
 /// Sidebar / project list visibility: platform admin sees all users' rows.
+///
+/// 管理员判定走 `AppState::is_admin_session`（与设置入口、平台设置写入同一处），
+/// 这里只把它翻译成 `ListScope`。
 fn platform_list_scope(state: &ServerState) -> pointer_core::conversation_store::ListScope {
     let auth = state.core.active_platform_auth();
     pointer_core::conversation_store::ListScope::from_viewer(
-        auth.is_platform_admin(),
+        state.core.is_admin_session(),
         &auth.platform_user_id().unwrap_or_default(),
     )
 }

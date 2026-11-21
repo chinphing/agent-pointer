@@ -25,8 +25,9 @@ pub const STREAM_EVENT: &str = "chat://stream";
 
 fn platform_list_scope(state: &AppState) -> pointer_core::conversation_store::ListScope {
     let auth = state.active_platform_auth();
+    // 与 Web 端 `platform_list_scope` 同一判定：`AppState::is_admin_session`。
     pointer_core::conversation_store::ListScope::from_viewer(
-        auth.is_platform_admin(),
+        state.is_admin_session(),
         &auth.platform_user_id().unwrap_or_default(),
     )
 }
@@ -1947,12 +1948,14 @@ mod desktop_tests {
 
         let cfg = ProviderConfig {
             tier: Some(Tier::Container),
+            admin_tier: Default::default(),
             backend: Some(Backend::Docker),
             sandbox_url: None,
             volume_host_path: None,
             template: Some("pointer-sandbox-container:latest".to_string()),
             admins: Vec::new(),
             accounts: Default::default(),
+            tier_backends: Default::default(),
             platform: true,
         };
         pointer_core::env::session_env::resolve_session_env(

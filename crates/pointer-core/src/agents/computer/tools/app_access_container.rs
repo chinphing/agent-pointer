@@ -297,11 +297,13 @@ chromium\tChromium 重复\tchromium\n";
         let cfg = crate::env::provider::ProviderConfig {
             tier: Some(crate::env::provider::Tier::Container),
             backend: Some(crate::env::provider::Backend::Docker),
+            admin_tier: Default::default(),
             sandbox_url: None,
             volume_host_path: None,
             template: Some("pointer-sandbox-container:latest".to_string()),
             admins: Vec::new(),
             accounts: Default::default(),
+            tier_backends: Default::default(),
             platform: true,
         };
         let env = crate::env::session_env::resolve_session_env(

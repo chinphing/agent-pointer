@@ -176,6 +176,39 @@ skills_dir = "skills"
 # POINTER_API_BASE = "https://ptr.readflowai.com"
 
 # ---------------------------------------------------------------------------
+# Execution environment (sandbox tiers). Fully commented out = `local`: agent
+# tools run on this host, no sandbox. Uncomment to run them inside one.
+#
+# This table is parsed with `deny_unknown_fields`: a misspelled key
+# (`provder` / `bakend` / `sandbox-url`) makes pointer-server FAIL AT STARTUP
+# and names the offending key. It is never silently ignored — copy the key
+# names below verbatim.
+#
+# Tier decides whether there is a GUI; backend decides how IO is implemented:
+#   local     -> host        (no sandbox)
+#   light     -> envd        (needs sandbox_url) | docker
+#   container -> docker      (desktop inside the container)
+# ---------------------------------------------------------------------------
+# [environment]
+# provider = "container"                   # local | light | container
+# backend  = "docker"                      # host | envd | docker (global default; never applies to `local`)
+# sandbox_url = "http://10.0.0.5:3000"     # required when the resolved backend is envd
+# template = "pointer-sandbox-container:latest"
+# admin_tier = "local"                     # local (default) = [auth] admins stay on the host; inherit = follow the deployment tier
+# desktop = false                          # explicit override only: unset = derived from tier (container has a desktop).
+#                                          # A value that contradicts the tier still wins, but logs a WARN.
+# # Resource quota per sandbox. 0 = unlimited.
+# cpus = 2
+# memory_mb = 4096
+# disk_mb = 10240                          # Linux + overlay2/xfs only; ignored elsewhere
+#
+# # Per-tier backend (wins over the global `backend` above)
+# [environment.backends]
+# local     = "host"
+# light     = "envd"
+# container = "docker"
+
+# ---------------------------------------------------------------------------
 # Global MCP servers (P2b): non-plugin MCP, independent of plugin enable state.
 # Tools are registered as `mcp.<server>.<tool>`; commands relative to this file
 # resolve from the config file directory. Edit then reload from the MCP panel

@@ -209,11 +209,21 @@ struct AuthToml {
 }
 
 /// `[environment]`：执行环境档位（设计文档 §3.4）。
+///
+/// `deny_unknown_fields`：写了不存在的键就**启动报错**。以前静默忽略，
+/// 拼错的键（`provder` / `bakend`）看起来生效其实没生效，是最难查的一类故障。
 #[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 struct EnvironmentSection {
-    /// `local` | `light`。缺省按 `[deployment] mode` 派生。
+    /// `local` | `light` | `container`。缺省按 `[deployment] mode` 派生。
     #[serde(default)]
     provider: Option<String>,
+    /// 全局默认后端：`host` | `envd` | `docker`。**不作用于 `local` 档位**。
+    #[serde(default)]
+    backend: Option<String>,
+    /// 按档位覆盖后端：`[environment.backends] light = "docker"`。
+    #[serde(default)]
+    backends: BTreeMap<String, String>,
     /// `provider = "light"` 时必填的沙箱控制面地址。
     #[serde(default)]
     sandbox_url: Option<String>,
@@ -223,6 +233,22 @@ struct EnvironmentSection {
     /// 沙箱模板镜像（e2b-local 的 `templateID`，Cube 的镜像名）。缺省 `debian:bookworm-slim`。
     #[serde(default)]
     template: Option<String>,
+    /// 命中 `[auth] admins` 名单时给什么档位：`local`（缺省）| `inherit`。
+    #[serde(default)]
+    admin_tier: Option<String>,
+    /// 每沙箱 CPU 核数（`0` / 不填 = 不映射，走默认值）。整数或小数都接受。
+    #[serde(default)]
+    cpus: Option<f64>,
+    /// 每沙箱内存 MB。
+    #[serde(default)]
+    memory_mb: Option<u32>,
+    /// 每沙箱磁盘 MB（仅 Linux + overlay2/xfs 生效）。
+    #[serde(default)]
+    disk_mb: Option<u32>,
+    /// 桌面能力。**不配 = 由档位推导**（`container` 有、`light` 无）；配了就覆盖，
+    /// 与档位矛盾时只 WARN。仅作用于 `envd` 后端——`docker` 的能力位只读档位。
+    #[serde(default)]
+    desktop: Option<bool>,
     /// 账号级覆盖：`admin = "local"`、`alice = "light"`。
     #[serde(default)]
     accounts: HashMap<String, String>
@@ -376,32 +402,88 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
     );
     push_mapped(
         &mut pairs,
-        "POINTER_SERVER_ENVIRONMENT_PROVIDER",
+        ENV_ENVIRONMENT_PROVIDER,
         parsed.environment.provider.as_deref().unwrap_or(""),
         base_dir,
         false,
     );
     push_mapped(
         &mut pairs,
-        "POINTER_SERVER_ENVIRONMENT_SANDBOX_URL",
+        ENV_ENVIRONMENT_BACKEND,
+        parsed.environment.backend.as_deref().unwrap_or(""),
+        base_dir,
+        false,
+    );
+    if !parsed.environment.backends.is_empty() {
+        pairs.push((
+            ENV_ENVIRONMENT_BACKENDS.to_string(),
+            join_key_value_pairs(&parsed.environment.backends),
+        ));
+    }
+    push_mapped(
+        &mut pairs,
+        ENV_ENVIRONMENT_SANDBOX_URL,
         parsed.environment.sandbox_url.as_deref().unwrap_or(""),
         base_dir,
         false,
     );
     push_mapped(
         &mut pairs,
-        "POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH",
+        ENV_ENVIRONMENT_VOLUME_HOST_PATH,
         parsed.environment.volume_host_path.as_deref().unwrap_or(""),
         base_dir,
         false,
     );
     push_mapped(
         &mut pairs,
-        "POINTER_SERVER_ENVIRONMENT_TEMPLATE",
+        ENV_ENVIRONMENT_TEMPLATE,
         parsed.environment.template.as_deref().unwrap_or(""),
         base_dir,
         false,
     );
+    push_mapped(
+        &mut pairs,
+        ENV_ENVIRONMENT_ADMIN_TIER,
+        parsed.environment.admin_tier.as_deref().unwrap_or(""),
+        base_dir,
+        false,
+    );
+    if let Some(cpus) = parsed.environment.cpus.filter(|v| *v > 0.0) {
+        push_mapped(
+            &mut pairs,
+            ENV_ENVIRONMENT_CPUS,
+            &format!("{cpus}"),
+            base_dir,
+            false,
+        );
+    }
+    if let Some(memory_mb) = parsed.environment.memory_mb.filter(|v| *v > 0) {
+        push_mapped(
+            &mut pairs,
+            ENV_ENVIRONMENT_MEMORY_MB,
+            &memory_mb.to_string(),
+            base_dir,
+            false,
+        );
+    }
+    if let Some(disk_mb) = parsed.environment.disk_mb.filter(|v| *v > 0) {
+        push_mapped(
+            &mut pairs,
+            ENV_ENVIRONMENT_DISK_MB,
+            &disk_mb.to_string(),
+            base_dir,
+            false,
+        );
+    }
+    if let Some(desktop) = parsed.environment.desktop {
+        push_mapped(
+            &mut pairs,
+            ENV_ENVIRONMENT_DESKTOP,
+            if desktop { "1" } else { "0" },
+            base_dir,
+            false,
+        );
+    }
     if let Some(admins) = parsed.auth.admins.as_ref() {
         let joined = admins
             .iter()
@@ -765,8 +847,16 @@ pub fn forbid_session_user_id_in_terminal() -> bool {
 }
 
 const ENV_ENVIRONMENT_PROVIDER: &str = "POINTER_SERVER_ENVIRONMENT_PROVIDER";
+const ENV_ENVIRONMENT_BACKEND: &str = "POINTER_SERVER_ENVIRONMENT_BACKEND";
+const ENV_ENVIRONMENT_BACKENDS: &str = "POINTER_SERVER_ENVIRONMENT_BACKENDS";
 const ENV_ENVIRONMENT_SANDBOX_URL: &str = "POINTER_SERVER_ENVIRONMENT_SANDBOX_URL";
 const ENV_ENVIRONMENT_VOLUME_HOST_PATH: &str = "POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH";
+const ENV_ENVIRONMENT_TEMPLATE: &str = "POINTER_SERVER_ENVIRONMENT_TEMPLATE";
+const ENV_ENVIRONMENT_ADMIN_TIER: &str = "POINTER_SERVER_ENVIRONMENT_ADMIN_TIER";
+const ENV_ENVIRONMENT_CPUS: &str = "POINTER_SERVER_ENVIRONMENT_CPUS";
+const ENV_ENVIRONMENT_MEMORY_MB: &str = "POINTER_SERVER_ENVIRONMENT_MEMORY_MB";
+const ENV_ENVIRONMENT_DISK_MB: &str = "POINTER_SERVER_ENVIRONMENT_DISK_MB";
+const ENV_ENVIRONMENT_DESKTOP: &str = "POINTER_SERVER_ENVIRONMENT_DESKTOP";
 const ENV_ADMIN_ACCOUNTS: &str = "POINTER_SERVER_ADMIN_ACCOUNTS";
 const ENV_ENVIRONMENT_ACCOUNTS: &str = "POINTER_SERVER_ENVIRONMENT_ACCOUNTS";
 
@@ -782,12 +872,20 @@ pub fn environment_provider() -> Option<String> {
     env_nonempty(ENV_ENVIRONMENT_PROVIDER)
 }
 
-/// `provider = "light"` 时必填的沙箱控制面地址。
-/// 执行环境后端：`host` | `envd` | `docker`。缺省按档位推导。
+/// 全局默认执行环境后端：`host` | `envd` | `docker`。缺省按档位推导；
+/// **不作用于 `local` 档位**（local 只能是 host）。
 pub fn environment_backend() -> Option<String> {
-    env_nonempty("POINTER_SERVER_ENVIRONMENT_BACKEND")
+    env_nonempty(ENV_ENVIRONMENT_BACKEND)
 }
 
+/// 按档位的后端覆盖：`local=host,light=docker`（来自 `[environment.backends]`）。
+pub fn environment_backends() -> Vec<(String, String)> {
+    env_nonempty(ENV_ENVIRONMENT_BACKENDS)
+        .map(|raw| parse_key_value_pairs(&raw))
+        .unwrap_or_default()
+}
+
+/// `provider = "light"` 时必填的沙箱控制面地址。
 pub fn environment_sandbox_url() -> Option<String> {
     env_nonempty(ENV_ENVIRONMENT_SANDBOX_URL)
 }
@@ -799,30 +897,52 @@ pub fn environment_volume_host_path() -> Option<String> {
 
 /// 沙箱模板镜像名。缺省由 `RemoteSpec::default()` 给 `debian:bookworm-slim`。
 pub fn environment_template() -> Option<String> {
-    env_nonempty("POINTER_SERVER_ENVIRONMENT_TEMPLATE")
+    env_nonempty(ENV_ENVIRONMENT_TEMPLATE)
+}
+
+/// 命中 admin 名单时的档位策略：`local`（缺省，宿主直跑）| `inherit`（跟随部署默认）。
+/// 取值合法性由 [`crate::env::provider::AdminTier::parse`] 校验。
+pub fn environment_admin_tier() -> Option<String> {
+    env_nonempty(ENV_ENVIRONMENT_ADMIN_TIER)
 }
 
 /// 沙箱资源配额：CPU 核数。缺省 `DEFAULT_SANDBOX_CPUS`。
 ///
 /// 不给配额时单个容器能吃满宿主——一个用户跑飞就拖垮所有人。
 pub fn environment_cpus() -> Option<f32> {
-    env_nonempty("POINTER_SERVER_ENVIRONMENT_CPUS")
+    env_nonempty(ENV_ENVIRONMENT_CPUS)
         .and_then(|raw| raw.trim().parse::<f32>().ok())
         .filter(|v| *v > 0.0)
 }
 
 /// 沙箱资源配额：内存 MB。缺省 `DEFAULT_SANDBOX_MEMORY_MB`。
 pub fn environment_memory_mb() -> Option<u32> {
-    env_nonempty("POINTER_SERVER_ENVIRONMENT_MEMORY_MB")
+    env_nonempty(ENV_ENVIRONMENT_MEMORY_MB)
         .and_then(|raw| raw.trim().parse::<u32>().ok())
         .filter(|v| *v > 0)
 }
 
 /// 沙箱资源配额：磁盘 MB（仅 Linux + overlay2/xfs 生效）。缺省 `DEFAULT_SANDBOX_DISK_MB`。
 pub fn environment_disk_mb() -> Option<u32> {
-    env_nonempty("POINTER_SERVER_ENVIRONMENT_DISK_MB")
+    env_nonempty(ENV_ENVIRONMENT_DISK_MB)
         .and_then(|raw| raw.trim().parse::<u32>().ok())
         .filter(|v| *v > 0)
+}
+
+/// 显式配置的桌面能力（`POINTER_SERVER_ENVIRONMENT_DESKTOP`）。
+///
+/// `None` = 没配 → 由档位决定（`container` 有桌面，其余没有），见
+/// `session_env::remote_desktop`；`Some(_)` = 显式覆盖，与档位矛盾时只告警。
+/// 取值 `1/true/yes/on` 为真，其余（含 `0/false/no/off`）为假。
+pub fn environment_desktop_override() -> Option<bool> {
+    env_nonempty(ENV_ENVIRONMENT_DESKTOP).map(|raw| desktop_flag(&raw))
+}
+
+fn desktop_flag(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 /// admin 账号名单（`session_user_id`，逗号分隔）。命中者默认走 `local`。
@@ -853,17 +973,28 @@ pub(crate) fn admin_account_matches(list: &[String], uid: &str) -> bool {
 /// 账号级 provider 覆盖：`alice=light,bob=local`。
 pub fn environment_accounts() -> Vec<(String, String)> {
     env_nonempty(ENV_ENVIRONMENT_ACCOUNTS)
-        .map(|raw| {
-            parse_cors_origins(&raw)
-                .into_iter()
-                .filter_map(|pair| {
-                    pair.split_once('=')
-                        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
-                        .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-                })
-                .collect()
-        })
+        .map(|raw| parse_key_value_pairs(&raw))
         .unwrap_or_default()
+}
+
+/// `k=v,k2=v2` → 键值对（账号覆盖 / 档位后端覆盖共用）。空键空值丢弃。
+fn parse_key_value_pairs(raw: &str) -> Vec<(String, String)> {
+    parse_cors_origins(raw)
+        .into_iter()
+        .filter_map(|pair| {
+            pair.split_once('=')
+                .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+        })
+        .collect()
+}
+
+/// 反向：`[environment.backends]` 的 map → `k=v,k2=v2`（键排序，日志与测试稳定）。
+fn join_key_value_pairs(map: &BTreeMap<String, String>) -> String {
+    map.iter()
+        .map(|(k, v)| format!("{}={}", k.trim(), v.trim()))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 const ENV_CORS_ORIGINS: &str = "POINTER_SERVER_CORS_ORIGINS";
@@ -1020,6 +1151,200 @@ public_url = "https://pointer.example.com"
         assert_eq!(
             map.get("POINTER_SERVER_PUBLIC_URL").map(String::as_str),
             Some("https://pointer.example.com")
+        );
+    }
+
+    #[test]
+    fn toml_maps_environment_admin_tier_to_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[environment]
+provider = "light"
+admin_tier = "inherit"
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
+        assert_eq!(
+            map.get("POINTER_SERVER_ENVIRONMENT_ADMIN_TIER")
+                .map(String::as_str),
+            Some("inherit")
+        );
+    }
+
+    /// 回归：`admin_tier` 曾在 `parse_toml_file` 里被映射两次（常量 + 字面量各一次），
+    /// 第二次会命中 `apply_config_pairs` 的「已被 OS 环境变量设置」分支，
+    /// 打一条误导性的 skipped 日志。映射必须只出现一次。
+    #[test]
+    fn toml_environment_admin_tier_mapped_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(&cfg, "[environment]\nadmin_tier = \"inherit\"\n").unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let hits = pairs
+            .iter()
+            .filter(|(k, _)| k == "POINTER_SERVER_ENVIRONMENT_ADMIN_TIER")
+            .count();
+        assert_eq!(hits, 1, "admin_tier 只能映射一次，实际 {hits} 次: {pairs:?}");
+    }
+
+    /// 同一环境变量名在整个 `parse_toml_file` 输出里只允许出现一次。
+    #[test]
+    fn toml_environment_keys_are_unique() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[environment]
+provider = "container"
+backend = "docker"
+sandbox_url = "http://cube:3000"
+volume_host_path = "/data/pointer/volumes"
+template = "pointer-sandbox-container:latest"
+admin_tier = "inherit"
+cpus = 2
+memory_mb = 4096
+disk_mb = 10240
+desktop = true
+
+[environment.backends]
+light = "docker"
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let mut seen: HashMap<&str, usize> = HashMap::new();
+        for (k, _) in &pairs {
+            *seen.entry(k.as_str()).or_default() += 1;
+        }
+        let dups: Vec<_> = seen.iter().filter(|(_, n)| **n > 1).collect();
+        assert!(dups.is_empty(), "重复映射的环境变量: {dups:?}");
+    }
+
+    #[test]
+    fn desktop_flag_parses_known_values() {
+        for truthy in ["1", "true", "TRUE", " yes ", "on"] {
+            assert!(desktop_flag(truthy), "{truthy} 应当为真");
+        }
+        for falsy in ["0", "false", "no", "off", "anything"] {
+            assert!(!desktop_flag(falsy), "{falsy} 应当为假");
+        }
+    }
+
+    /// 文档（`docs/{zh-CN,en}/deploy/sandbox-backend.md`）里列的每个 `[environment]`
+    /// 键都必须真的映射到环境变量——这条测试是防「文档与实现再次脱节」的护栏。
+    #[test]
+    fn toml_environment_maps_every_documented_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[environment]
+provider = "container"
+backend = "docker"
+sandbox_url = "http://cube:3000"
+volume_host_path = "/data/pointer/volumes"
+template = "pointer-sandbox-container:latest"
+cpus = 2
+memory_mb = 4096
+disk_mb = 10240
+desktop = true
+
+[environment.backends]
+local = "host"
+light = "docker"
+container = "docker"
+"#,
+        )
+        .unwrap();
+        let map: HashMap<_, _> = parse_toml_file(&cfg, dir.path())
+            .unwrap()
+            .into_iter()
+            .collect();
+        let expected = [
+            ("POINTER_SERVER_ENVIRONMENT_PROVIDER", "container"),
+            ("POINTER_SERVER_ENVIRONMENT_BACKEND", "docker"),
+            ("POINTER_SERVER_ENVIRONMENT_SANDBOX_URL", "http://cube:3000"),
+            (
+                "POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH",
+                "/data/pointer/volumes",
+            ),
+            (
+                "POINTER_SERVER_ENVIRONMENT_TEMPLATE",
+                "pointer-sandbox-container:latest",
+            ),
+            ("POINTER_SERVER_ENVIRONMENT_CPUS", "2"),
+            ("POINTER_SERVER_ENVIRONMENT_MEMORY_MB", "4096"),
+            ("POINTER_SERVER_ENVIRONMENT_DISK_MB", "10240"),
+            ("POINTER_SERVER_ENVIRONMENT_DESKTOP", "1"),
+            (
+                "POINTER_SERVER_ENVIRONMENT_BACKENDS",
+                "container=docker,light=docker,local=host",
+            ),
+        ];
+        for (key, value) in expected {
+            assert_eq!(map.get(key).map(String::as_str), Some(value), "缺少映射 {key}");
+        }
+        // 反向：映射出来的值必须能被读取侧解析回同样的键值对（顺序按 key 排序）。
+        let backends = map
+            .get("POINTER_SERVER_ENVIRONMENT_BACKENDS")
+            .map(|raw| parse_key_value_pairs(raw))
+            .unwrap();
+        assert_eq!(
+            backends,
+            vec![
+                ("container".to_string(), "docker".to_string()),
+                ("light".to_string(), "docker".to_string()),
+                ("local".to_string(), "host".to_string()),
+            ]
+        );
+    }
+
+    /// 写错键名必须启动即报，且错误信息指出是哪个键（以前是静默忽略）。
+    #[test]
+    fn toml_environment_rejects_unknown_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(&cfg, "[environment]\nprovder = \"light\"\n").unwrap();
+        let err = format!("{:#}", parse_toml_file(&cfg, dir.path()).unwrap_err());
+        assert!(err.contains("provder"), "错误信息要指出是哪个键: {err}");
+    }
+
+    #[test]
+    fn toml_environment_accepts_float_cpus_and_skips_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(&cfg, "[environment]\ncpus = 1.5\nmemory_mb = 0\n").unwrap();
+        let map: HashMap<_, _> = parse_toml_file(&cfg, dir.path())
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert_eq!(
+            map.get("POINTER_SERVER_ENVIRONMENT_CPUS").map(String::as_str),
+            Some("1.5")
+        );
+        // 0 = 不限制 → 不映射，交给默认值
+        assert!(!map.contains_key("POINTER_SERVER_ENVIRONMENT_MEMORY_MB"));
+    }
+
+    #[test]
+    fn toml_environment_desktop_false_maps_to_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(&cfg, "[environment]\ndesktop = false\n").unwrap();
+        let map: HashMap<_, _> = parse_toml_file(&cfg, dir.path())
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert_eq!(
+            map.get("POINTER_SERVER_ENVIRONMENT_DESKTOP").map(String::as_str),
+            Some("0")
         );
     }
 

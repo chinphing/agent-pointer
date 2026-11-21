@@ -1235,6 +1235,23 @@ impl AppState {
         crate::web_request_auth::scoped_auth(&self.platform_auth)
     }
 
+    /// 当前请求视角是否管理员——[`crate::platform_auth::is_admin_session`] 的唯一装配点。
+    ///
+    /// 会话列表可见范围（server / 桌面端 `platform_list_scope`）、设置入口可见性
+    /// （[`Self::effective_settings_view`]）、平台设置与调试设置写入
+    /// （[`Self::update_platform_settings`] / [`Self::update_debug_session_settings`]）
+    /// 全部调用它。判定规则本身只有一处，这里只负责把会话票、部署模式、会话用户
+    /// id 三个输入凑齐。
+    pub fn is_admin_session(&self) -> bool {
+        let auth = self.active_platform_auth();
+        let session_user_id = auth.platform_user_id();
+        crate::platform_auth::is_admin_session(
+            auth.is_platform_admin(),
+            crate::deployment_mode::is_standalone(),
+            session_user_id.as_deref(),
+        )
+    }
+
     pub fn save_user_settings(&self, user: &UserSettings) -> anyhow::Result<()> {
         storage::save_user_settings(user)
     }
@@ -1295,19 +1312,10 @@ impl AppState {
             storage::apply_user_runtime_overlay(&mut user, &uid);
             storage::apply_user_runtime_overlay_to_model_settings(&mut merged, &uid);
         }
-        // 管理员口径见 `is_platform_admin_session`：会话票标记是第一来源；
-        // standalone 部署额外放行「本地运维会话」（桌面端无 Web 会话 / 本地密码登录），
-        // 但 SSO 会话一律不是管理员——standalone 只是没有控制面，不是没有身份。
-        //
-        // 平台模式下控制面把 `is_platform_admin` 固定为 false，Web 端因此永远看不到
-        // 设置入口；本部署 `[auth] admins` 里的账号按管理员对待，把入口放出来。
-        let auth = self.active_platform_auth();
-        let session_user_id = auth.platform_user_id();
-        let is_platform_admin = crate::platform_auth::is_platform_admin_session(
-            auth.is_platform_admin(),
-            crate::deployment_mode::is_standalone(),
-            session_user_id.as_deref(),
-        ) || crate::server_config::is_admin_account(session_user_id.as_deref().unwrap_or_default());
+        // 管理员口径唯一入口 [`Self::is_admin_session`]：会话票 / `[auth] admins`
+        // 名单 / standalone 本地运维会话三选一。设置入口可见性与会话列表可见范围、
+        // 平台设置写入共用同一判定，避免「能进设置页但看不到别人会话」这类组合。
+        let is_platform_admin = self.is_admin_session();
         EffectiveSettingsView {
             user,
             platform,
@@ -1321,7 +1329,7 @@ impl AppState {
         &self,
         patch: PlatformSettings,
     ) -> anyhow::Result<EffectiveSettingsView> {
-        if !self.active_platform_auth().is_platform_admin() {
+        if !self.is_admin_session() {
             anyhow::bail!("only platform admins may edit platform settings");
         }
         // Platform settings are in-memory only: providers (runtime keys) and
@@ -1341,7 +1349,7 @@ impl AppState {
         &self,
         mut incoming: DebugSessionSettings,
     ) -> anyhow::Result<EffectiveSettingsView> {
-        if !self.active_platform_auth().is_platform_admin() {
+        if !self.is_admin_session() {
             anyhow::bail!("only platform admins may edit debug session settings");
         }
         let active_provider_id = incoming.active_provider_id.trim().to_string();
@@ -1436,7 +1444,10 @@ impl AppState {
         // 就是完整快照；继续强改回会让用户改动直接回弹（终端环境覆盖、
         // 子任务看板开关、Agent UI 覆盖等一律存不进去）。
         let response_was_redacted = crate::web_request_auth::scoped_auth_kind().is_some();
-        if response_was_redacted && !self.active_platform_auth().is_platform_admin() {
+        // 与 GET 的脱敏判定同一个视角：`WebEffectiveSettingsView` 按
+        // `is_platform_admin` 决定是否剥掉调试字段，写回时也按同一口径判断
+        // 「回传的是否是被剥过的快照」，否则管理员自己改调试开关会被强改回。
+        if response_was_redacted && !self.is_admin_session() {
             crate::models::preserve_platform_debug_settings_in_user(&mut incoming, &existing);
         }
         // 后端内存 key 池：user 层现有 key（load 时已从 json 解密回填到内存）
@@ -2393,6 +2404,34 @@ mod active_main_task_board_tests {
         assert_eq!(p.api_key, "sk-user-new");
     }
 
+    /// 放进 `[auth] admins` 名单的测试账号（独占 uid，避免撞上并发测试）。
+    const LISTED_ADMIN: &str = "ops-listed-1";
+
+    /// 临时把某个账号写进 `POINTER_SERVER_ADMIN_ACCOUNTS`，退出作用域时恢复原值。
+    ///
+    /// 管理员名单每次判定都从环境变量读（无缓存），所以这里改的就是真实生效值。
+    struct AdminAccountsEnvGuard {
+        prev: Option<String>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    fn with_admin_accounts(raw: &str) -> AdminAccountsEnvGuard {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let lock = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let prev = std::env::var("POINTER_SERVER_ADMIN_ACCOUNTS").ok();
+        std::env::set_var("POINTER_SERVER_ADMIN_ACCOUNTS", raw);
+        AdminAccountsEnvGuard { prev, _lock: lock }
+    }
+
+    impl Drop for AdminAccountsEnvGuard {
+        fn drop(&mut self) {
+            match self.prev.take() {
+                Some(value) => std::env::set_var("POINTER_SERVER_ADMIN_ACCOUNTS", value),
+                None => std::env::remove_var("POINTER_SERVER_ADMIN_ACCOUNTS"),
+            }
+        }
+    }
+
     fn admin_scope_session(user_id: &str, is_admin: bool) -> PlatformSession {
         PlatformSession {
             access_token: "test-token".into(),
@@ -2416,47 +2455,110 @@ mod active_main_task_board_tests {
     /// 于是接入这台机器的 SSO 用户也拿到了平台设置与调试开关。现在只有本地运维
     /// 会话放行：桌面端（无 Web 会话）与本地密码登录会话；SSO 会话在任何部署模式
     /// 下都是普通用户。
+    ///
+    /// 同时锁定「收敛」：会话列表、设置入口、平台设置写入、调试设置写入四个调用点
+    /// 必须给出同一个答案——这正是修复前会漏掉的组合（能进设置页但看不到别人会话、
+    /// 或能进设置页但保存被拒）。
     #[test]
-    fn settings_view_admin_scope_distinguishes_sso_from_local_operator() {
+    fn admin_session_converges_across_all_call_sites() {
         let _guard = isolate_app_data_dir();
         let state = AppState::new();
+        let standalone = crate::deployment_mode::is_standalone();
+        let payload = debug_payload(&state);
 
         // SSO 会话：`federated_user_id` = provider:subject，票里非管理员。
         state
             .platform_auth
             .set_session(admin_scope_session("dingtalk:union-1", false));
-        let view = state.effective_settings_view();
-        assert!(
-            !view.is_platform_admin,
-            "an SSO session must not become an admin on a standalone install"
-        );
-        assert!(!view.can_edit_platform);
+        assert_admin_sites(&state, &payload, false, "SSO 会话");
 
         // 本地密码登录会话：`local_auth` 建会话时票里就是管理员。
         state.platform_auth.set_session(admin_scope_session(
             crate::local_auth::local_user_id(),
             true,
         ));
-        let view = state.effective_settings_view();
-        assert!(view.is_platform_admin);
-        assert!(view.can_edit_platform);
+        assert_admin_sites(&state, &payload, true, "本地密码登录（票管理员）");
+
+        // 本地运维会话但票里没标记：standalone 由「本地运维」规则放行，
+        // 平台模式不认本地运维会话。
+        state.platform_auth.set_session(admin_scope_session(
+            crate::local_auth::local_user_id(),
+            false,
+        ));
+        assert_admin_sites(&state, &payload, standalone, "本地运维会话（票非管理员）");
 
         // 桌面客户端：没有 Web 会话，standalone 下由机主自持；平台模式仍看票。
         state.platform_auth.clear_session();
+        assert_admin_sites(&state, &payload, standalone, "桌面端无 Web 会话");
+
+        // `[auth] admins` 名单命中：两种部署模式都认（平台模式唯一的声明途径）。
+        {
+            let _env = with_admin_accounts(LISTED_ADMIN);
+            state
+                .platform_auth
+                .set_session(admin_scope_session(LISTED_ADMIN, false));
+            assert_admin_sites(&state, &payload, true, "名单命中的会话");
+        }
+
+        // 票管理员（不在名单里）仍是管理员。
+        state
+            .platform_auth
+            .set_session(admin_scope_session("u-1001", true));
+        assert_admin_sites(&state, &payload, true, "票管理员");
+    }
+
+    /// 四个管理员判定调用点必须同时给出同一个答案。
+    fn assert_admin_sites(
+        state: &AppState,
+        payload: &DebugSessionSettings,
+        expected: bool,
+        ctx: &str,
+    ) {
+        let uid = state
+            .active_platform_auth()
+            .platform_user_id()
+            .unwrap_or_default();
+
+        // 1. 会话列表可见范围（server / 桌面端 `platform_list_scope` 的表达式）。
+        assert_eq!(state.is_admin_session(), expected, "is_admin_session: {ctx}");
+        let scope = crate::conversation_store::ListScope::from_viewer(
+            state.is_admin_session(),
+            &uid,
+        );
+        let want_scope = if expected {
+            crate::conversation_store::ListScope::All
+        } else {
+            crate::conversation_store::ListScope::User(uid.clone())
+        };
+        assert_eq!(scope, want_scope, "会话列表可见范围: {ctx}");
+
+        // 2. 设置入口可见性。
         let view = state.effective_settings_view();
+        assert_eq!(view.is_platform_admin, expected, "设置入口: {ctx}");
+        assert_eq!(view.can_edit_platform, expected, "can_edit_platform: {ctx}");
+
+        // 3. 平台设置写入。
         assert_eq!(
-            view.is_platform_admin,
-            crate::deployment_mode::is_standalone(),
-            "a desktop session is admin exactly in standalone mode"
+            state
+                .update_platform_settings(crate::models::PlatformSettings::default())
+                .is_ok(),
+            expected,
+            "平台设置写入: {ctx}"
+        );
+
+        // 4. 调试设置写入。
+        assert_eq!(
+            state
+                .update_debug_session_settings(payload.clone())
+                .is_ok(),
+            expected,
+            "调试设置写入: {ctx}"
         );
     }
 
-    #[test]
-    fn debug_session_settings_replace_runtime_model_configuration() {
-        let _guard = isolate_app_data_dir();
-        let state = AppState::new();
-        let merged = state.effective_settings();
-        let mut debug = DebugSessionSettings::from(&merged);
+    /// 会话级调试设置的最小可用负载（provider/model 自洽，能过校验）。
+    fn debug_payload(state: &AppState) -> DebugSessionSettings {
+        let mut debug = DebugSessionSettings::from(&state.effective_settings());
         if debug.providers.is_empty() {
             debug
                 .providers
@@ -2470,6 +2572,14 @@ mod active_main_task_board_tests {
         debug.providers = vec![provider];
         debug.active_provider_id = "session-provider".into();
         debug.model = "session-chat".into();
+        debug
+    }
+
+    #[test]
+    fn debug_session_settings_replace_runtime_model_configuration() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        let mut debug = debug_payload(&state);
         debug.temperature = 0.42;
         debug.max_tokens = 4321;
         for modes in debug.agent_mode_llm.values_mut() {
@@ -2486,6 +2596,10 @@ mod active_main_task_board_tests {
         debug.computer_pipeline_llm.position = "session-worker".into();
         debug.computer_pipeline_llm.verify = "session-worker".into();
 
+        // 非管理员会话（SSO：票非管理员，且不在 `[auth] admins` 名单）必须被拒。
+        state
+            .platform_auth
+            .set_session(admin_scope_session("dingtalk:union-1", false));
         let denied = state
             .update_debug_session_settings(debug.clone())
             .expect_err("non-admin update must be rejected");

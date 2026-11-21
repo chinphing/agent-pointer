@@ -69,8 +69,10 @@ pub struct RemoteSpec {
     pub mounts: Vec<Mount>,
     /// 模板里是否带图形桌面（Xvfb + xdotool + x11vnc）。
     ///
-    /// 默认 false：envd 沙箱一般是纯 CLI。打开后 `capabilities().desktop` 为真，
-    /// 计算机工具会把它当"自己的桌面"，走沙箱内的 xdotool 而不是宿主。
+    /// 默认值由**档位**决定（`container` → true，其余 → false），`[environment] desktop`
+    /// 显式配置时覆盖它；见 `session_env::remote_desktop`。为真时
+    /// `capabilities().desktop` 也为真，计算机工具会把它当"自己的桌面"，
+    /// 走沙箱内的 xdotool 而不是宿主。
     pub desktop: bool,
     /// e2b-local 的卷宿主目录（`docker.volume_host_path`）。
     ///

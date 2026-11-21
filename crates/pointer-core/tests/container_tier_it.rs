@@ -34,11 +34,13 @@ fn console_pty_opens_inside_the_container() {
     let cfg = ProviderConfig {
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
+        admin_tier: Default::default(),
         sandbox_url: None,
         volume_host_path: None,
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let env = resolve_session_env(&cfg, "it-console-pty", "tester", Some(dir.path()))
@@ -123,11 +125,13 @@ fn container_tier_through_provider_config() {
     let cfg = ProviderConfig {
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
+        admin_tier: Default::default(),
         sandbox_url: None,
         volume_host_path: None,
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
 
@@ -177,6 +181,7 @@ fn adopt_existing_container_after_cache_loss() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -184,6 +189,7 @@ fn adopt_existing_container_after_cache_loss() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     // 先按正常路径建出容器。
@@ -240,6 +246,7 @@ fn lost_container_is_recreated_on_next_use() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -247,6 +254,7 @@ fn lost_container_is_recreated_on_next_use() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let conv = "it-lost";
@@ -310,6 +318,7 @@ fn typing_cjk_survives_in_container() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -317,6 +326,7 @@ fn typing_cjk_survives_in_container() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let env = resolve_session_env(&cfg, "it-typing", "tester", Some(dir.path()))
@@ -383,6 +393,7 @@ fn stale_container_is_recreated_on_adopt() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -390,6 +401,7 @@ fn stale_container_is_recreated_on_adopt() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let name = "pointer-sbx-it-stale";
@@ -444,6 +456,7 @@ fn desktop_password_matches_container_env() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -451,6 +464,7 @@ fn desktop_password_matches_container_env() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let env = resolve_session_env(&cfg, "it-desktop-pw", "tester", Some(dir.path()))
@@ -493,6 +507,7 @@ fn desktop_endpoint_exposes_websockify() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -500,6 +515,7 @@ fn desktop_endpoint_exposes_websockify() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let env = resolve_session_env(&cfg, "it-desktop-endpoint", "tester", Some(dir.path()))
@@ -588,6 +604,7 @@ fn docker_control_drives_the_container_desktop() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -595,6 +612,7 @@ fn docker_control_drives_the_container_desktop() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let env = resolve_session_env(&cfg, "it-docker-control", "tester", Some(dir.path()))
@@ -639,6 +657,7 @@ fn container_has_gui_apps_and_clipboard() {
     }
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -646,6 +665,7 @@ fn container_has_gui_apps_and_clipboard() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let env = resolve_session_env(&cfg, "it-gui-apps", "tester", Some(dir.path()))
@@ -746,6 +766,7 @@ fn gui_task_navigates_and_screenshot_changes() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -753,6 +774,7 @@ fn gui_task_navigates_and_screenshot_changes() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let env = resolve_session_env(&cfg, "it-gui-task", "tester", Some(dir.path()))
@@ -881,6 +903,7 @@ fn capture_screen_reads_the_container_desktop() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -888,6 +911,7 @@ fn capture_screen_reads_the_container_desktop() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let env = resolve_session_env(&cfg, "it-capture", "tester", Some(dir.path()))
@@ -948,6 +972,7 @@ fn keyboard_lands_after_focus_is_lost() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -955,6 +980,7 @@ fn keyboard_lands_after_focus_is_lost() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
     let env = resolve_session_env(&cfg, "it-docker-focus", "tester", Some(dir.path()))
@@ -1027,6 +1053,7 @@ fn browser_starts_after_container_recreation() {
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Container),
         backend: Some(Backend::Docker),
         sandbox_url: None,
@@ -1034,6 +1061,7 @@ fn browser_starts_after_container_recreation() {
         template: Some("pointer-sandbox-container:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
 

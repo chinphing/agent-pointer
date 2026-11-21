@@ -31,18 +31,6 @@ const DEFAULT_SANDBOX_CPUS: f32 = 2.0;
 const DEFAULT_SANDBOX_MEMORY_MB: u32 = 4096;
 const DEFAULT_SANDBOX_DISK_MB: u32 = 10240;
 
-/// 布尔环境变量：`1/true/yes/on` 为真，其余（含未设置）为假。
-fn env_flag(key: &str) -> bool {
-    std::env::var(key)
-        .map(|v| {
-            matches!(
-                v.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
-}
-
 /// 生效的沙箱配额。
 ///
 /// `POINTER_SERVER_ENVIRONMENT_{CPUS,MEMORY_MB,DISK_MB}` 覆盖默认值；
@@ -94,7 +82,8 @@ pub fn resolve_session_env(
     match (tier, backend) {
         (Tier::Local, _) => Ok(None),
         (_, Backend::Envd) => {
-            let env = acquire_remote(cfg, conversation_id, session_user_id, workspace_root)?;
+            let env =
+                acquire_remote(cfg, conversation_id, session_user_id, workspace_root, tier)?;
             Ok(Some(env as Arc<dyn Environment>))
         }
         (_, Backend::Docker) => {
@@ -528,11 +517,37 @@ fn conversation_creation_lock(conversation_id: &str) -> Arc<Mutex<()>> {
         .clone()
 }
 
+/// envd 沙箱要不要带图形桌面。
+///
+/// **档位是唯一事实来源**：`container` 有桌面、`light` 没有——与 docker 后端的
+/// `DockerEnv::capabilities()` 是同一套推导，否则同一个档位两条后端会各说一套
+/// （`tier=container` 时 envd 报无桌面、docker 报有桌面）。
+///
+/// `[environment] desktop` 只作**显式覆盖**：写了就听它的，与档位矛盾时告警
+/// 但不拦——模板里到底有没有 X 栈只有部署的人知道。
+fn remote_desktop(tier: Tier, explicit: Option<bool>) -> bool {
+    let by_tier = tier == Tier::Container;
+    match explicit {
+        None => by_tier,
+        Some(want) => {
+            if want != by_tier {
+                log::warn!(
+                    "environment.desktop={want} 与档位 {tier:?} 矛盾：该档位默认{}桌面，按显式配置{}",
+                    if by_tier { "带" } else { "不带" },
+                    if want { "开启" } else { "关闭" }
+                );
+            }
+            want
+        }
+    }
+}
+
 fn acquire_remote(
     cfg: &ProviderConfig,
     conversation_id: &str,
     session_user_id: &str,
     workspace_root: Option<&Path>,
+    tier: Tier,
 ) -> Result<Arc<RemoteEnv>> {
     let now = Instant::now();
     if let Ok(mut map) = cache().lock() {
@@ -604,8 +619,8 @@ fn acquire_remote(
         control_url,
         mounts,
         volume_host_path,
-        // envd 模板带桌面时打开（`POINTER_SERVER_ENVIRONMENT_DESKTOP=1`）。
-        desktop: env_flag("POINTER_SERVER_ENVIRONMENT_DESKTOP"),
+        // 桌面能力：档位是唯一事实来源，`[environment] desktop` 只作显式覆盖。
+        desktop: remote_desktop(tier, crate::server_config::environment_desktop_override()),
         template: cfg
             .template
             .as_deref()
@@ -748,11 +763,13 @@ mod tests {
         ProviderConfig {
             tier: Some(Tier::Local),
             backend: None,
+            admin_tier: Default::default(),
             sandbox_url: None,
             volume_host_path: None,
             template: None,
             admins: vec![],
             accounts: BTreeMap::new(),
+            tier_backends: Default::default(),
             platform: false,
         }
     }
@@ -940,11 +957,13 @@ mod tests {
         let cfg = ProviderConfig {
             tier: Some(Tier::Container),
             backend: Some(Backend::Docker),
+            admin_tier: Default::default(),
             sandbox_url: None,
             volume_host_path: None,
             template: Some("pointer-sandbox-container:latest".to_string()),
             admins: Vec::new(),
             accounts: Default::default(),
+            tier_backends: Default::default(),
             platform: false,
         };
         assert!(adopt_docker_env(&cfg, "conv-adopt-absent", "tester", None).is_none());
@@ -1028,5 +1047,44 @@ mod tests {
         if let Ok(mut map) = docker_cache().lock() {
             map.remove(conv);
         }
+    }
+
+    // --- 桌面能力：档位是唯一事实来源，`[environment] desktop` 只作显式覆盖 ---
+
+    #[test]
+    fn remote_desktop_follows_tier_when_unset() {
+        // 与 docker 后端 `DockerEnv::capabilities()` 同一套推导：不能一个说有一个说没有。
+        assert!(
+            remote_desktop(Tier::Container, None),
+            "container 档位默认带桌面"
+        );
+        assert!(
+            !remote_desktop(Tier::Light, None),
+            "light 档位默认不带桌面"
+        );
+        assert!(!remote_desktop(Tier::Local, None));
+    }
+
+    #[test]
+    fn explicit_desktop_overrides_tier_both_ways() {
+        // 显式 true + light → 覆盖为 true（并告警）
+        assert!(remote_desktop(Tier::Light, Some(true)));
+        // 显式 false + container → 覆盖为 false（并告警）
+        assert!(!remote_desktop(Tier::Container, Some(false)));
+        // 与档位一致时结果不变
+        assert!(remote_desktop(Tier::Container, Some(true)));
+        assert!(!remote_desktop(Tier::Light, Some(false)));
+    }
+
+    #[test]
+    fn envd_capabilities_follow_tier_derived_desktop() {
+        // envd 侧的 `capabilities().desktop` 只取决于 `RemoteSpec.desktop`；
+        // 后者现在由档位推导，因此 container 档的 envd 沙箱同样报"有桌面"。
+        let spec_for = |tier| crate::env::remote::RemoteSpec {
+            desktop: remote_desktop(tier, None),
+            ..Default::default()
+        };
+        assert!(spec_for(Tier::Container).desktop);
+        assert!(!spec_for(Tier::Light).desktop);
     }
 }

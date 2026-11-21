@@ -33,28 +33,37 @@ Pointer 支持两种后端，选错会在上线后返工，所以先看第 0 节
 ```toml
 [environment]
 provider = "container"          # local | light | container
-backend  = "docker"             # host | envd | docker
+backend  = "docker"             # host | envd | docker（全局默认，**不作用于 local**）
 template = "pointer-sandbox-container:latest"
 # sandbox_url        = "http://10.0.0.5:3000"   # envd 必填
 # volume_host_path   = "/data/pointer/volumes"  # envd 可选
 cpus      = 2                   # 0 = 不限制
 memory_mb = 4096
 disk_mb   = 10240
+desktop   = false               # 可选覆盖；默认由档位推导（container 带桌面）
 accounts  = { alice = "light" } # 按用户覆盖档位
+
+# 按档位指定后端（可选）：优先级高于上面的全局 backend
+[environment.backends]
+local     = "host"
+light     = "docker"
+container = "docker"
 ```
 
 | 配置 | 环境变量 | 说明 |
 |---|---|---|
 | `provider` | `POINTER_SERVER_ENVIRONMENT_PROVIDER` | 档位：`local` / `light` / `container` |
-| `backend` | `POINTER_SERVER_ENVIRONMENT_BACKEND` | 后端：`host` / `envd` / `docker` |
+| `backend` | `POINTER_SERVER_ENVIRONMENT_BACKEND` | 全局默认后端：`host` / `envd` / `docker`；**不作用于 `local` 档位** |
+| `backends` | `POINTER_SERVER_ENVIRONMENT_BACKENDS` | 按档位覆盖后端：`[environment.backends] light = "docker"`，等价 env `local=host,light=docker` |
 | `template` | `POINTER_SERVER_ENVIRONMENT_TEMPLATE` | 镜像名（docker）或模板 ID（envd） |
 | `sandbox_url` | `POINTER_SERVER_ENVIRONMENT_SANDBOX_URL` | envd 控制面地址，`envd` 后端必填 |
 | `volume_host_path` | `POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH` | envd 卷根目录；不填走宿主路径直挂 |
-| `desktop` | `POINTER_SERVER_ENVIRONMENT_DESKTOP` | envd 模板带图形桌面时设为 `1`；打开后桌面工具（鼠标/键盘/截图/launch_app）在沙箱内执行，否则不下发 |
+| `desktop` | `POINTER_SERVER_ENVIRONMENT_DESKTOP` | 可选覆盖：默认由档位推导（`container` 带桌面，`light` 不带），配了则以配置为准，与档位矛盾时打警告 |
 | `cpus` | `POINTER_SERVER_ENVIRONMENT_CPUS` | 每沙箱 CPU 核数 |
 | `memory_mb` | `POINTER_SERVER_ENVIRONMENT_MEMORY_MB` | 每沙箱内存 |
 | `disk_mb` | `POINTER_SERVER_ENVIRONMENT_DISK_MB` | 每沙箱磁盘 |
 | `accounts` | `POINTER_SERVER_ENVIRONMENT_ACCOUNTS` | 按用户覆盖档位，格式 `user=tier,user2=tier` |
+| `admin_tier` | `POINTER_SERVER_ENVIRONMENT_ADMIN_TIER` | 命中 `[auth] admins` 名单时给什么档位：`local`（缺省，宿主直跑）/ `inherit`（跟随部署默认档位）。`accounts` 覆盖始终最高优先 |
 
 **档位与后端必须自洽**，否则启动直接报错：
 
@@ -63,6 +72,33 @@ accounts  = { alice = "light" } # 按用户覆盖档位
 | `local` | `host` |
 | `light` | `envd` / `docker` |
 | `container` | `envd` / `docker` |
+
+### 1.1 后端是怎么选出来的
+
+同一个档位的后端按下面的优先级决定（从高到低）：
+
+1. `[environment.backends].<tier>` 显式值
+2. 全局 `backend`——**但不作用于 `local` 档位**
+3. 档位推导默认：`local` → `host` / `light` → `envd` / `container` → `docker`
+
+第 2 条那个例外很关键：管理员账号被钉在 `local` 档位（见 `admin_tier`），
+所以「全局 `backend = "docker"` + 管理员」现在解析成 `local + host`，
+不会再去撞「`local` 只能用 `host`」。要让 `light` / `container` 用别的后端，
+要么改全局 `backend`，要么用 `[environment.backends]` 单独指定。
+
+### 1.2 校验时机
+
+**启动时**就把实际会用到的档位（部署默认、`[environment.accounts]` 覆盖、
+`[environment.backends]` 显式列出的档位）各解析一次并校验，配错直接退出进程，
+不会留到用户发起对话时才变成「助手消息异常」。
+
+`[environment]` 段写了不存在的键（拼错的 `provder` / `bakend`）**启动即报错**
+并指出是哪个键——以前是静默忽略，看起来生效其实没生效。
+
+> **桌面能力由档位决定，`desktop` 只是覆盖开关。** `container` 档位默认带桌面，
+> `light` 默认不带，两个后端（`docker` / `envd`）都遵守同一条规则。
+> 只有在确实需要「非 `container` 档位也带桌面」这类例外时才配 `desktop`，
+> 与档位矛盾时会打警告。
 
 ---
 

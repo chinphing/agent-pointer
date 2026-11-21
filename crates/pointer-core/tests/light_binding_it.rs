@@ -129,6 +129,7 @@ fn light_sandbox_registry_tracks_lifecycle() {
 
     let conv = "conv-light-registry-it";
     let cfg = ProviderConfig {
+        admin_tier: Default::default(),
         tier: Some(Tier::Light),
         backend: Some(Backend::Envd),
         sandbox_url: Some(sandbox_url()),
@@ -136,6 +137,7 @@ fn light_sandbox_registry_tracks_lifecycle() {
         template: Some("pointer-sandbox-light:latest".to_string()),
         admins: Vec::new(),
         accounts: Default::default(),
+        tier_backends: Default::default(),
         platform: true,
     };
 

@@ -319,10 +319,12 @@ enum MountSpec {
 | 优先级 | 来源 | 例 |
 |---|---|---|
 | 1 | **账号级显式配置** | `[environment.accounts] alice = "light"` |
-| 2 | **admin 默认** | 命中 admin 名单 → **`local`** |
+| 2 | **admin 默认** | 命中 admin 名单 → **`local`**（`admin_tier = "inherit"` 时整层跳过） |
 | 3 | **部署默认** | `[environment] provider`；缺省按 `deployment.mode` 派生 |
 
 普通用户永远落在第 3 层。**只有名单里的人**能拿到 `local`（第 2 层），或被显式指定（第 1 层）。
+`[environment] admin_tier` 默认 `local`（名单账号宿主直跑）；设成 `inherit` 后名单账号
+跳过第 2 层、跟随部署默认档位，想让管理员也进沙箱时不必再逐个写 `[environment.accounts]`。
 
 #### 配置形状
 
@@ -338,14 +340,25 @@ admins = ["admin", "wangguohong"]
 [environment]
 provider = "light"                       # 普通用户默认走沙箱
 sandbox_url = "http://cube.internal:3000"  # provider=light 时必填
+admin_tier = "local"                     # local（缺省）= 名单账号宿主直跑；inherit = 跟随 provider
 
-[environment.accounts]                   # 账号级覆盖（可选）
+# 按档位指定后端（可选）：优先级高于全局 backend；local 只能是 host
+[environment.backends]
+light = "envd"
+container = "docker"
+
+[environment.accounts]                   # 账号级覆盖（可选，永远最高优先）
 admin = "local"                          # 写出来便于审计；不写也默认 local
 alice = "light"
 ```
 
 环境变量等价形式：`POINTER_SERVER_ADMIN_ACCOUNTS=admin,wangguohong`、
-`POINTER_SERVER_ENVIRONMENT_PROVIDER=light`、`POINTER_SERVER_ENVIRONMENT_SANDBOX_URL=…`。
+`POINTER_SERVER_ENVIRONMENT_PROVIDER=light`、`POINTER_SERVER_ENVIRONMENT_SANDBOX_URL=…`、
+`POINTER_SERVER_ENVIRONMENT_ADMIN_TIER=inherit`、
+`POINTER_SERVER_ENVIRONMENT_BACKENDS=local=host,light=docker`。
+
+`[environment]` 段是 `deny_unknown_fields`：键写错（`provder` / `bakend` / `sandbox-url`）
+**启动即失败**并指出是哪个键，不再静默忽略、看着生效其实没生效。
 
 #### 身份来源
 
@@ -366,7 +379,7 @@ alice = "light"
 |---|---|
 | 桌面端（`standalone`） | 无账号概念，进程默认 `local`，不看名单 |
 | admin 解析为 `local` | 该会话绑 `LocalEnv`（`ReadScope::Host` / `WriteScope::Host`），权限等同桌面端 |
-| admin 想走沙箱 | `[environment.accounts] admin = "light"` 显式覆盖 |
+| admin 想走沙箱 | `[environment] admin_tier = "inherit"`（所有名单账号跟随部署默认）；只想给个别人开 → `[environment.accounts] admin = "light"` 显式覆盖 |
 | `provider = "light"` 但缺 `sandbox_url` | **启动即报错**（该账号解析为 light 时同样报错），不静默退回 `local` |
 | 非名单用户配 `accounts = "local"` | 允许（调试），但启动 WARN + 会话审计 |
 | 粒度 | **进程级 + 账号级**，不是每会话切换；会话只决定绑哪个沙箱实例 |
@@ -1153,6 +1166,8 @@ pub enum Backend { Host, Envd, Docker }          // 实现：决定 IO 怎么落
 pub struct ProviderConfig {
     pub tier: Option<Tier>,        // 原 provider
     pub backend: Option<Backend>,  // 新增
+    pub tier_backends: BTreeMap<Tier, Backend>,  // 新增：按档位覆盖后端
+    pub admin_tier: AdminTier,     // 新增：名单账号给什么档位（local | inherit）
     // sandbox_url / volume_host_path / template / admins / accounts / platform 不变
 }
 
@@ -1164,11 +1179,13 @@ pub struct ResolvedEnv { pub tier: Tier, pub backend: Backend }
 | 环境变量 | 值 | 说明 |
 |---|---|---|
 | `POINTER_SERVER_ENVIRONMENT_PROVIDER` | `local` / `light` / `container` | 保留原名，映射到 `Tier` |
-| `POINTER_SERVER_ENVIRONMENT_BACKEND` | `host` / `envd` / `docker` | **新增**，缺省按下表推导 |
+| `POINTER_SERVER_ENVIRONMENT_BACKEND` | `host` / `envd` / `docker` | **新增**，缺省按下表推导；**不作用于 `local`** |
+| `POINTER_SERVER_ENVIRONMENT_BACKENDS` | `tier=backend,…` | **新增**，按档位覆盖后端（`[environment.backends]`），优先级高于全局 `backend` |
+| `POINTER_SERVER_ENVIRONMENT_ADMIN_TIER` | `local` / `inherit` | **新增**，命中 `[auth] admins` 时给什么档位（`accounts` 覆盖始终最高） |
 | `POINTER_SERVER_ENVIRONMENT_SANDBOX_URL` | url | 仅 `envd` 后端需要 |
 | `POINTER_SERVER_ENVIRONMENT_TEMPLATE` | image | `envd` / `docker` 共用 |
 | `POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH` | dir | 仅 e2b-local 需要 |
-| `POINTER_SERVER_ENVIRONMENT_DESKTOP` | `1` / `0` | **envd 专用**：模板自带图形桌面（Xvfb + xdotool + x11vnc）时打开。打开后该沙箱的 `capabilities.desktop` 为真，计算机工具走沙箱内的 xdotool 而不是宿主；不打开时桌面工具不下发 |
+| `POINTER_SERVER_ENVIRONMENT_DESKTOP` | `1` / `0` | **显式覆盖**桌面能力（只影响 `envd` 后端）。不配 → 由档位推导（`container` 有、`light` 无）；配了但与档位矛盾 → 建沙箱时 WARN，然后按显式值走。详见下文 |
 
 后端缺省推导（保证旧配置行为不变）：
 
@@ -1179,6 +1196,27 @@ pub struct ResolvedEnv { pub tier: Tier, pub backend: Backend }
 | Container | `Docker` |
 
 `admins` / `accounts` 覆盖规则不变（仍是 tier 级覆盖）。
+
+**桌面能力：档位是唯一事实来源，`desktop` 只作显式覆盖。**
+
+两套来源曾经互不相通（`envd` 只看 `POINTER_SERVER_ENVIRONMENT_DESKTOP`，`docker` 只看档位），
+于是 `tier=container` 时同一个档位能报出两种答案。现在 `envd` 侧也按档位推导
+（`session_env::remote_desktop` → `RemoteSpec.desktop` → `Capabilities`），
+`docker` 侧 `DockerEnv::capabilities()` 本来就读档位，两边同一张表：
+
+| 档位 | 不配 `desktop`（envd） | `desktop = true` | `desktop = false` |
+|---|---|---|---|
+| `light` | 无桌面 | **有桌面 + WARN** | 无桌面 |
+| `container` | **有桌面** | 有桌面 | **无桌面 + WARN** |
+
+两条边界：
+
+- `local` 档位不建沙箱（桌面就是宿主的），这个键对它没有意义。
+- `docker` 后端的能力位**只读档位**，`desktop` 不影响它——要改容器有没有桌面就改档位。
+
+WARN 只陈述事实（「档位 `light` 默认不带桌面，但配置显式开启」），不拦——模板里到底
+有没有 X 栈只有部署的人知道。显式值两个方向都生效（`true` / `false` 都能覆盖），
+不会出现"配了 `desktop = false` 但 envd 照样给桌面"这种半覆盖。
 
 #### 7.4.4 DockerEnv 设计
 
@@ -1217,11 +1255,14 @@ docker rm -f pointer-sbx-<conv>   # destroy，幂等
 let ResolvedEnv { tier, backend } = cfg.resolve(Some(user))?;
 match (tier, backend) {
     (Tier::Local, _)      => Ok(None),
-    (_, Backend::Envd)    => acquire_remote(cfg, conv, user, workspace_root),
-    (_, Backend::Docker)  => acquire_docker(cfg, conv, user, workspace_root),
+    (_, Backend::Envd)    => acquire_remote(cfg, conv, user, workspace_root, tier),
+    (_, Backend::Docker)  => acquire_docker(cfg, conv, user, workspace_root, tier),
     (_, Backend::Host)    => bail!("tier 非 Local 却指定 Host 后端"),
 }
 ```
+
+`acquire_remote` 需要 `tier`：envd 侧的桌面能力现在由档位推导（见 §7.4.3 那张表），
+不再直接读环境变量。
 
 缓存仍按 `conversation_id`，条目记录 `backend`；空闲淘汰时按 backend 调对应 `destroy()`。
 
@@ -1288,6 +1329,7 @@ P0 完成后旧配置行为完全不变，可随时停。
 |---|---|---|
 | P0 档位/后端模型 | ✅ | `provider.rs`：`Tier` / `Backend` / `ResolvedEnv`；`resolve()` 返回二元组；后端缺省按档位推导；档位与后端不自洽时报错 |
 | P0 配置 | ✅ | 新增 `POINTER_SERVER_ENVIRONMENT_BACKEND`（`host`/`envd`/`docker`）；旧配置 `provider=light` + `sandbox_url` 行为不变 |
+| P0 配置（增量） | ✅ | `[environment.backends]` 按档位配后端（`POINTER_SERVER_ENVIRONMENT_BACKENDS`）；`admin_tier` 收敛名单账号档位；`desktop` 改为**档位推导 + 显式覆盖**（矛盾只 WARN）。语义见 §7.4.3 |
 | P1 DockerEnv | ✅ | `env/docker.rs`：exec / spawn / pty_open / 文件 IO（复用 LocalEnv）/ 容器生命周期 |
 | P2 分派与缓存 | ✅ | `session_env::acquire_docker` + 会话级缓存 + 单飞锁；`env_for_conversation` 同时查两份缓存 |
 | P3 开发环境切换 | ✅ | `pointer.local.env` 加 `BACKEND=docker`；真机 `uname -s` → `Linux`，`pwd` → `/workspace` |
@@ -1426,7 +1468,7 @@ $ pwd
 
 | 能力 | docker | envd（e2b-local） | 处理 |
 |---|---|---|---|
-| 桌面 | Xvfb + x11vnc + websockify + `desktop_endpoint()` | 无 | 未做；`POINTER_SERVER_ENVIRONMENT_DESKTOP=1` 只开能力位，模板里还得有 X 栈 |
+| 桌面 | Xvfb + x11vnc + websockify + `desktop_endpoint()` | 无 | 未做；envd 侧的桌面能力位现在**由档位推导**（`container` 默认有、`light` 默认无），`POINTER_SERVER_ENVIRONMENT_DESKTOP=1` 可显式打开，但模板里还得真有 X 栈 |
 | 资源配额 | `--cpus` / `--memory` / `--storage-opt`（实测 `cpu.max=200000 100000`） | **create 请求里的 `resources` 被忽略** | 见下方实测 |
 | 重启后认回 | 容器名 = 会话 id，`attach()` 即可 | 本轮补：`sandbox-registry.json` | ✅ |
 | 孤儿清理 | `cleanup_orphans()` 清 `exited` 容器 | 无 | 靠网关超时（实测不可靠） |

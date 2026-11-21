@@ -738,7 +738,7 @@ impl AppState {
         };
         state.spawn_mcp_watchdog();
         let consoles = state.console_sessions.clone();
-        crate::conversation_execution::register_cleanup_hook(move |cid| {
+        crate::conversation_execution::set_console_closer(move |cid| {
             let closed = consoles.close_for_conversation(cid);
             if closed > 0 {
                 log::info!(

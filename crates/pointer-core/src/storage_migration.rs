@@ -119,6 +119,25 @@ fn copy_verified(src: &Path, dst: &Path) -> Result<(u64, String)> {
     Ok((bytes, hash))
 }
 
+
+fn path_owned_by_user(rel: &Path, user_segment: &str, user_key_seg: &str) -> bool {
+    rel.components().any(|component| {
+        let text = component.as_os_str().to_string_lossy();
+        text == user_segment || text == user_key_seg
+    })
+}
+
+fn strip_user_prefix(rel: &Path, user_segment: &str, user_key_seg: &str) -> PathBuf {
+    let mut parts = rel.components();
+    if let Some(first) = parts.next() {
+        let text = first.as_os_str().to_string_lossy();
+        if text == user_segment || text == user_key_seg {
+            return parts.as_path().to_path_buf();
+        }
+    }
+    rel.to_path_buf()
+}
+
 fn walk_files(root: &Path) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     if !root.is_dir() {
@@ -159,43 +178,51 @@ pub fn migrate_user_layout(session_user_id: &str, dry_run: bool) -> Result<Migra
 
     let mut planned: Vec<(String, PathBuf, PathBuf)> = Vec::new();
 
-    // Legacy conversation-media/{user}/{conv}/{file}
+    let user_segment = crate::user_storage::user_storage_segment(uid);
+    let user_key_seg = ukey.clone();
+
+    // Legacy conversation-media/{user}/{conv}/{file} — only this user's files.
     let media_root = app_data.join("conversation-media");
     for file in walk_files(&media_root)? {
         let rel = match file.strip_prefix(&media_root) {
             Ok(r) => r,
             Err(_) => continue,
         };
-        let parts: Vec<_> = rel.components().collect();
-        if parts.len() < 2 {
+        if !path_owned_by_user(rel, &user_segment, &user_key_seg) {
             continue;
         }
-        let dest = data_root
-            .join("media")
-            .join("chat")
-            .join(rel);
+        let dest_rel = strip_user_prefix(rel, &user_segment, &user_key_seg);
+        let dest = data_root.join("media").join("chat").join(dest_rel);
         planned.push(("conversation-media".into(), file, dest));
     }
 
-    // Legacy generated-media/
+    // Legacy generated-media/ — only paths that name this user.
     let gen_root = app_data.join("generated-media");
     for file in walk_files(&gen_root)? {
         let rel = match file.strip_prefix(&gen_root) {
             Ok(r) => r,
             Err(_) => continue,
         };
-        let dest = data_root.join("media").join("generated").join(rel);
+        if !path_owned_by_user(rel, &user_segment, &user_key_seg) {
+            continue;
+        }
+        let dest_rel = strip_user_prefix(rel, &user_segment, &user_key_seg);
+        let dest = data_root.join("media").join("generated").join(dest_rel);
         planned.push(("generated-media".into(), file, dest));
     }
 
-    // Legacy computer-captures/
+    // Legacy computer-captures/ — only paths that name this user.
     let cap_root = app_data.join("computer-captures");
     for file in walk_files(&cap_root)? {
         let rel = match file.strip_prefix(&cap_root) {
             Ok(r) => r,
             Err(_) => continue,
         };
-        let dest = data_root.join("captures").join(rel);
+        if !path_owned_by_user(rel, &user_segment, &user_key_seg) {
+            continue;
+        }
+        let dest_rel = strip_user_prefix(rel, &user_segment, &user_key_seg);
+        let dest = data_root.join("captures").join(dest_rel);
         planned.push(("computer-captures".into(), file, dest));
     }
 
@@ -296,6 +323,13 @@ mod tests {
             .join("conv1");
         fs::create_dir_all(&media).unwrap();
         fs::write(media.join("a.png"), b"png").unwrap();
+        let other = temp
+            .path()
+            .join("conversation-media")
+            .join("other_user")
+            .join("conv9");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("nope.png"), b"nope").unwrap();
 
         let report = migrate_user_layout("user_a", true).unwrap();
         assert_eq!(report.scanned, 1);

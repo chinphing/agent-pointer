@@ -162,7 +162,26 @@ fn cleanup_hooks() -> &'static Mutex<Vec<CleanupHook>> {
     HOOKS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// Register a conversation-delete cleanup hook (console close, etc.).
+fn console_closer() -> &'static Mutex<Option<std::sync::Arc<dyn Fn(&str) + Send + Sync>>> {
+    static SLOT: OnceLock<Mutex<Option<std::sync::Arc<dyn Fn(&str) + Send + Sync>>>> =
+        OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Replace the console closer used when a conversation is deleted.
+///
+/// AppState is constructed often in tests. Appending a hook each time would
+/// retain every past console manager for the process lifetime.
+pub fn set_console_closer<F>(hook: F)
+where
+    F: Fn(&str) + Send + Sync + 'static,
+{
+    if let Ok(mut slot) = console_closer().lock() {
+        *slot = Some(std::sync::Arc::new(hook));
+    }
+}
+
+/// Register an extra conversation-delete hook (tests / one-off cleanup).
 pub fn register_cleanup_hook<F>(hook: F)
 where
     F: Fn(&str) + Send + Sync + 'static,
@@ -173,6 +192,11 @@ where
 }
 
 fn run_cleanup_hooks(conversation_id: &str) {
+    if let Ok(slot) = console_closer().lock() {
+        if let Some(closer) = slot.as_ref() {
+            closer(conversation_id);
+        }
+    }
     let Ok(hooks) = cleanup_hooks().lock() else {
         return;
     };

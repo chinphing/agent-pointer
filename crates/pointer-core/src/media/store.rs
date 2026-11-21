@@ -49,9 +49,8 @@ pub fn ensure_composer_attachment_size(len: u64, file_name: &str) -> Result<()> 
 /// True for rel paths stored directly under `{app_data}/` (not conversation attachment layout).
 pub fn is_app_data_subtree_rel(raw: &str) -> bool {
     let rel = raw.trim().trim_start_matches('/');
-    rel.starts_with(GENERATED_MEDIA_PREFIX)
-        || rel.starts_with(SESSION_SANDBOXES_PREFIX)
-        || rel.starts_with(&format!("{LAYOUT_VERSION_PREFIX}/"))
+    // v2 keys live on the user data volume, not under `{app_data}/v2`.
+    rel.starts_with(GENERATED_MEDIA_PREFIX) || rel.starts_with(SESSION_SANDBOXES_PREFIX)
 }
 
 /// Return a 12-character lowercase hex attachment ID embedded in a sandbox attachment path.
@@ -967,5 +966,20 @@ mod tests {
         assert_eq!(fs::read(&dest).expect("read dest"), payload);
 
         let _ = fs::remove_dir_all(data.path());
+    }
+
+    #[test]
+    fn v2_attachment_is_not_resolved_under_app_data_v2_prefix() {
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let data = tempfile::tempdir().expect("app data");
+        crate::storage::set_test_app_data_dir(data.path().to_path_buf());
+        let rel = save_attachment_bytes("conv-v2-read", "ignored", b"hello-v2", "note.txt")
+            .expect("save");
+        assert!(rel.starts_with("v2/"), "{rel}");
+        let path = crate::media::resolve::resolve_local_media_path(&rel).expect("resolve v2");
+        assert_eq!(fs::read(&path).expect("read"), b"hello-v2");
+        let mistaken = data.path().join(rel.trim_start_matches('/'));
+        assert_ne!(path, mistaken);
+        assert!(!mistaken.exists());
     }
 }

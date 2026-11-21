@@ -55,7 +55,7 @@ pub struct PluginRecord {
     pub enabled: bool,
 }
 
-/// 持久化授权记录（单文件 JSON，位于用户 Home `.pointer/plugin-auth.json`）。
+/// 持久化授权记录（单文件 JSON，位于 app data `plugin-auth.json`，不在插件代码树内）。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct AuthEntry {
     pub(crate) dir: String,
@@ -74,7 +74,7 @@ pub(crate) struct AuthStore {
 #[derive(Default)]
 pub struct PluginRegistry {
     inner: RwLock<HashMap<String, PluginRecord>>,
-    /// 授权状态文件路径覆盖（测试用；默认用户 Home `plugin-auth.json`）。
+    /// 授权状态文件路径覆盖（测试用；默认 app data `plugin-auth.json`）。
     auth_path_override: Option<PathBuf>,
     /// 上次扫描见过的插件 id 集合（检测目录被外部删除）。
     seen_ids: RwLock<HashSet<String>>,
@@ -107,33 +107,31 @@ impl PluginRegistry {
                 Ok(p.clone())
             }
             None => {
-                // Prefer `{home}/.pointer/plugin-auth.json`. Fall back to the
-                // legacy plugins-root `.auth.json` so existing installs keep working.
-                let uid = crate::session_user_env::current_session_user_id().unwrap_or_default();
-                if let Ok(path) = crate::user_data_paths::plugin_auth_store_path(&uid) {
-                    if path.is_file() {
-                        return Ok(path);
-                    }
-                    let legacy = crate::plugins::user_plugins_dir()?.join(".auth.json");
-                    if legacy.is_file() {
-                        log::info!(
-                            "plugins: using legacy auth store {}; new writes go to {}",
-                            legacy.display(),
-                            path.display()
-                        );
-                        // Migrate once when possible.
-                        if let Ok(raw) = std::fs::read(&legacy) {
-                            if let Err(e) = std::fs::write(&path, &raw) {
-                                log::warn!("plugins: failed to migrate auth store: {e:#}");
-                                return Ok(legacy);
-                            }
-                            log::info!("plugins: migrated auth store to {}", path.display());
-                        }
-                        return Ok(path);
-                    }
-                    return Ok(path);
+                // PluginRegistry is process-global. A per-request home file would
+                // split one in-memory registry across users. Keep auth outside the
+                // plugin code tree, in app data.
+                let path = crate::storage::app_data_dir()?.join("plugin-auth.json");
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
                 }
-                Ok(crate::plugins::user_plugins_dir()?.join(".auth.json"))
+                if !path.is_file() {
+                    if let Ok(legacy) = crate::plugins::user_plugins_dir() {
+                        let legacy = legacy.join(".auth.json");
+                        if legacy.is_file() {
+                            match std::fs::copy(&legacy, &path) {
+                                Ok(_) => log::info!(
+                                    "plugins: migrated auth store to {}",
+                                    path.display()
+                                ),
+                                Err(e) => {
+                                    log::warn!("plugins: failed to migrate auth store: {e:#}");
+                                    return Ok(legacy);
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(path)
             }
         }
     }

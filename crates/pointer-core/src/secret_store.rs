@@ -123,18 +123,24 @@ pub fn resolve_secret_placeholders(
     scope_id: &str,
     raw: &str,
 ) -> Result<String> {
-    let mut out = raw.to_string();
-    // Minimal scanner: ${secrets.FOO}
-    while let Some(start) = out.find("${secrets.") {
+    // Scan the original text only. Inserted secret values are not scanned again,
+    // so a value that itself contains `${secrets.` cannot loop or expand further.
+    let mut out = String::with_capacity(raw.len());
+    let mut rest = raw;
+    while let Some(start) = rest.find("${secrets.") {
+        out.push_str(&rest[..start]);
         let after = start + "${secrets.".len();
-        let Some(end_rel) = out[after..].find('}') else {
-            break;
+        let Some(end_rel) = rest[after..].find('}') else {
+            out.push_str(&rest[start..]);
+            return Ok(out);
         };
-        let name = out[after..after + end_rel].trim().to_string();
-        let value = get_secret(session_user_id, scope_id, &name)?
+        let name = rest[after..after + end_rel].trim();
+        let value = get_secret(session_user_id, scope_id, name)?
             .with_context(|| format!("secret `{name}` not found for scope `{scope_id}`"))?;
-        out.replace_range(start..after + end_rel + 1, &value);
+        out.push_str(&value);
+        rest = &rest[after + end_rel + 1..];
     }
+    out.push_str(rest);
     Ok(out)
 }
 
@@ -193,5 +199,15 @@ mod tests {
         put_secret("bob", "srv", "API_KEY", "abc").unwrap();
         let got = resolve_secret_placeholders("bob", "srv", "Bearer ${secrets.API_KEY}").unwrap();
         assert_eq!(got, "Bearer abc");
+    }
+
+    #[test]
+    fn secret_values_are_not_expanded_again() {
+        let _guard = crate::storage::test_app_data_dir_lock();
+        let temp = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(temp.path().to_path_buf());
+        put_secret("bob", "srv", "TOKEN", "${secrets.TOKEN}").unwrap();
+        let got = resolve_secret_placeholders("bob", "srv", "x=${secrets.TOKEN}").unwrap();
+        assert_eq!(got, "x=${secrets.TOKEN}");
     }
 }

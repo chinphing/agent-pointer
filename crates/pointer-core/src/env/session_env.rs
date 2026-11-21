@@ -254,7 +254,7 @@ pub fn bind_if_absent(
     let fallback = workspace_root
         .map(|p| p.to_path_buf())
         .unwrap_or_default();
-    let (guard, _) = bind_resolved_env(conversation_id, resolved, fallback);
+    let (guard, _) = bind_resolved_env(conversation_id, resolved, fallback, session_user_id);
     Ok(guard)
 }
 
@@ -397,7 +397,12 @@ pub fn bind_and_resolve_workspace(
         "bind_env: conversation={conversation_id} resolved={:?}",
         resolved.as_ref().map(|e| e.kind())
     );
-    Ok(bind_resolved_env(conversation_id, resolved, fallback))
+    Ok(bind_resolved_env(
+        conversation_id,
+        resolved,
+        fallback,
+        session_user_id,
+    ))
 }
 
 /// 把解析结果绑到当前线程，并给出工具层该用的工作区根。
@@ -408,6 +413,7 @@ fn bind_resolved_env(
     conversation_id: &str,
     resolved: Option<Arc<dyn Environment>>,
     fallback: PathBuf,
+    session_user_id: &str,
 ) -> (Option<EnvironmentGuard>, String) {
     let env = materialize_env(conversation_id, resolved, fallback.as_path());
     let workspace = if env.kind() == crate::env::EnvKind::Local {
@@ -415,11 +421,14 @@ fn bind_resolved_env(
     } else {
         sandbox_active_cwd(&fallback, env.as_ref())
     };
-    // session_user_id is not threaded here; owner key is recovered from store when needed.
-    let owner = crate::conversation_store::global_store()
-        .ok()
-        .and_then(|store| store.session_user_id(conversation_id).ok())
-        .unwrap_or_default();
+    let owner = if !session_user_id.trim().is_empty() {
+        session_user_id.to_string()
+    } else {
+        crate::conversation_store::global_store()
+            .ok()
+            .and_then(|store| store.session_user_id(conversation_id).ok())
+            .unwrap_or_default()
+    };
     remember_execution_context(conversation_id, &owner, &workspace, env.as_ref());
     (Some(EnvironmentGuard::enter(env)), workspace)
 }
@@ -1588,7 +1597,7 @@ mod tests {
         assert!(resolved.is_none(), "admin 是 local 档位，不该建沙箱");
 
         let (guard, workspace) =
-            bind_resolved_env("conv-admin-bind", resolved, dir.path().to_path_buf());
+            bind_resolved_env("conv-admin-bind", resolved, dir.path().to_path_buf(), "");
         let guard = guard.expect("local 档位也必须绑定 LocalEnv");
         assert_eq!(workspace, dir.path().display().to_string());
 
@@ -1627,7 +1636,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().display().to_string();
         let (guard, workspace) =
-            bind_resolved_env("conv-local-replay", None, dir.path().to_path_buf());
+            bind_resolved_env("conv-local-replay", None, dir.path().to_path_buf(), "");
         assert_eq!(workspace, ws);
         drop(guard);
 
@@ -1653,7 +1662,7 @@ mod tests {
     fn release_drops_local_cache_entry() {
         let dir = tempfile::tempdir().unwrap();
         let (_guard, _ws) =
-            bind_resolved_env("conv-local-release", None, dir.path().to_path_buf());
+            bind_resolved_env("conv-local-release", None, dir.path().to_path_buf(), "");
         assert!(cached_local("conv-local-release").is_some());
         release("conv-local-release");
         assert!(

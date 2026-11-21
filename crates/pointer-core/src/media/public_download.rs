@@ -256,6 +256,9 @@ fn resolve_token_rel_to_abs(rel: &str) -> Result<PathBuf> {
     if rel.is_empty() || path_has_traversal(rel) {
         bail!("invalid token rel path");
     }
+    if rel.starts_with("v2/") {
+        return media_abs_path_unscoped(rel);
+    }
     if is_app_data_subtree_rel(rel) || rel.starts_with(&format!("{CONVERSATION_MEDIA_DIR}/")) {
         let path = app_data_dir()?.join(rel);
         if path.is_file() {

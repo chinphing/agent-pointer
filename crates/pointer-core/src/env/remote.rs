@@ -88,7 +88,7 @@ impl Default for RemoteSpec {
             control_url: DEFAULT_CONTROL_URL.to_string(),
             template: DEFAULT_TEMPLATE.to_string(),
             timeout_secs: 900,
-            workspace_root: PathBuf::from("/workspace"),
+            workspace_root: PathBuf::from(crate::env::mounts::GUEST_WORKSPACES_ROOT),
             skills_root: PathBuf::from("/skills"),
             home_root: PathBuf::from(crate::env::mounts::GUEST_HOME),
             mounts: Vec::new(),
@@ -105,6 +105,7 @@ pub struct RemoteEnv {
     workspace_root: PathBuf,
     skills_root: PathBuf,
     home_root: PathBuf,
+    data_root: PathBuf,
     path_map: PathMap,
     capabilities: Capabilities,
     http: reqwest::blocking::Client,
@@ -172,6 +173,7 @@ impl RemoteEnv {
             workspace_root: spec.workspace_root.clone(),
             skills_root: spec.skills_root.clone(),
             home_root: spec.home_root.clone(),
+            data_root: PathBuf::from(crate::env::mounts::GUEST_DATA),
             path_map: PathMap::new(spec.mounts.clone()),
             capabilities: desktop_capabilities(spec.desktop),
             http,
@@ -195,6 +197,7 @@ impl RemoteEnv {
             workspace_root: spec.workspace_root.clone(),
             skills_root: spec.skills_root.clone(),
             home_root: spec.home_root.clone(),
+            data_root: PathBuf::from(crate::env::mounts::GUEST_DATA),
             path_map: PathMap::new(spec.mounts.clone()),
             capabilities: desktop_capabilities(spec.desktop),
             http: build_client()?,
@@ -382,6 +385,9 @@ impl Environment for RemoteEnv {
 
     fn home_root(&self) -> &Path {
         &self.home_root
+    }
+    fn data_root(&self) -> &Path {
+        &self.data_root
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -1729,7 +1735,7 @@ mod tests {
     #[test]
     fn spec_defaults_match_light_layout() {
         let spec = RemoteSpec::default();
-        assert_eq!(spec.workspace_root, PathBuf::from("/workspace"));
+        assert_eq!(spec.workspace_root, PathBuf::from(crate::env::mounts::GUEST_WORKSPACES_ROOT));
         assert_eq!(spec.skills_root, PathBuf::from("/skills"));
         assert_eq!(spec.home_root, PathBuf::from("/home/pointer"));
         assert!(spec.mounts.is_empty());
@@ -1841,7 +1847,7 @@ mod tests {
         let inside = volumes.path().join("alice-home");
         let outside = tempfile::tempdir().unwrap();
         let mounts = vec![
-            Mount::new(outside.path(), "/workspace", false),
+            Mount::new(outside.path(), "/data", false),
             Mount::new(&inside, "/home/pointer", false),
         ];
 
@@ -1858,7 +1864,7 @@ mod tests {
         let body = build_create_body(&spec, &names);
         let sent = body["volumeMounts"].as_array().expect("volumeMounts");
         assert_eq!(sent.len(), 1, "只发有卷的挂载");
-        assert_eq!(sent[0]["path"], "/home/pointer", "不能错位成 /workspace");
+        assert_eq!(sent[0]["path"], "/home/pointer", "不能错位成 /data");
         assert_eq!(sent[0]["name"], "alice-home");
     }
 

@@ -35,6 +35,68 @@ const DEFAULT_SANDBOX_CPUS: f32 = 2.0;
 const DEFAULT_SANDBOX_MEMORY_MB: u32 = 4096;
 const DEFAULT_SANDBOX_DISK_MB: u32 = 10240;
 
+/// Cache id for a reusable Environment.
+///
+/// Authenticated users share one Environment across conversations. Anonymous
+/// sessions keep a conversation-scoped Environment.
+fn sandbox_cache_id(
+    session_user_id: &str,
+    conversation_id: &str,
+    backend: crate::env::provider::Backend,
+    tier: Tier,
+    template: &str,
+) -> String {
+    let scope = if session_user_id.trim().is_empty() {
+        format!("c:{}", conversation_id.trim())
+    } else {
+        format!("u:{}", crate::user_key::user_key(session_user_id))
+    };
+    format!(
+        "{scope}:{}:{}:{}",
+        backend.as_str(),
+        tier.as_str(),
+        template.trim()
+    )
+}
+
+fn conversation_bindings() -> &'static Mutex<HashMap<String, String>> {
+    static BINDINGS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    BINDINGS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn remember_binding(conversation_id: &str, cache_id: &str) {
+    if let Ok(mut map) = conversation_bindings().lock() {
+        map.insert(conversation_id.to_string(), cache_id.to_string());
+    }
+}
+
+fn binding_for(conversation_id: &str) -> Option<String> {
+    conversation_bindings()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(conversation_id).cloned())
+}
+
+fn bindings_for_cache_id(cache_id: &str) -> usize {
+    conversation_bindings()
+        .lock()
+        .map(|map| map.values().filter(|id| id.as_str() == cache_id).count())
+        .unwrap_or(0)
+}
+
+fn sandbox_active_cwd(fallback: &Path, env: &dyn Environment) -> String {
+    let raw = fallback.to_string_lossy();
+    if crate::workspace_resolve::looks_like_sandbox_guest_path(&raw)
+        && (raw == crate::env::mounts::GUEST_WORKSPACES_ROOT
+            || raw.starts_with(&format!("{}/", crate::env::mounts::GUEST_WORKSPACES_ROOT))
+            || raw.starts_with("/data/worktrees/"))
+    {
+        return raw.into_owned();
+    }
+    env.workspace_root().to_string_lossy().into_owned()
+}
+
+
 /// 生效的沙箱配额。
 ///
 /// `POINTER_SERVER_ENVIRONMENT_{CPUS,MEMORY_MB,DISK_MB}` 覆盖默认值；
@@ -212,16 +274,17 @@ pub fn env_for_conversation(conversation_id: &str) -> Option<Arc<dyn Environment
         let env: Arc<dyn Environment> = local;
         return Some(env);
     }
+    let cache_id = binding_for(conversation_id).unwrap_or_else(|| conversation_id.to_string());
     // 两条后端各有一份缓存；工具层不关心后端，这里统一查。
     if let Ok(mut map) = cache().lock() {
-        if let Some(hit) = map.get_mut(conversation_id) {
+        if let Some(hit) = map.get_mut(&cache_id) {
             hit.last_used = Instant::now();
             return Some(hit.env.clone() as Arc<dyn Environment>);
         }
     }
     if let Ok(mut map) = docker_cache().lock() {
         evict_idle_docker(&mut map, Instant::now());
-        if let Some((hit, last_used)) = map.get_mut(conversation_id) {
+        if let Some((hit, last_used)) = map.get_mut(&cache_id) {
             *last_used = Instant::now();
             return Some(hit.clone() as Arc<dyn Environment>);
         }
@@ -240,14 +303,15 @@ pub fn env_for_conversation_peek(conversation_id: &str) -> Option<Arc<dyn Enviro
         let env: Arc<dyn Environment> = local;
         return Some(env);
     }
+    let cache_id = binding_for(conversation_id).unwrap_or_else(|| conversation_id.to_string());
     if let Ok(map) = cache().lock() {
-        if let Some(hit) = map.get(conversation_id) {
+        if let Some(hit) = map.get(&cache_id) {
             return Some(hit.env.clone() as Arc<dyn Environment>);
         }
     }
     if let Ok(mut map) = docker_cache().lock() {
         evict_idle_docker(&mut map, Instant::now());
-        if let Some((hit, _)) = map.get(conversation_id) {
+        if let Some((hit, _)) = map.get(&cache_id) {
             return Some(hit.clone() as Arc<dyn Environment>);
         }
     }
@@ -301,7 +365,7 @@ pub fn bind_cached(conversation_id: &str) -> Option<EnvironmentGuard> {
 
 /// 绑定本会话环境，并给出工具层应当使用的工作区根。
 ///
-/// 沙箱档位返回 guest 路径 `/workspace`（宿主路径在沙箱里不存在）；
+/// 沙箱档位返回 guest 路径（`/data/workspaces/...` 或默认 `/data/workspaces`）；
 /// local 档位绑 `LocalEnv` 并返回 `fallback`（宿主路径，路径映射恒等）。
 /// 已经绑过时沿用现有环境。
 ///
@@ -343,7 +407,11 @@ fn bind_resolved_env(
     fallback: PathBuf,
 ) -> (Option<EnvironmentGuard>, String) {
     let env = materialize_env(conversation_id, resolved, fallback.as_path());
-    let workspace = env.workspace_root().to_string_lossy().into_owned();
+    let workspace = if env.kind() == crate::env::EnvKind::Local {
+        fallback.to_string_lossy().into_owned()
+    } else {
+        sandbox_active_cwd(&fallback, env.as_ref())
+    };
     (Some(EnvironmentGuard::enter(env)), workspace)
 }
 
@@ -564,36 +632,42 @@ fn collect_credential_hits(dir: &Path, depth: usize, max_depth: usize, hits: &mu
 
 /// 回收某个会话的沙箱（会话删除 / 主动结束）。
 pub fn release(conversation_id: &str) {
-    let entry = cache().lock().ok().and_then(|mut m| m.remove(conversation_id));
+    let cache_id = conversation_bindings()
+        .lock()
+        .ok()
+        .and_then(|mut map| map.remove(conversation_id));
+    let cache_id = cache_id.unwrap_or_else(|| conversation_id.to_string());
+    if bindings_for_cache_id(&cache_id) > 0 {
+        log::info!(
+            "sandbox retained after conversation release conversation={conversation_id} cache_id={cache_id} remaining_bindings={}",
+            bindings_for_cache_id(&cache_id)
+        );
+        if let Ok(mut map) = local_cache().lock() {
+            map.remove(conversation_id);
+        }
+        set_pinned(conversation_id, false);
+        return;
+    }
+
+    let entry = cache().lock().ok().and_then(|mut m| m.remove(&cache_id));
     if let Some(cached) = entry {
         if let Err(e) = cached.env.destroy() {
-            log::warn!("sandbox release failed conversation={conversation_id}: {e:#}");
+            log::warn!("sandbox release failed conversation={conversation_id} cache_id={cache_id}: {e:#}");
         } else {
-            log::info!(
-                "sandbox released conversation={conversation_id} sandbox={}",
-                cached.env.sandbox_id()
-            );
+            log::info!("sandbox released conversation={conversation_id} cache_id={cache_id}");
         }
     }
-
-    // 注册表也要清：否则下次同 id 会话会去 attach 一个已经删掉的沙箱。
     crate::env::sandbox_registry::forget(conversation_id);
 
-    // Docker 后端是另一份缓存：漏掉这里，删会话后容器会一直跑到空闲淘汰。
     set_pinned(conversation_id, false);
-    let docker_entry = docker_cache().lock().ok().and_then(|mut m| m.remove(conversation_id));
+    let docker_entry = docker_cache().lock().ok().and_then(|mut m| m.remove(&cache_id));
     if let Some((env, _)) = docker_entry {
         if let Err(e) = env.destroy() {
-            log::warn!("sandbox release failed (docker) conversation={conversation_id}: {e:#}");
+            log::warn!("sandbox release failed (docker) conversation={conversation_id} cache_id={cache_id}: {e:#}");
         } else {
-            log::info!(
-                "sandbox released (docker) conversation={conversation_id} container={}",
-                env.container_name()
-            );
+            log::info!("sandbox released (docker) conversation={conversation_id} cache_id={cache_id}");
         }
     }
-
-    // local 档位没有沙箱要销毁，但缓存条目要摘掉：删会话后不该还留着它的工作区。
     if let Ok(mut map) = local_cache().lock() {
         map.remove(conversation_id);
     }
@@ -679,13 +753,16 @@ fn docker_spec_for(
 
     let (cpus, memory_mb, disk_mb) = sandbox_resource_limits();
     Ok(crate::env::docker::DockerSpec {
-        container: crate::env::docker::DockerSpec::container_name_for(conversation_id),
+        container: crate::env::docker::DockerSpec::container_name_for_identity(
+            session_user_id,
+            conversation_id,
+        ),
         image: cfg
             .template
             .clone()
             .unwrap_or_else(|| crate::env::remote::DEFAULT_TEMPLATE.to_string()),
         mounts,
-        workdir: PathBuf::from(crate::env::mounts::GUEST_WORKSPACE),
+        workdir: PathBuf::from(crate::env::mounts::GUEST_WORKSPACES_ROOT),
         tier,
         cpus,
         memory_mb,
@@ -726,16 +803,27 @@ pub fn adopt_docker_env(
         "sandbox adopted (docker) conversation={conversation_id} container={}",
         env.container_name()
     );
+    let template = cfg
+        .template
+        .clone()
+        .unwrap_or_else(|| crate::env::remote::DEFAULT_TEMPLATE.to_string());
+    let cache_id = sandbox_cache_id(
+        session_user_id,
+        conversation_id,
+        crate::env::provider::Backend::Docker,
+        Tier::Desktop,
+        &template,
+    );
     if let Ok(mut map) = docker_cache().lock() {
-        map.insert(conversation_id.to_string(), (env.clone(), Instant::now()));
+        map.insert(cache_id.clone(), (env.clone(), Instant::now()));
     }
+    remember_binding(conversation_id, &cache_id);
     Some(env as Arc<dyn Environment>)
 }
 
 /// 创建或复用本地 Docker 容器作为会话环境。
 ///
-/// 与 envd 后端的关键差异：`/workspace` 直接 bind 用户的项目目录，
-/// 所以 `git status` / diff / 文件树都能正常工作。
+/// Docker 后端挂载用户级 `/home` + `/data`；会话 cwd 指向 `/data/workspaces/...`。
 fn acquire_docker(
     cfg: &ProviderConfig,
     conversation_id: &str,
@@ -743,18 +831,31 @@ fn acquire_docker(
     workspace_root: Option<&Path>,
     tier: Tier,
 ) -> Result<Arc<crate::env::docker::DockerEnv>> {
+    let template = cfg
+        .template
+        .clone()
+        .unwrap_or_else(|| crate::env::remote::DEFAULT_TEMPLATE.to_string());
+    let cache_id = sandbox_cache_id(
+        session_user_id,
+        conversation_id,
+        crate::env::provider::Backend::Docker,
+        tier,
+        &template,
+    );
     if let Ok(mut map) = docker_cache().lock() {
         evict_idle_docker(&mut map, Instant::now());
-        if let Some(hit) = cached_docker_alive(&mut map, conversation_id) {
+        if let Some(hit) = cached_docker_alive(&mut map, &cache_id) {
+            remember_binding(conversation_id, &cache_id);
             return Ok(hit);
         }
     }
-    let creation_lock = conversation_creation_lock(conversation_id);
+    let creation_lock = conversation_creation_lock(&cache_id);
     let _creating = creation_lock
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut map) = docker_cache().lock() {
-        if let Some(hit) = cached_docker_alive(&mut map, conversation_id) {
+        if let Some(hit) = cached_docker_alive(&mut map, &cache_id) {
+            remember_binding(conversation_id, &cache_id);
             return Ok(hit);
         }
     }
@@ -762,12 +863,13 @@ fn acquire_docker(
     let spec = docker_spec_for(cfg, conversation_id, session_user_id, workspace_root, tier)?;
     let env = Arc::new(crate::env::docker::DockerEnv::create(spec)?);
     log::info!(
-        "sandbox created (docker) conversation={conversation_id} container={}",
+        "sandbox created (docker) conversation={conversation_id} cache_id={cache_id} container={}",
         env.container_name()
     );
     if let Ok(mut map) = docker_cache().lock() {
-        map.insert(conversation_id.to_string(), (env.clone(), Instant::now()));
+        map.insert(cache_id.clone(), (env.clone(), Instant::now()));
     }
+    remember_binding(conversation_id, &cache_id);
     Ok(env)
 }
 
@@ -816,23 +918,39 @@ fn acquire_remote(
     workspace_root: Option<&Path>,
     tier: Tier,
 ) -> Result<Arc<RemoteEnv>> {
+    let template = cfg
+        .template
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(crate::env::remote::DEFAULT_TEMPLATE)
+        .to_string();
+    let cache_id = sandbox_cache_id(
+        session_user_id,
+        conversation_id,
+        crate::env::provider::Backend::Envd,
+        tier,
+        &template,
+    );
     let now = Instant::now();
     if let Ok(mut map) = cache().lock() {
         evict_idle(&mut map, now);
-        if let Some(hit) = map.get_mut(conversation_id) {
+        if let Some(hit) = map.get_mut(&cache_id) {
             hit.last_used = now;
+            remember_binding(conversation_id, &cache_id);
             return Ok(hit.env.clone());
         }
     }
 
-    // 单飞：同一会话只允许一个线程建沙箱，其余等它建完后直接命中缓存。
-    let creation_lock = conversation_creation_lock(conversation_id);
+    // 单飞：同一缓存键只允许一个线程建沙箱。
+    let creation_lock = conversation_creation_lock(&cache_id);
     let _creating = creation_lock
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut map) = cache().lock() {
-        if let Some(hit) = map.get_mut(conversation_id) {
+        if let Some(hit) = map.get_mut(&cache_id) {
             hit.last_used = Instant::now();
+            remember_binding(conversation_id, &cache_id);
             return Ok(hit.env.clone());
         }
     }
@@ -926,13 +1044,14 @@ fn acquire_remote(
     };
     if let Ok(mut map) = cache().lock() {
         map.insert(
-            conversation_id.to_string(),
+            cache_id.clone(),
             Cached {
                 env: env.clone(),
                 last_used: now,
             },
         );
     }
+    remember_binding(conversation_id, &cache_id);
     Ok(env)
 }
 
@@ -1260,6 +1379,31 @@ mod tests {
     }
 
     #[test]
+    fn release_retains_user_env_when_other_conversation_bound() {
+        let cache_id = "u:shared-cache";
+        let a = "conv-shared-a";
+        let b = "conv-shared-b";
+        if let Ok(mut map) = docker_cache().lock() {
+            map.insert(
+                cache_id.to_string(),
+                (
+                    Arc::new(crate::env::docker::DockerEnv::fake_for_tests("pointer-sbx-shared")),
+                    Instant::now(),
+                ),
+            );
+        }
+        remember_binding(a, cache_id);
+        remember_binding(b, cache_id);
+        release(a);
+        assert!(
+            env_for_conversation_peek(b).is_some(),
+            "同用户另一会话仍应复用 Environment"
+        );
+        release(b);
+        assert!(env_for_conversation_peek(b).is_none());
+    }
+
+    #[test]
     fn release_drops_docker_cache_entry() {
         // 回归：release 只清 envd 缓存时，删会话后容器会一直跑到空闲淘汰。
         let id = "conv-release-docker";
@@ -1272,6 +1416,7 @@ mod tests {
                 ),
             );
         }
+        remember_binding(id, id);
         assert!(env_for_conversation_peek(id).is_some());
 
         release(id);
@@ -1316,6 +1461,7 @@ mod tests {
                 ),
             );
         }
+        remember_binding(id, id);
 
         let _ = env_for_conversation_peek(id);
         let after_peek = docker_cache()
@@ -1355,6 +1501,7 @@ mod tests {
                 ),
             );
         }
+        remember_binding(conv, conv);
 
         let found = env_for_conversation(conv).expect("docker 缓存里的会话必须查得到");
         assert!(
@@ -1607,7 +1754,7 @@ mod tests {
             "普通用户不能绑到宿主"
         );
         assert!(!bound.env().is_denied(), "拿到的是真沙箱，不是「未绑定」");
-        assert_eq!(bound.env().workspace_root(), Path::new("/workspace"));
+        assert_eq!(bound.env().workspace_root(), Path::new("/data/workspaces"));
 
         drop(bound);
         release(conv);

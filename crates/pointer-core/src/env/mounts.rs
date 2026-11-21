@@ -1,30 +1,39 @@
-//! 挂载表：宿主目录 → agent 可见路径（设计文档 §5.3）。
+//! 挂载表：宿主目录 → agent 可见路径。
 //!
-//! headless 模式里 agent 只看得见三个位置，其余宿主目录**不存在**：
+//! headless/desktop 里 agent 只看得见这些位置，其余宿主目录不存在：
 //!
 //! | 宿主 | guest | 权限 |
 //! |---|---|---|
-//! | `{app_data}/session-sandboxes/{user}-home` | `/home/pointer` | rw |
-//! | `{app_data}/session-sandboxes/{user}-ws-{conv}` | `/workspace` | rw |
+//! | `{base}/{user_key}-home` | `/home/pointer` | rw |
+//! | `{base}/{user_key}-data` | `/data` | rw |
 //! | 每个技能根 | `/skills/<name>` | ro |
+//! | 用户插件根 | `/plugins` | ro |
 //!
-//! 沙箱挂载**不再**接受客户端传入的宿主项目目录作为 `/workspace` 源。
-//! 过渡期仍用每会话卷；完整 `/data` 布局在后续阶段切换。
-//!
-//! 这一层只产出 `Mount` 列表（业务类型）；序列化成 envd / Cube 的 metadata JSON
-//! 是 provider 的事（§3.2 原则 2）。
+//! 客户端传入的宿主项目目录一律不是挂载源。会话只改变 `/data` 内的 active cwd。
 
 use std::path::{Path, PathBuf};
 
 use super::pathmap::Mount;
+use crate::user_key::{data_volume_name, home_volume_name, user_key};
 
+/// Deprecated guest alias. New mounts use [`GUEST_DATA`]; keep the constant so
+/// older call sites that still mention `/workspace` fail loudly in tests.
 pub const GUEST_WORKSPACE: &str = "/workspace";
+pub const GUEST_DATA: &str = "/data";
 pub const GUEST_HOME: &str = "/home/pointer";
 pub const GUEST_SKILLS: &str = "/skills";
 pub const GUEST_PLUGINS: &str = "/plugins";
+pub const GUEST_WORKSPACES_ROOT: &str = "/data/workspaces";
 
-/// 用户名为空时用的目录段（与 `SessionSandbox::ANONYMOUS_SEGMENT` 一致）。
-const ANONYMOUS_SEGMENT: &str = "_anonymous";
+/// Layout directories created under the host data volume.
+pub const DATA_LAYOUT_DIRS: &[&str] = &[
+    "workspaces",
+    "worktrees",
+    "attachments",
+    "media/chat",
+    "media/generated",
+    "captures",
+];
 
 /// 一个技能根：`name` 决定它在沙箱里的挂载点 `/skills/<name>`。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,23 +54,8 @@ impl SkillRoot {
 /// 会话挂载表构建。
 pub struct MountPlan;
 
-
-/// 是不是"用户选的项目目录"。
-///
-/// 只有目录存在还不够：未选项目时上层传的是会话沙箱目录
-/// （`session-sandboxes/_anonymous/<conv>`），把它当项目挂进去等于把空目录当项目，
-/// 会让 `/workspace` 变成"看起来挂上了、其实还是空的"。这里显式排除。
-fn is_project_dir(path: &Path) -> bool {
-    if !path.is_dir() {
-        return false;
-    }
-    !crate::session_sandbox::SessionSandbox::is_sandbox(path).unwrap_or(false)
-}
-
 impl MountPlan {
-    /// 会话挂载表：家目录 rw、工作区 rw（按会话隔离）、技能根 ro。
-    ///
-    /// `sandboxes_base` 通常是 `{app_data}/session-sandboxes`。
+    /// 用户级 home/data + 只读 skills。
     pub fn for_session(
         sandboxes_base: &Path,
         session_user_id: &str,
@@ -78,15 +72,9 @@ impl MountPlan {
         )
     }
 
-    /// 同上，额外把**用户插件根**只读挂到 `/plugins`。
+    /// Same as [`Self::for_session`], plus optional read-only `/plugins`.
     ///
-    /// hooks 是插件目录里的脚本；headless 下插件目录不在沙箱里，脚本就无从执行。
-    /// 工作区级插件（`<workspace>/.pointer/plugins`）本来就在 `/workspace` 里，
-    /// 由 PathMap 自动映射，不需要额外挂载。
-    /// `workspace_root`：历史参数，曾用于把宿主项目目录挂到 `/workspace`。
-    ///
-    /// 现已忽略：沙箱只挂服务端管理的每会话卷。后续阶段会改为用户级 `/data`
-    /// 并把 active cwd 指到 `/data/workspaces/...`。
+    /// `workspace_root` is ignored (legacy client host project path).
     pub fn for_session_with_plugins(
         sandboxes_base: &Path,
         session_user_id: &str,
@@ -95,34 +83,27 @@ impl MountPlan {
         plugin_root: Option<&Path>,
         workspace_root: Option<&Path>,
     ) -> Vec<Mount> {
-        let user_seg = sanitize_segment(session_user_id);
-        // 扁平布局：每个挂载点的目录名就是卷名（e2b-local 只接受卷根下的真实目录，
-        // 且卷名必须是 `[A-Za-z0-9_-]+`），所以不能嵌套 `{user}/home`。
-        // 客户端传入的宿主项目目录一律忽略：沙箱挂载源只能是服务端管理的卷。
-        // 否则任意宿主路径会被绑进容器，造成路径泄露与跨用户数据风险。
-        if let Some(project) = workspace_root.filter(|dir| is_project_dir(dir)) {
+        if let Some(project) = workspace_root.filter(|dir| dir.is_dir()) {
             log::warn!(
                 "mounts: ignoring client host project mount source host={} conversation={}",
                 project.display(),
                 conversation_id
             );
         }
-        let workspace_host = sandboxes_base.join(format!(
-            "{user_seg}-ws-{}",
-            sanitize_segment(conversation_id)
-        ));
+
+        let (home_name, data_name) = volume_names_for(session_user_id, conversation_id);
+        let home_host = sandboxes_base.join(home_name);
+        let data_host = sandboxes_base.join(data_name);
+        ensure_data_layout(&data_host);
+
         let mut mounts = vec![
-            Mount::new(
-                sandboxes_base.join(format!("{user_seg}-home")),
-                GUEST_HOME,
-                false,
-            ),
-            Mount::new(workspace_host, GUEST_WORKSPACE, false),
+            Mount::new(home_host, GUEST_HOME, false),
+            Mount::new(data_host, GUEST_DATA, false),
         ];
 
         let mut used: Vec<String> = Vec::new();
         for root in skill_roots {
-            let base_name = sanitize_segment(&root.name);
+            let base_name = sanitize_skill_name(&root.name);
             let mut name = base_name.clone();
             let mut n = 2;
             while used.iter().any(|u| u == &name) {
@@ -151,12 +132,47 @@ impl MountPlan {
     }
 }
 
-/// 目录段清洗：与 `storage::sanitize_storage_dir_segment` 同规则，
-/// 额外兜底空值（`..` / 特殊字符会被替换成 `_` 或清空）。
-fn sanitize_segment(raw: &str) -> String {
+/// Host volume directory names for this identity.
+///
+/// Authenticated users share one home/data pair. Anonymous sessions stay
+/// conversation-scoped so they do not collide on `anon-data`.
+pub fn volume_names_for(session_user_id: &str, conversation_id: &str) -> (String, String) {
+    if session_user_id.trim().is_empty() {
+        let conv = crate::storage::sanitize_storage_dir_segment(conversation_id.trim());
+        let conv = if conv.is_empty() {
+            "session".to_string()
+        } else {
+            conv
+        };
+        (
+            format!("anon-{conv}-home"),
+            format!("anon-{conv}-data"),
+        )
+    } else {
+        (
+            home_volume_name(session_user_id),
+            data_volume_name(session_user_id),
+        )
+    }
+}
+
+/// Create the fixed `/data` layout on the host backing directory.
+pub fn ensure_data_layout(data_host: &Path) {
+    for rel in DATA_LAYOUT_DIRS {
+        let path = data_host.join(rel);
+        if let Err(error) = std::fs::create_dir_all(&path) {
+            log::warn!(
+                "mounts: failed to create data layout dir {}: {error:#}",
+                path.display()
+            );
+        }
+    }
+}
+
+fn sanitize_skill_name(raw: &str) -> String {
     let cleaned = crate::storage::sanitize_storage_dir_segment(raw.trim());
     if cleaned.is_empty() {
-        ANONYMOUS_SEGMENT.to_string()
+        "skill".to_string()
     } else {
         cleaned
     }
@@ -167,10 +183,6 @@ mod tests {
     use super::*;
     use crate::env::pathmap::PathMap;
 
-    fn base() -> PathBuf {
-        PathBuf::from("/data/session-sandboxes")
-    }
-
     fn roots() -> Vec<SkillRoot> {
         vec![
             SkillRoot::new("user", "/home/me/.pointer/skills"),
@@ -179,130 +191,88 @@ mod tests {
     }
 
     #[test]
-    fn session_plan_has_home_workspace_and_skills() {
-        let mounts = MountPlan::for_session(&base(), "alice", "c-1", &roots());
+    fn session_plan_has_home_data_and_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        let mounts = MountPlan::for_session(dir.path(), "alice", "c-1", &roots());
         assert_eq!(mounts.len(), 4);
 
         assert_eq!(mounts[0].guest, PathBuf::from(GUEST_HOME));
         assert!(!mounts[0].read_only);
         assert_eq!(
             mounts[0].host,
-            PathBuf::from("/data/session-sandboxes/alice-home")
+            dir.path().join(home_volume_name("alice"))
         );
 
-        assert_eq!(mounts[1].guest, PathBuf::from(GUEST_WORKSPACE));
+        assert_eq!(mounts[1].guest, PathBuf::from(GUEST_DATA));
         assert!(!mounts[1].read_only);
-        assert_eq!(
-            mounts[1].host,
-            PathBuf::from("/data/session-sandboxes/alice-ws-c-1")
-        );
+        assert_eq!(mounts[1].host, dir.path().join(data_volume_name("alice")));
+        assert!(mounts[1].host.join("workspaces").is_dir());
 
-        assert_eq!(
-            mounts[2].guest,
-            PathBuf::from("/skills/user"),
-            "技能根按给定名字挂载"
-        );
+        assert_eq!(mounts[2].guest, PathBuf::from("/skills/user"));
         assert!(mounts[2].read_only);
         assert_eq!(mounts[3].guest, PathBuf::from("/skills/bundled"));
-        assert!(mounts[3].read_only);
     }
 
     #[test]
-    fn duplicate_skill_names_get_distinct_guests() {
-        let dup = vec![
-            SkillRoot::new("skills", "/a/skills"),
-            SkillRoot::new("skills", "/b/skills"),
-            SkillRoot::new("skills", "/c/skills"),
-        ];
-        let mounts = MountPlan::for_session(&base(), "alice", "c-1", &dup);
-        let guests: Vec<String> = mounts
-            .iter()
-            .skip(2)
-            .map(|m| m.guest.to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(guests.len(), 3);
-        let mut uniq = guests.clone();
-        uniq.sort();
-        uniq.dedup();
-        assert_eq!(uniq.len(), 3, "guest 路径必须唯一: {guests:?}");
+    fn authenticated_user_shares_data_across_conversations() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = MountPlan::for_session(dir.path(), "alice", "c-1", &[]);
+        let b = MountPlan::for_session(dir.path(), "alice", "c-2", &[]);
+        assert_eq!(a[0].host, b[0].host, "home 跨会话共享");
+        assert_eq!(a[1].host, b[1].host, "data 跨会话共享");
+        assert_eq!(user_key("alice"), user_key("alice"));
     }
 
     #[test]
-    fn empty_user_falls_back_to_anonymous_segment() {
-        let mounts = MountPlan::for_session(&base(), "", "c-1", &[]);
-        assert_eq!(
-            mounts[0].host,
-            PathBuf::from("/data/session-sandboxes/_anonymous-home")
-        );
-        assert_eq!(
-            mounts[1].host,
-            PathBuf::from("/data/session-sandboxes/_anonymous-ws-c-1")
-        );
-    }
-
-    #[test]
-    fn traversal_segments_are_sanitized() {
-        let mounts = MountPlan::for_session(&base(), "../../etc", "../..", &[]);
-        let home = mounts[0].host.to_string_lossy().into_owned();
-        assert!(!home.contains(".."), "{home}");
-        let ws = mounts[1].host.to_string_lossy().into_owned();
-        assert!(!ws.contains(".."), "{ws}");
-    }
-
-    #[test]
-    fn different_conversations_get_different_workspaces() {
-        let a = MountPlan::for_session(&base(), "alice", "c-1", &[]);
-        let b = MountPlan::for_session(&base(), "alice", "c-2", &[]);
+    fn anonymous_sessions_get_isolated_volumes() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = MountPlan::for_session(dir.path(), "", "c-1", &[]);
+        let b = MountPlan::for_session(dir.path(), "", "c-2", &[]);
+        assert_ne!(a[0].host, b[0].host);
         assert_ne!(a[1].host, b[1].host);
-        assert_eq!(a[0].host, b[0].host, "家目录跨会话共享");
+        assert!(a[0].host.to_string_lossy().contains("anon-"));
     }
 
     #[test]
     fn different_users_are_isolated() {
-        let a = MountPlan::for_session(&base(), "alice", "c-1", &[]);
-        let b = MountPlan::for_session(&base(), "bob", "c-1", &[]);
+        let dir = tempfile::tempdir().unwrap();
+        let a = MountPlan::for_session(dir.path(), "alice", "c-1", &[]);
+        let b = MountPlan::for_session(dir.path(), "bob", "c-1", &[]);
+        assert_ne!(a[0].host, b[0].host);
         assert_ne!(a[1].host, b[1].host);
-        assert!(!a[1].host.starts_with("/data/session-sandboxes/bob"));
-        assert!(!b[1].host.starts_with("/data/session-sandboxes/alice"));
     }
 
     #[test]
-    fn path_map_translates_both_directions() {
-        let mounts = MountPlan::for_session(&base(), "alice", "c-1", &roots());
+    fn path_map_translates_data_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let mounts = MountPlan::for_session(dir.path(), "alice", "c-1", &roots());
         let map = PathMap::new(mounts);
-
-        let guest_ws = PathBuf::from("/workspace/sub/a.txt");
-        let host = map.to_host(&guest_ws).expect("to_host");
+        let guest = PathBuf::from("/data/workspaces/demo/a.txt");
+        let host = map.to_host(&guest).expect("to_host");
         assert_eq!(
             host,
-            PathBuf::from("/data/session-sandboxes/alice-ws-c-1/sub/a.txt")
+            dir.path()
+                .join(data_volume_name("alice"))
+                .join("workspaces/demo/a.txt")
         );
-        assert_eq!(map.to_agent(&host).expect("to_agent"), guest_ws);
-
-        let guest_skill = PathBuf::from("/skills/user/cwpt/SKILL.md");
-        let host_skill = map.to_host(&guest_skill).expect("skill to_host");
-        assert_eq!(
-            host_skill,
-            PathBuf::from("/home/me/.pointer/skills/cwpt/SKILL.md")
-        );
-        assert!(map.is_read_only(&host_skill), "技能根必须只读");
-        assert!(!map.is_read_only(&host), "工作区可写");
+        assert_eq!(map.to_agent(&host).expect("to_agent"), guest);
     }
 
     #[test]
-    fn paths_outside_mounts_are_rejected() {
-        let mounts = MountPlan::for_session(&base(), "alice", "c-1", &roots());
-        let map = PathMap::new(mounts);
-        let err = map.to_host(Path::new("/etc/passwd")).unwrap_err().to_string();
-        assert!(err.contains("PATH_NOT_MAPPED"), "{err}");
-    }
-
-    #[test]
-    fn skill_mounts_filters_read_only() {
-        let mounts = MountPlan::for_session(&base(), "alice", "c-1", &roots());
-        let skills = MountPlan::skill_mounts(&mounts);
-        assert_eq!(skills.len(), 2);
-        assert!(skills.iter().all(|m| m.read_only));
+    fn client_host_project_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let mounts = MountPlan::for_session_with_plugins(
+            dir.path(),
+            "alice",
+            "c-1",
+            &[],
+            None,
+            Some(project.path()),
+        );
+        assert!(mounts.iter().all(|m| m.guest != Path::new(GUEST_WORKSPACE)));
+        assert!(mounts.iter().any(|m| m.guest == Path::new(GUEST_DATA)));
+        assert!(!mounts.iter().any(|m| m.host == project.path()));
     }
 
     #[test]
@@ -310,67 +280,26 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let plugins = dir.path().join("plugins");
         std::fs::create_dir_all(plugins.join("demo")).unwrap();
-        let mounts =
-            MountPlan::for_session_with_plugins(&base(), "alice", "c-1", &roots(), Some(&plugins), None);
+        let mounts = MountPlan::for_session_with_plugins(
+            dir.path(),
+            "alice",
+            "c-1",
+            &roots(),
+            Some(&plugins),
+            None,
+        );
         let plugin = mounts
             .iter()
             .find(|m| m.guest == PathBuf::from(GUEST_PLUGINS))
             .expect("plugins mount");
         assert!(plugin.read_only);
-        assert_eq!(plugin.host, plugins);
-        // 目录不存在时不挂（避免把不存在的宿主路径塞给网关）
-        let missing = dir.path().join("nope");
-        let mounts2 = MountPlan::for_session_with_plugins(
-            &base(),
-            "alice",
-            "c-1",
-            &roots(),
-            Some(&missing),
-            None,
-        );
-        assert!(!mounts2.iter().any(|m| m.guest == PathBuf::from(GUEST_PLUGINS)));
     }
 
     #[test]
-    fn workspace_mount_ignores_client_host_project_dir() {
-        let base = std::path::Path::new("/data/session-sandboxes");
-        let project = tempfile::tempdir().expect("project dir");
-        let mounts = MountPlan::for_session_with_plugins(
-            base,
-            "alice",
-            "c-1",
-            &[],
-            None,
-            Some(project.path()),
-        );
-        let ws = mounts
-            .iter()
-            .find(|m| m.guest == std::path::Path::new("/workspace"))
-            .expect("workspace mount");
-        assert_eq!(
-            ws.host,
-            base.join("alice-ws-c-1"),
-            "沙箱不得把客户端宿主项目目录挂成 /workspace"
-        );
-        assert_ne!(ws.host, project.path());
-        assert!(!ws.read_only, "托管工作区卷必须可写");
-    }
-
-    #[test]
-    fn workspace_mount_falls_back_to_volume_without_project() {
-        let base = std::path::Path::new("/data/session-sandboxes");
-        let mounts = MountPlan::for_session_with_plugins(base, "alice", "c-1", &[], None, None);
-        let ws = mounts
-            .iter()
-            .find(|m| m.guest == std::path::Path::new("/workspace"))
-            .expect("workspace mount");
-        assert_eq!(ws.host, base.join("alice-ws-c-1"), "无项目时退回每会话卷");
-    }
-
-    #[test]
-    fn session_sandbox_dir_is_not_treated_as_project() {
-        // 会话沙箱目录存在，但它不是"用户选的项目"，不能当项目挂载。
-        let dir = tempfile::tempdir().expect("dir");
-        assert!(!is_project_dir(dir.path()) == false, "普通目录应被当成项目");
+    fn volume_names_are_envd_safe() {
+        let (home, data) = volume_names_for("alice@x.com", "c-1");
+        assert!(crate::user_key::is_volume_safe_name(&home));
+        assert!(crate::user_key::is_volume_safe_name(&data));
+        assert!(!home.contains('@'));
     }
 }

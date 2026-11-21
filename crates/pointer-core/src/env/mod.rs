@@ -371,10 +371,17 @@ pub trait Environment: Send + Sync {
         false
     }
 
-    /// 提示词注入用。local 返回宿主真实路径。
+    /// Active project/worktree path in this Environment namespace.
+    ///
+    /// For sandboxes this is a compatibility default (`/data/workspaces`); the
+    /// authoritative per-conversation root lives in `ResolvedWorkspace`.
     fn workspace_root(&self) -> &Path;
     fn skills_root(&self) -> &Path;
     fn home_root(&self) -> &Path;
+    /// Persistent user data root (`/data` in sandbox). Local returns an empty path.
+    fn data_root(&self) -> &Path {
+        Path::new("")
+    }
 
     fn capabilities(&self) -> Capabilities;
 
@@ -485,6 +492,7 @@ where
 struct DeniedEnv {
     workspace: PathBuf,
     home: PathBuf,
+    data: PathBuf,
     skills: PathBuf,
     map: PathMap,
 }
@@ -492,8 +500,9 @@ struct DeniedEnv {
 impl DeniedEnv {
     fn new() -> Self {
         Self {
-            workspace: PathBuf::from("/workspace"),
+            workspace: PathBuf::from("/data/workspaces"),
             home: PathBuf::from("/home/pointer"),
+            data: PathBuf::from("/data"),
             skills: PathBuf::from("/skills"),
             map: PathMap::identity(),
         }
@@ -528,6 +537,9 @@ impl Environment for DeniedEnv {
     }
     fn home_root(&self) -> &Path {
         &self.home
+    }
+    fn data_root(&self) -> &Path {
+        &self.data
     }
     fn capabilities(&self) -> Capabilities {
         Capabilities::headless()
@@ -948,7 +960,7 @@ mod tests {
         // headless 档位下没绑定会话环境时，绝不能静默回落宿主。
         let env = DeniedEnv::new();
         assert_eq!(env.kind(), EnvKind::Headless);
-        assert_eq!(env.workspace_root(), Path::new("/workspace"));
+        assert_eq!(env.workspace_root(), Path::new("/data/workspaces"));
         let err = env
             .exec(&["/bin/echo".to_string(), "hi".to_string()], ExecOptions::default())
             .unwrap_err()

@@ -40,7 +40,7 @@ pub struct DockerSpec {
     pub image: String,
     /// 挂载计划：宿主目录 → guest 路径。
     pub mounts: Vec<super::pathmap::Mount>,
-    /// 容器内工作目录（通常是 `/workspace`）。
+    /// 容器内默认 cwd（`/data/workspaces`）；会话可覆盖为具体项目。
     pub workdir: PathBuf,
     /// 档位：决定能力集（Headless 无桌面 / Container 有 Xvfb 桌面）。
     pub tier: super::provider::Tier,
@@ -61,7 +61,7 @@ impl Default for DockerSpec {
             container: String::new(),
             image: String::new(),
             mounts: Vec::new(),
-            workdir: PathBuf::from("/workspace"),
+            workdir: PathBuf::from(crate::env::mounts::GUEST_WORKSPACES_ROOT),
             tier: super::provider::Tier::Headless,
             cpus: None,
             memory_mb: None,
@@ -116,6 +116,16 @@ impl DockerSpec {
             .collect();
         format!("pointer-sbx-{safe}")
     }
+
+    /// Authenticated users share one container; anonymous stays conversation-scoped.
+    pub fn container_name_for_identity(session_user_id: &str, conversation_id: &str) -> String {
+        if session_user_id.trim().is_empty() {
+            return Self::container_name_for(conversation_id);
+        }
+        let key = crate::user_key::user_key(session_user_id);
+        format!("pointer-sbx-u-{key}")
+    }
+
 }
 
 /// 容器规格版本。**改动容器契约就 +1**：入口脚本、注入的环境变量、挂载语义。
@@ -274,7 +284,7 @@ impl DockerEnv {
     pub(crate) fn fake_for_tests(container: &str) -> Self {
         Self {
             container: container.to_string(),
-            workdir: PathBuf::from("/workspace"),
+            workdir: PathBuf::from(crate::env::mounts::GUEST_WORKSPACES_ROOT),
             tier: super::provider::Tier::Desktop,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
@@ -302,9 +312,9 @@ impl DockerEnv {
         let workspace_host = spec
             .mounts
             .iter()
-            .find(|m| m.guest == spec.workdir)
+            .find(|m| m.guest == Path::new(crate::env::mounts::GUEST_DATA))
             .map(|m| m.host.clone())
-            .ok_or_else(|| anyhow!("docker: 挂载计划里没有 {} 对应的宿主目录", spec.workdir.display()))?;
+            .ok_or_else(|| anyhow!("docker: 挂载计划里没有 /data 对应的宿主目录"))?;
         let map = PathMap::new(spec.mounts.clone());
         Ok(Some(Self {
             vnc_password: Self::container_vnc_password(&container),
@@ -322,9 +332,9 @@ impl DockerEnv {
         let workspace_host = spec
             .mounts
             .iter()
-            .find(|m| m.guest == spec.workdir)
+            .find(|m| m.guest == Path::new(crate::env::mounts::GUEST_DATA))
             .map(|m| m.host.clone())
-            .ok_or_else(|| anyhow!("docker: 挂载计划里没有 {} 对应的宿主目录", spec.workdir.display()))?;
+            .ok_or_else(|| anyhow!("docker: 挂载计划里没有 /data 对应的宿主目录"))?;
 
         let fingerprint = spec.fingerprint();
         let reusable = Self::container_running(&spec.container)
@@ -651,6 +661,9 @@ impl Environment for DockerEnv {
     fn home_root(&self) -> &Path {
         Path::new(crate::env::mounts::GUEST_HOME)
     }
+    fn data_root(&self) -> &Path {
+        Path::new(crate::env::mounts::GUEST_DATA)
+    }
     fn capabilities(&self) -> Capabilities {
         match self.tier {
             super::provider::Tier::Desktop => Capabilities::desktop(),
@@ -905,7 +918,7 @@ mod tests {
             container: "pointer-test".into(),
             image: "pointer-sandbox-headless:latest".into(),
             mounts: Vec::new(),
-            workdir: "/workspace".into(),
+            workdir: crate::env::mounts::GUEST_WORKSPACES_ROOT.into(),
             tier,
             cpus: None,
             memory_mb: None,
@@ -920,7 +933,7 @@ mod tests {
             container: "c1".into(),
             image: "img".into(),
             mounts: Vec::new(),
-            workdir: "/workspace".into(),
+            workdir: crate::env::mounts::GUEST_WORKSPACES_ROOT.into(),
             tier: crate::env::provider::Tier::Headless,
             cpus: Some(2.0),
             memory_mb: Some(4096),
@@ -941,7 +954,7 @@ mod tests {
         // 直接构造结构体（不真的起容器），只验证能力映射。
         let headless = DockerEnv {
             container: "c".into(),
-            workdir: "/workspace".into(),
+            workdir: crate::env::mounts::GUEST_WORKSPACES_ROOT.into(),
             tier: super::super::provider::Tier::Headless,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
@@ -953,7 +966,7 @@ mod tests {
 
         let container = DockerEnv {
             container: "c".into(),
-            workdir: "/workspace".into(),
+            workdir: crate::env::mounts::GUEST_WORKSPACES_ROOT.into(),
             tier: super::super::provider::Tier::Desktop,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
@@ -990,8 +1003,8 @@ mod tests {
         DockerSpec {
             container: "pointer-args".into(),
             image: "pointer-sandbox-headless:latest".into(),
-            mounts: vec![super::super::pathmap::Mount::new("/host/proj", "/workspace", false)],
-            workdir: "/workspace".into(),
+            mounts: vec![super::super::pathmap::Mount::new("/host/data", crate::env::mounts::GUEST_DATA, false)],
+            workdir: crate::env::mounts::GUEST_WORKSPACES_ROOT.into(),
             tier: super::super::provider::Tier::Headless,
             cpus: Some(2.0),
             memory_mb: Some(2048),
@@ -1004,7 +1017,7 @@ mod tests {
     fn run_args_carry_limits_and_mounts() {
         let spec = spec_for_args();
         let args = run_args(&spec, "abc123", None, true).join(" ");
-        assert!(args.contains("-v /host/proj:/workspace"), "{args}");
+        assert!(args.contains("-v /host/data:/data"), "{args}");
         assert!(args.contains("--cpus 2"), "{args}");
         assert!(args.contains("--memory 2048m"), "{args}");
         assert!(args.contains("--storage-opt size=8192m"), "{args}");
@@ -1035,7 +1048,7 @@ mod tests {
     fn light_tier_has_no_desktop_endpoint() {
         let headless = DockerEnv {
             container: "c".into(),
-            workdir: "/workspace".into(),
+            workdir: crate::env::mounts::GUEST_WORKSPACES_ROOT.into(),
             tier: super::super::provider::Tier::Headless,
             vnc_password: Some("abcd2345".into()),
             map: PathMap::new(Vec::new()),

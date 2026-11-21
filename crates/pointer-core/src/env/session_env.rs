@@ -997,25 +997,37 @@ mod tests {
         );
     }
 
+    #[test]
     fn env_lookup_covers_both_backends() {
         // 回归：docker 后端上线后，工具线程重放必须也能查到它，
         // 否则 effective_env() 会退到 DeniedEnv，工具报"执行环境未绑定"。
         let conv = "conv-docker-lookup";
-        let dir = tempfile::tempdir().expect("dir");
-        let spec = crate::env::docker::DockerSpec {
-            container: crate::env::docker::DockerSpec::container_name_for(conv),
-            image: "pointer-sandbox-light:latest".to_string(),
-            mounts: vec![crate::env::pathmap::Mount::new(dir.path(), "/workspace", false)],
-            workdir: std::path::PathBuf::from("/workspace"),
-            tier: Tier::Light,
-            cpus: None,
-            memory_mb: None,
-            disk_mb: None,
-            vnc_password: None,
-        };
-        // 只验证缓存查找逻辑，不真的起容器：这里用 remote 缓存塞一个假条目不可行，
-        // 所以改为断言"查不到时不 panic、返回 None"，真正的覆盖在 docker_env_it。
-        assert!(env_for_conversation(conv).is_none());
-        drop(spec);
+        // 不真的起容器：塞一个 fake 实例进 docker 缓存，只验证查找链路。
+        if let Ok(mut map) = docker_cache().lock() {
+            map.insert(
+                conv.to_string(),
+                (
+                    Arc::new(crate::env::docker::DockerEnv::fake_for_tests(
+                        "pointer-sbx-docker-lookup",
+                    )),
+                    Instant::now(),
+                ),
+            );
+        }
+
+        let found = env_for_conversation(conv).expect("docker 缓存里的会话必须查得到");
+        assert!(
+            found.capabilities().desktop,
+            "fake 是 container 档，应当带桌面"
+        );
+        assert!(
+            env_for_conversation("conv-not-registered").is_none(),
+            "没注册过的会话不该查到环境"
+        );
+
+        // 清理：直接摘缓存条目，fake 实例不连真实容器。
+        if let Ok(mut map) = docker_cache().lock() {
+            map.remove(conv);
+        }
     }
 }

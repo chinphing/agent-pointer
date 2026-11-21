@@ -937,6 +937,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn capabilities_follow_tier() {
         // 直接构造结构体（不真的起容器），只验证能力映射。
         let light = DockerEnv {

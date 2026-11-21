@@ -381,6 +381,8 @@ mod tests {
         let err = parse_requests(&args).unwrap_err().to_string();
         assert!(err.contains("goal 不能为空"), "{err}");
     }
+
+    #[test]
     fn goal_is_shared_by_every_element() {
         let args = json!({
             "goal": "在股票页面查询行情",

@@ -1338,6 +1338,7 @@ async fn get_task_board_snapshot(
     State(state): State<ServerState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &q.conversation_id)?;
     use pointer_core::task_board::resolve_store_key_for_read;
     let parent_key = state
         .core
@@ -1361,6 +1362,7 @@ async fn preview_computer_annotated_screen(
     State(state): State<ServerState>,
 ) -> Result<Json<ComputerAnnotatedPreview>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &q.conversation_id)?;
     state
         .core
         .computer_state
@@ -1512,6 +1514,7 @@ async fn preview_chat_media(
     Query(q): Query<ChatMediaQuery>,
 ) -> Result<Json<ChatMediaPreview>, ApiError> {
     require_platform_access(&state)?;
+    require_media_rel_access(&state, &q.storage_rel_path)?;
     Ok(Json(
         pointer_core::media::read_chat_media_preview(&q.storage_rel_path)
             .map_err(ApiError::from)?,
@@ -1532,6 +1535,7 @@ async fn preview_media_ref(
     Query(q): Query<MediaRefQuery>,
 ) -> Result<Json<ChatMediaPreview>, ApiError> {
     require_platform_access(&state)?;
+    require_media_ref_access(&state, &q.media_ref)?;
     Ok(Json(
         pointer_core::media::read_media_ref_preview(&q.media_ref).map_err(ApiError::from)?,
     ))
@@ -1542,6 +1546,7 @@ async fn download_media_ref(
     Query(q): Query<MediaRefQuery>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
+    require_media_ref_access(&state, &q.media_ref)?;
     let (path, mime_type, stored_name) =
         pointer_core::media::chat_media_ref_file_meta(&q.media_ref).map_err(ApiError::from)?;
     let file_name = preferred_download_file_name(q.file_name.as_deref(), &stored_name);
@@ -1658,6 +1663,7 @@ async fn download_chat_media(
     Query(q): Query<ChatMediaQuery>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
+    require_media_rel_access(&state, &q.storage_rel_path)?;
     let (path, mime_type, stored_name) =
         pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
     let file_name = preferred_download_file_name(q.file_name.as_deref(), &stored_name);
@@ -1674,6 +1680,7 @@ async fn stream_chat_media(
     Query(q): Query<ChatMediaQuery>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
+    require_media_rel_access(&state, &q.storage_rel_path)?;
     let (path, mime_type, stored_name) =
         pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
     let file_name = preferred_download_file_name(q.file_name.as_deref(), &stored_name);
@@ -1751,6 +1758,7 @@ async fn save_chat_attachment(
             "conversationId and attachmentId required"
         )));
     }
+    require_conversation_access(&state, &conversation_id)?;
     if file_name.is_empty() {
         return Err(ApiError(anyhow::anyhow!(
             "fileName required (field or multipart filename)"
@@ -1875,6 +1883,7 @@ async fn upload_composer_video_oss(
             "attachmentId and fileName required"
         )));
     }
+    require_conversation_access(&state, &conversation_id)?;
     let bytes = file_bytes.ok_or_else(|| ApiError(anyhow::anyhow!("file field required")))?;
     let settings = state.core.effective_settings();
     let last_pct = std::sync::Arc::new(std::sync::Mutex::new(0u32));
@@ -1934,6 +1943,7 @@ async fn set_computer_conversation_monitor(
     State(state): State<ServerState>,
     Json(payload): Json<SetMonitorPayload>,
 ) -> Result<StatusCode, ApiError> {
+    require_conversation_access(&state, &payload.conversation_id)?;
     state
         .core
         .computer_state
@@ -1945,6 +1955,7 @@ async fn confirm_computer_monitor_pick(
     State(state): State<ServerState>,
     axum::extract::Path(conversation_id): axum::extract::Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    require_conversation_access(&state, &conversation_id)?;
     if state.core.confirm_computer_monitor_pick(&conversation_id) {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -1956,6 +1967,7 @@ async fn cancel_computer_monitor_pick(
     State(state): State<ServerState>,
     axum::extract::Path(conversation_id): axum::extract::Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    require_conversation_access(&state, &conversation_id)?;
     if state.core.cancel_computer_monitor_pick(&conversation_id) {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -2006,6 +2018,276 @@ fn platform_session_user_id(state: &ServerState) -> String {
         .active_platform_auth()
         .platform_user_id()
         .unwrap_or_default()
+}
+
+/// Web 入口统一的会话归属校验。
+///
+/// 会话 id 是客户端可传的，而 `session_inner` 用**会话行 uid** 解析整条回合的运行身份
+/// （档位 / 工作区 / 凭据 / 设置）。所以任何按会话 id 取数或跑回合的 Web 路由，
+/// 入口处都要先确认这个会话属于当前请求身份，否则普通用户 B 传 A 的会话 id
+/// 就能以 A 的身份跑完整个回合。
+///
+/// 规则见 [`conversation_access_decision`]；这里只负责取「会话行 uid」和「请求身份」。
+fn require_conversation_access(state: &ServerState, conversation_id: &str) -> Result<(), ApiError> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(());
+    }
+    let stored = stored_conversation_user_id(conversation_id);
+    conversation_access_decision(
+        conversation_id,
+        &platform_session_user_id(state),
+        stored.as_deref(),
+        state.core.is_admin_session(),
+    )
+}
+
+/// 会话行 uid；没有这一行或读库失败都返回 `None`（等价于「归属为空」）。
+fn stored_conversation_user_id(conversation_id: &str) -> Option<String> {
+    match pointer_core::conversation_store::global_store()
+        .and_then(|store| store.session_user_id(conversation_id))
+    {
+        Ok(uid) => non_empty_uid(&uid),
+        Err(e) => {
+            log::warn!(
+                "conversation access: 读取会话归属失败 conversation_id={conversation_id}: {e:#}"
+            );
+            None
+        }
+    }
+}
+
+fn non_empty_uid(uid: &str) -> Option<String> {
+    let uid = uid.trim();
+    (!uid.is_empty()).then(|| uid.to_string())
+}
+
+/// 归属判定（纯函数，单测直接喂会话行 uid）。
+///
+/// - 会话行 uid 为空（历史 / IM / cron / webhook 建的会话）→ 放行：下游按请求身份解析，
+///   不会因为「归属为空」借到别人的权限。
+/// - 会话行 uid == 请求身份 → 放行。
+/// - 不等且请求方是管理员 → 放行（管理员代看代操作是既有能力，与 `ListScope::All` 同口径）。
+/// - 其余（含请求身份为空）→ 403，且不产生任何副作用。
+fn conversation_access_decision(
+    conversation_id: &str,
+    request_user_id: &str,
+    stored_user_id: Option<&str>,
+    is_admin: bool,
+) -> Result<(), ApiError> {
+    let Some(stored) = stored_user_id.and_then(non_empty_uid) else {
+        return Ok(());
+    };
+    if non_empty_uid(request_user_id).as_deref() == Some(stored.as_str()) {
+        return Ok(());
+    }
+    if is_admin {
+        log::info!(
+            "conversation access: admin override conversation_id={conversation_id} owner={stored}"
+        );
+        return Ok(());
+    }
+    log::warn!(
+        "conversation access: 拒绝跨用户访问 conversation_id={conversation_id} \
+         request_user_id={request_user_id:?} owner={stored}"
+    );
+    Err(ApiError(anyhow::anyhow!(
+        "conversation_access_denied: 会话不属于当前用户（conversation_id={conversation_id}）"
+    )))
+}
+
+/// 会话媒体路径的归属校验。
+///
+/// `conversation-media` 新布局是 `{user_segment}/{conv}/{file}`，user 段就是上传者身份；
+/// 旧布局（两段）没有身份段，按历史数据放行。`session-sandboxes/{user}/…` 的身份段在第 2 段，
+/// `generated-media/` 是进程生成物，没有归属。
+fn require_media_rel_access(state: &ServerState, rel: &str) -> Result<(), ApiError> {
+    let rel = rel.trim().trim_start_matches('/');
+    let user_segment = match media_rel_user_segment(rel) {
+        Ok(segment) => segment,
+        // 解析不了就不是会话媒体路径（下游的路径校验会拒绝），不在这里猜。
+        Err(_) => return Ok(()),
+    };
+    media_segment_decision(
+        rel,
+        user_segment.as_deref(),
+        &platform_session_user_id(state),
+        state.core.is_admin_session(),
+    )
+}
+
+/// `mediaRef` 可以是 `pointer-media://` URI、app-data 相对路径或绝对路径：
+/// 能落到会话媒体目录里的都要过归属校验。
+fn require_media_ref_access(state: &ServerState, media_ref: &str) -> Result<(), ApiError> {
+    let trimmed = media_ref.trim();
+    let rel = trimmed
+        .strip_prefix(pointer_core::media::MEDIA_URI_SCHEME)
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    if rel.is_empty() {
+        return Ok(());
+    }
+    if !pointer_core::media::is_user_filesystem_path(rel) {
+        return require_media_rel_access(state, rel);
+    }
+    // 绝对 / `~/` 路径：只有落在 `conversation-media/` 里才按会话媒体判归属。
+    let Ok(path) = pointer_core::media::resolve::resolve_local_media_path(rel) else {
+        return Ok(());
+    };
+    match pointer_core::media::store::conversation_media_abs_to_rel(&path) {
+        Some(rel) => require_media_rel_access(state, &rel),
+        None => Ok(()),
+    }
+}
+
+/// 从媒体相对路径里取出身份段（`None` = 没有身份段，按历史数据放行）。
+fn media_rel_user_segment(rel: &str) -> Result<Option<String>, ()> {
+    use pointer_core::media::store::{
+        is_app_data_subtree_rel, GENERATED_MEDIA_PREFIX, SESSION_SANDBOXES_PREFIX,
+    };
+    if rel.is_empty() {
+        return Err(());
+    }
+    if rel.starts_with(GENERATED_MEDIA_PREFIX) {
+        return Ok(None);
+    }
+    if let Some(rest) = rel.strip_prefix(SESSION_SANDBOXES_PREFIX) {
+        return Ok(rest.split('/').next().filter(|s| !s.is_empty()).map(str::to_string));
+    }
+    if is_app_data_subtree_rel(rel) {
+        return Err(());
+    }
+    let parsed = pointer_core::media::layout::parse_storage_rel(rel).map_err(|_| ())?;
+    if parsed.legacy {
+        return Ok(None);
+    }
+    Ok(Some(parsed.user_segment))
+}
+
+/// 媒体身份段判定（纯函数）。`None` / `_anonymous` / 本人 / 管理员 → 放行。
+fn media_segment_decision(
+    rel: &str,
+    user_segment: Option<&str>,
+    request_user_id: &str,
+    is_admin: bool,
+) -> Result<(), ApiError> {
+    let Some(segment) = user_segment.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+    if segment == pointer_core::session_sandbox::ANONYMOUS_SEGMENT {
+        return Ok(());
+    }
+    if segment == pointer_core::user_storage::user_storage_segment(request_user_id) {
+        return Ok(());
+    }
+    if is_admin {
+        log::info!("media access: admin override rel={rel} owner_segment={segment}");
+        return Ok(());
+    }
+    log::warn!(
+        "media access: 拒绝跨用户读取 rel={rel} request_user_id={request_user_id:?} \
+         owner_segment={segment}"
+    );
+    Err(ApiError(anyhow::anyhow!(
+        "conversation_access_denied: 媒体文件不属于当前用户（rel={rel}）"
+    )))
+}
+
+#[cfg(test)]
+mod conversation_access_tests {
+    use super::*;
+
+    fn status_of(err: ApiError) -> StatusCode {
+        err.into_response().status()
+    }
+
+    /// 普通用户 B 拿着 A 的会话 id 跑回合：必须 403。
+    /// `send_chat` 入口处第一句就是这条校验，`?` 直接返回——`dispatcher.dispatch`
+    /// 拿不到 `TriggerRequest`，整个回合不会发车（无副作用）。
+    #[test]
+    fn other_users_conversation_is_forbidden() {
+        let err = conversation_access_decision("conv-a", "user-b", Some("user-a"), false)
+            .expect_err("cross-user access must be rejected");
+        assert_eq!(status_of(err), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn own_conversation_is_allowed() {
+        assert!(conversation_access_decision("conv-a", "user-a", Some("user-a"), false).is_ok());
+    }
+
+    /// 管理员代看代操作是既有能力（`ListScope::All` 同口径）。
+    #[test]
+    fn admin_can_use_another_users_conversation() {
+        assert!(conversation_access_decision("conv-a", "admin", Some("user-a"), true).is_ok());
+    }
+
+    /// 会话行 uid 为空：历史 / IM / cron / webhook 建的会话，按请求身份解析，放行。
+    #[test]
+    fn conversation_without_owner_is_allowed() {
+        assert!(conversation_access_decision("conv-a", "user-b", None, false).is_ok());
+        assert!(conversation_access_decision("conv-a", "user-b", Some(""), false).is_ok());
+        assert!(conversation_access_decision("conv-a", "user-b", Some("   "), false).is_ok());
+    }
+
+    /// 取不到请求身份（空 uid）时不放行有归属的会话——放行等于提权。
+    #[test]
+    fn unknown_request_identity_fails_closed() {
+        let err = conversation_access_decision("conv-a", "", Some("user-a"), false)
+            .expect_err("empty request identity must not borrow the owner");
+        assert_eq!(status_of(err), StatusCode::FORBIDDEN);
+        assert!(conversation_access_decision("conv-a", "  ", Some("user-a"), false).is_err());
+    }
+
+    /// 与 `normalize_session_user_id` 同口径：比较前 trim。
+    #[test]
+    fn owner_comparison_is_trimmed() {
+        assert!(conversation_access_decision("conv-a", " user-a ", Some("user-a\n"), false).is_ok());
+    }
+
+    // ---- 媒体路径归属 ----
+
+    #[test]
+    fn media_rel_segment_follows_the_layout() {
+        // 新布局 `{user}/{conv}/{file}`
+        assert_eq!(
+            media_rel_user_segment("user-a/conv-1/a.png").unwrap().as_deref(),
+            Some("user-a")
+        );
+        // 旧布局（两段）没有身份段
+        assert_eq!(media_rel_user_segment("conv-1/a.png").unwrap(), None);
+        // 沙箱附件：身份段在第 2 段
+        assert_eq!(
+            media_rel_user_segment("session-sandboxes/user-a/conv-1/attachments/x.png")
+                .unwrap()
+                .as_deref(),
+            Some("user-a")
+        );
+        // 进程生成物没有归属
+        assert_eq!(media_rel_user_segment("generated-media/charts/a.png").unwrap(), None);
+        assert!(media_rel_user_segment("").is_err());
+    }
+
+    #[test]
+    fn media_owner_decision_rejects_cross_user() {
+        let err = media_segment_decision("user-a/conv-1/a.png", Some("user-a"), "user-b", false)
+            .expect_err("cross-user media read must be rejected");
+        assert_eq!(status_of(err), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn media_owner_decision_allows_own_shared_and_admin() {
+        assert!(media_segment_decision("rel", Some("user-a"), "user-a", false).is_ok());
+        assert!(media_segment_decision("rel", Some("_anonymous"), "user-b", false).is_ok());
+        assert!(media_segment_decision("rel", None, "user-b", false).is_ok());
+        assert!(media_segment_decision("rel", Some("user-a"), "admin", true).is_ok());
+    }
+
+    /// 空请求身份读别人有身份段的媒体：同样是提权，拒绝。
+    #[test]
+    fn media_owner_decision_fails_closed_without_identity() {
+        assert!(media_segment_decision("rel", Some("user-a"), "", false).is_err());
+    }
 }
 
 /// Sidebar / project list visibility: platform admin sees all users' rows.
@@ -2061,6 +2343,7 @@ async fn load_conversation_meta_handler(
     Path(conversation_id): Path<String>,
 ) -> Result<Json<Option<pointer_core::models::ConversationMeta>>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let scope = platform_list_scope(&state);
     let meta = storage::load_conversation_meta(&scope, &conversation_id)?;
     log::info!(
@@ -2157,6 +2440,7 @@ async fn create_worktree(
     Json(input): Json<CreateWorktreeRequest>,
 ) -> Result<Json<pointer_core::worktree::ManagedWorktree>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &input.conversation_id)?;
     let created = tokio::task::spawn_blocking(move || {
         pointer_core::worktree::session::create_for_conversation(
             &input.conversation_id,
@@ -2312,6 +2596,7 @@ async fn list_conversation_search_matches_handler(
     Query(q): Query<ConversationSearchMatchesQuery>,
 ) -> Result<Json<Vec<pointer_core::models::ConversationSearchMatch>>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let scope = platform_list_scope(&state);
     let matches = storage::list_conversation_search_matches(&scope, &conversation_id, &q.q)?;
     Ok(Json(matches))
@@ -2322,6 +2607,7 @@ async fn list_conversation_outline_handler(
     Path(conversation_id): Path<String>,
 ) -> Result<Json<Vec<pointer_core::models::ConversationOutlineItem>>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let outline_t = std::time::Instant::now();
     let scope = platform_list_scope(&state);
     let items = storage::list_conversation_outline(&scope, &conversation_id)?;
@@ -2350,6 +2636,7 @@ async fn set_message_milestone_handler(
     Json(body): Json<SetMessageMilestoneRequest>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let scope = platform_list_scope(&state);
     storage::set_message_milestone(&scope, &conversation_id, &message_id, body.milestone)?;
     log::info!(
@@ -2391,6 +2678,7 @@ async fn load_conversation_message_handler(
     Path((conversation_id, message_id)): Path<(String, String)>,
 ) -> Result<Json<Option<pointer_core::models::ChatMessage>>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     if message_id.trim().is_empty() || message_id == "append" {
         log::warn!(
             "server: load_conversation_message rejected conversation_id={conversation_id} message_id={message_id}"
@@ -2416,6 +2704,7 @@ async fn load_conversation_messages_handler(
     Query(q): Query<ConversationMessagesQuery>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     if conversation_messages_wants_page(&q) {
         let opts = pointer_core::conversation_store::LoadMessagesPageOpts {
             limit_turns: q.limit_turns,
@@ -2458,6 +2747,7 @@ async fn load_scoped_sub_messages_handler(
     Query(q): Query<ScopedSubMessagesQuery>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let instance = q
         .agent_instance_id
         .as_deref()
@@ -2477,6 +2767,10 @@ async fn save_conversation_meta(
     Json(metas): Json<Vec<pointer_core::models::ConversationMeta>>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
+    // 批量改名 / 工作区设置：逐条校验归属，任何一条不属于当前身份就整批拒绝。
+    for meta in &metas {
+        require_conversation_access(&state, &meta.id)?;
+    }
     let platform_user_id = state.core.active_platform_auth().platform_user_id();
     storage::save_conversation_meta_with_platform_user(&metas, platform_user_id.as_deref())?;
     Ok(StatusCode::NO_CONTENT)
@@ -2487,6 +2781,7 @@ async fn delete_conversation_handler(
     Path(conversation_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     storage::delete_conversation(&conversation_id)?;
     log::info!("server: deleted conversation id={conversation_id}");
     Ok(StatusCode::NO_CONTENT)
@@ -2498,6 +2793,7 @@ async fn append_conversation_messages(
     Json(messages): Json<Vec<pointer_core::models::ChatMessage>>,
 ) -> Result<Json<Vec<pointer_core::conversation_store::AppendedMessageRow>>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let appended = storage::append_conversation_messages(&conversation_id, &messages)?;
     Ok(Json(appended))
 }
@@ -2540,6 +2836,8 @@ async fn send_chat(
     Json(payload): Json<SendChatPayload>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
+    // 归属校验必须在 `dispatch` 之前：校验失败直接 `?` 返回，回合根本不会发车。
+    require_conversation_access(&state, &payload.conversation_id)?;
     let web_session_auth =
         web_session::lookup_session_auth(&state.web_sessions, &headers).or_else(|| {
             pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
@@ -2655,6 +2953,10 @@ async fn create_run(
         .or_else(|| {
             pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
         });
+    if let Some(conversation_id) = body.conversation_id.clone() {
+        // 与 `POST /api/chat` 同一口径：跑回合前先确认会话归属。
+        require_conversation_access(&state, &conversation_id)?;
+    }
     let handle = state
         .dispatcher
         .dispatch(body)
@@ -3246,7 +3548,9 @@ async fn webhook_ingress(
 
 // ---- Phase 5: cron job CRUD ----
 
-/// `GET /api/cron-jobs` — list all cron jobs (enabled and disabled).
+/// `GET /api/cron-jobs` — list cron jobs visible to the caller. Platform
+/// admins see every job; other users see only the jobs they created (legacy
+/// jobs without an owner stay admin-only).
 async fn list_cron_jobs(
     State(state): State<ServerState>,
 ) -> Result<Json<Vec<pointer_core::conversation_store::cron_jobs::CronJobView>>, ApiError> {
@@ -3256,8 +3560,13 @@ async fn list_cron_jobs(
         .session_index
         .cron_jobs_list_all()
         .map_err(ApiError::from)?;
+    let viewer = platform_session_user_id(&state);
+    let is_admin = state.core.is_admin_session();
     Ok(Json(
         rows.iter()
+            .filter(|r| {
+                pointer_core::conversation_store::cron_jobs::is_visible_to(r, &viewer, is_admin)
+            })
             .map(pointer_core::conversation_store::cron_jobs::CronJobView::from_record)
             .collect(),
     ))
@@ -3354,6 +3663,10 @@ async fn create_cron_job(
     ) {
         return Err(ApiError(anyhow::anyhow!(e)));
     }
+    // Owner = the logged-in browser session user. The scheduler copies it onto
+    // the job's cron session row so the run executes with the creator's
+    // environment tier / settings / memory.
+    let owner_user_id = platform_session_user_id(&state);
     let new = pointer_core::conversation_store::cron_jobs::NewCronJob {
         id: &body.id,
         label: &body.label,
@@ -3366,6 +3679,7 @@ async fn create_cron_job(
         lead_agent_id: body.lead_agent_id.as_deref(),
         enabled: body.enabled,
         deliver: deliver.as_deref(),
+        owner_user_id: Some(owner_user_id.as_str()),
     };
     let inserted = state
         .core
@@ -3421,6 +3735,25 @@ async fn list_cron_delivery_targets(
     ))
 }
 
+/// Management-API guard for id-addressed cron endpoints. A job the caller may
+/// not see is reported as not found (never "forbidden") so its existence does
+/// not leak across users.
+fn cron_job_visible(state: &ServerState, job_id: &str) -> Result<bool, ApiError> {
+    let Some(rec) = state
+        .core
+        .session_index
+        .cron_jobs_get(job_id)
+        .map_err(ApiError::from)?
+    else {
+        return Ok(false);
+    };
+    Ok(pointer_core::conversation_store::cron_jobs::is_visible_to(
+        &rec,
+        &platform_session_user_id(state),
+        state.core.is_admin_session(),
+    ))
+}
+
 /// `PATCH /api/cron-jobs/:id` — toggle enable/disable and/or update deliver.
 async fn update_cron_job(
     State(state): State<ServerState>,
@@ -3428,6 +3761,12 @@ async fn update_cron_job(
     Json(body): Json<UpdateCronJobBody>,
 ) -> Result<axum::response::Response, ApiError> {
     require_platform_access(&state)?;
+    if !cron_job_visible(&state, &job_id)? {
+        return Ok(status_text(
+            StatusCode::NOT_FOUND,
+            format!("cron job not found: {job_id}"),
+        ));
+    }
     if let Some(enabled) = body.enabled {
         let ok = state
             .core
@@ -3488,6 +3827,12 @@ async fn delete_cron_job(
     Path(job_id): Path<String>,
 ) -> Result<axum::response::Response, ApiError> {
     require_platform_access(&state)?;
+    if !cron_job_visible(&state, &job_id)? {
+        return Ok(status_text(
+            StatusCode::NOT_FOUND,
+            format!("cron job not found: {job_id}"),
+        ));
+    }
     let ok = state
         .core
         .session_index
@@ -3734,6 +4079,7 @@ async fn cancel_chat(
     body: Result<Json<CancelChatPayload>, axum::extract::rejection::JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let cancel_bg = match body {
         Ok(Json(p)) => p.cancel_background_jobs,
         Err(err) => {
@@ -3761,6 +4107,7 @@ async fn cancel_background_jobs(
     body: Result<Json<CancelJobsPayload>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let job_ids = match body {
         Ok(Json(p)) => p.job_ids,
         Err(err) => {
@@ -3869,6 +4216,7 @@ async fn abort_terminal_command(
     payload: Option<Json<AbortTerminalPayload>>,
 ) -> Result<axum::Json<serde_json::Value>, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let tool_call_id = payload.and_then(|Json(p)| p.tool_call_id);
     let aborted = state
         .core
@@ -3956,6 +4304,7 @@ async fn chat_stream(
     Path(conversation_id): Path<String>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
+    require_conversation_access(&state, &conversation_id)?;
     let viewer_uid = platform_session_user_id(&state);
     let mut rx = state.events.subscribe();
     let sse_padding_enabled = pointer_core::server_config::sse_padding_enabled();
@@ -4535,7 +4884,7 @@ impl IntoResponse for ApiError {
         if AUTH_REQUIRED_MESSAGES.iter().any(|needle| msg.contains(needle)) {
             return (StatusCode::UNAUTHORIZED, msg).into_response();
         }
-        if msg.contains("server_access_denied") {
+        if msg.contains("server_access_denied") || msg.contains("conversation_access_denied") {
             return (StatusCode::FORBIDDEN, msg).into_response();
         }
         if msg.contains("download link expired")

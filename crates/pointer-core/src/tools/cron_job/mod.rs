@@ -184,6 +184,14 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
     let lead_ref = lead_agent_id.as_str();
     let deliver_ref = deliver.as_deref();
 
+    // Owner = the user whose session created the job. The tool handler runs
+    // with `SessionUserIdGuard` set by the tool dispatcher (same thread), so
+    // the thread-local is the creating session's user id — even across the
+    // blocking dispatch boundary. Empty → unknown owner (stored as NULL).
+    let owner_user_id = crate::session_user_env::current_session_user_id()
+        .map(|uid| uid.trim().to_string())
+        .filter(|uid| !uid.is_empty());
+
     let new = NewCronJob {
         id: job_id_ref,
         label: label_ref,
@@ -196,6 +204,7 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         lead_agent_id: Some(lead_ref),
         enabled: true,
         deliver: deliver_ref,
+        owner_user_id: owner_user_id.as_deref(),
     };
 
     let inserted = store.cron_jobs_insert(&new)?;

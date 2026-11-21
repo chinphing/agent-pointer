@@ -14,7 +14,8 @@
 //! Design borrows from openclaw `cron_loop` (DB-driven schedule + ticker) and
 //! hermes (single dispatch entry reused by every trigger source).
 
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -22,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::chat_service::AppState;
 use crate::conversation_store::cron_jobs::CronJobRecord;
+use crate::conversation_store::ConversationStore;
 use crate::dispatcher::{RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource};
 use crate::models::{ChatMessage, StreamEvent};
 use crate::stream_broadcast;
@@ -155,13 +157,6 @@ impl Scheduler {
                     job.id
                 );
             }
-            if let Err(e) = self
-                .state
-                .session_index
-                .ensure_cron_session(&expected_session_id, &job.label)
-            {
-                log::warn!("scheduler: ensure_cron_session failed id={}: {e:#}", job.id);
-            }
             log::info!(
                 "scheduler: cron session {} id={} session={}",
                 if job.current_session_id.is_none() {
@@ -171,6 +166,22 @@ impl Scheduler {
                 },
                 job.id,
                 expected_session_id
+            );
+        }
+        // Ownership: the cron session row inherits the job creator's
+        // `session_user_id` (created here on first fire / rollover) so the run
+        // resolves the creator's environment tier, runtime settings, memory and
+        // workspace instead of the deployment default.
+        if let Err(e) = ensure_cron_session_owner(
+            &self.state.session_index,
+            &expected_session_id,
+            &job.label,
+            job.owner_user_id.as_deref(),
+            &job.id,
+        ) {
+            log::warn!(
+                "scheduler: cron session owner stamp failed id={}: {e:#}",
+                job.id
             );
         }
         // Hermes-aligned: cron execution guidance is prepended to the user
@@ -235,6 +246,57 @@ impl Scheduler {
             ),
             Err(e) => log::error!("scheduler: dispatch failed job id={}: {e:#}", job.id),
         }
+    }
+}
+
+/// Ensure the cron session row exists and carries the job creator's identity.
+///
+/// The row is created on first fire / daily rollover (`cron:{job_id}:{yyyymmdd}`)
+/// and only gains an owner when it has none — an existing binding always wins
+/// (`ensure_session_user_id` semantics). Once the row carries the creator's
+/// `session_user_id`, the cron turn resolves that user's environment tier,
+/// runtime settings, memory and workspace instead of the deployment default.
+///
+/// A job without an owner (legacy row written before `owner_user_id` existed)
+/// leaves the session anonymous → deployment default tier, and warns once per
+/// job rather than on every tick.
+pub fn ensure_cron_session_owner(
+    store: &ConversationStore,
+    session_id: &str,
+    title: &str,
+    owner_user_id: Option<&str>,
+    job_id: &str,
+) -> anyhow::Result<()> {
+    store.ensure_cron_session(session_id, title)?;
+    let existing = store.session_user_id(session_id)?;
+    if !existing.trim().is_empty() {
+        return Ok(());
+    }
+    match owner_user_id.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(owner) => {
+            store.ensure_session_user_id(session_id, owner)?;
+            log::info!(
+                "scheduler: cron session {session_id} owner={owner} id={job_id}"
+            );
+        }
+        None => warn_missing_cron_owner_once(job_id, session_id),
+    }
+    Ok(())
+}
+
+/// Warn once per job about a missing owner record (legacy rows), so a due job
+/// does not spam the log every tick.
+fn warn_missing_cron_owner_once(job_id: &str, session_id: &str) {
+    static WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let warned = WARNED.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut guard = match warned.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if guard.insert(job_id.to_string()) {
+        log::warn!(
+            "scheduler: cron job id={job_id} 没有归属记录（owner_user_id 为空），会话 {session_id} 按部署默认档位执行"
+        );
     }
 }
 
@@ -309,5 +371,147 @@ mod tests {
     // Re-export the free function for the test helpers above.
     fn next_run_ms(expr: &str, after: chrono::DateTime<chrono::Utc>) -> Option<i64> {
         crate::conversation_store::cron_jobs::next_run_ms(expr, &after)
+    }
+
+    // ---- cron session ownership (owner_user_id → conversations.session_user_id) ----
+
+    use crate::conversation_store::cron_jobs::{self, NewCronJob, SCHEDULE_KIND_CRON};
+    use crate::env::provider::{AdminTier, ProviderConfig, Tier};
+    use chrono::TimeZone;
+
+    fn test_store() -> (tempfile::TempDir, ConversationStore) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        (dir, store)
+    }
+
+    fn insert_job(store: &ConversationStore, id: &str, owner: Option<&str>) {
+        assert!(store
+            .cron_jobs_insert(&NewCronJob {
+                id,
+                label: "nightly",
+                cron_expr: "0 0 9 * * *",
+                schedule_kind: SCHEDULE_KIND_CRON,
+                schedule_raw: Some("daily@9:00"),
+                next_run_at_ms: None,
+                conversation_id: "",
+                prompt_text: "report",
+                lead_agent_id: None,
+                enabled: true,
+                deliver: None,
+                owner_user_id: owner,
+            })
+            .unwrap());
+    }
+
+    /// Deployment default `headless` + admin list containing `admin`, mirroring
+    /// a self-hosted deployment where admins must run on the host (`local`).
+    fn provider() -> ProviderConfig {
+        ProviderConfig {
+            tier: Some(Tier::Headless),
+            admin_tier: AdminTier::Local,
+            admins: vec!["admin".to_string()],
+            sandbox_url: Some("http://127.0.0.1:3000".to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cron_session_inherits_admin_owner_and_resolves_local_tier() {
+        let (_dir, store) = test_store();
+        insert_job(&store, "job-admin", Some("admin"));
+        let rec = store.cron_jobs_get("job-admin").unwrap().unwrap();
+        let session = cron_jobs::current_cron_session_id(&rec.id, &chrono::Local::now());
+        ensure_cron_session_owner(
+            &store,
+            &session,
+            &rec.label,
+            rec.owner_user_id.as_deref(),
+            &rec.id,
+        )
+        .unwrap();
+        assert_eq!(store.session_user_id(&session).unwrap(), "admin");
+        // The session row uid is what tier resolution reads → admin runs local.
+        assert_eq!(provider().resolve(Some("admin")).unwrap().tier, Tier::Local);
+    }
+
+    #[test]
+    fn cron_session_inherits_normal_user_and_keeps_default_tier() {
+        let (_dir, store) = test_store();
+        insert_job(&store, "job-bob", Some("bob"));
+        let rec = store.cron_jobs_get("job-bob").unwrap().unwrap();
+        let session = cron_jobs::current_cron_session_id(&rec.id, &chrono::Local::now());
+        ensure_cron_session_owner(
+            &store,
+            &session,
+            &rec.label,
+            rec.owner_user_id.as_deref(),
+            &rec.id,
+        )
+        .unwrap();
+        assert_eq!(store.session_user_id(&session).unwrap(), "bob");
+        assert_eq!(
+            provider().resolve(Some("bob")).unwrap().tier,
+            Tier::Headless,
+            "non-admin creators keep the deployment default tier"
+        );
+    }
+
+    #[test]
+    fn daily_rollover_session_also_inherits_owner() {
+        let (_dir, store) = test_store();
+        insert_job(&store, "job-roll", Some("admin"));
+        let rec = store.cron_jobs_get("job-roll").unwrap().unwrap();
+        let tz = chrono::Local;
+        let day1 = tz.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
+        let day2 = tz.with_ymd_and_hms(2026, 6, 29, 10, 0, 0).single().unwrap();
+        let s1 = cron_jobs::current_cron_session_id(&rec.id, &day1);
+        let s2 = cron_jobs::current_cron_session_id(&rec.id, &day2);
+        assert_ne!(s1, s2, "crossing 04:00 must yield a new session id");
+        for session in [&s1, &s2] {
+            ensure_cron_session_owner(
+                &store,
+                session,
+                &rec.label,
+                rec.owner_user_id.as_deref(),
+                &rec.id,
+            )
+            .unwrap();
+            assert_eq!(store.session_user_id(session).unwrap(), "admin");
+        }
+    }
+
+    #[test]
+    fn legacy_job_without_owner_keeps_session_anonymous() {
+        let (_dir, store) = test_store();
+        insert_job(&store, "job-legacy", None);
+        let rec = store.cron_jobs_get("job-legacy").unwrap().unwrap();
+        assert_eq!(rec.owner_user_id, None);
+        let session = cron_jobs::current_cron_session_id(&rec.id, &chrono::Local::now());
+        // Must not error, must not invent an owner.
+        ensure_cron_session_owner(
+            &store,
+            &session,
+            &rec.label,
+            rec.owner_user_id.as_deref(),
+            &rec.id,
+        )
+        .unwrap();
+        assert_eq!(store.session_user_id(&session).unwrap(), "");
+        assert_eq!(
+            provider().resolve(Some("")).unwrap().tier,
+            Tier::Headless,
+            "unknown owner falls back to the deployment default tier"
+        );
+    }
+
+    #[test]
+    fn existing_session_owner_is_not_overwritten() {
+        let (_dir, store) = test_store();
+        let session = "cron:job-x:20260628";
+        store.ensure_cron_session(session, "nightly").unwrap();
+        store.ensure_session_user_id(session, "first").unwrap();
+        ensure_cron_session_owner(&store, session, "nightly", Some("second"), "job-x").unwrap();
+        assert_eq!(store.session_user_id(session).unwrap(), "first");
     }
 }

@@ -1702,6 +1702,11 @@ pub fn create_cron_job(
         deliver.as_deref(),
         &channel_gateway.config(),
     )?;
+    let owner_user_id = state
+        .active_platform_auth()
+        .platform_user_id()
+        .map(|uid| uid.trim().to_string())
+        .filter(|uid| !uid.is_empty());
     let new = pointer_core::conversation_store::cron_jobs::NewCronJob {
         id: &args.id,
         label: &args.label,
@@ -1714,6 +1719,10 @@ pub fn create_cron_job(
         lead_agent_id: args.lead_agent_id.as_deref(),
         enabled: args.enabled,
         deliver: deliver.as_deref(),
+        // Owner = the desktop operator's platform identity. The scheduler
+        // copies it onto the job's cron session row so the run resolves the
+        // creator's environment tier / settings / memory.
+        owner_user_id: owner_user_id.as_deref(),
     };
     let inserted = state
         .session_index

@@ -47,6 +47,12 @@ pub struct CronJobRecord {
     pub deliver: Option<String>,
     /// Last IM delivery error for this job (best-effort). Cleared on success.
     pub last_delivery_error: Option<String>,
+    /// `session_user_id` of the user who created the job (owner). Copied onto
+    /// the job's cron session row when the scheduler fires it, so the run
+    /// resolves the creator's environment tier / settings / memory. `None` for
+    /// legacy rows written before the column existed — those fall back to the
+    /// deployment default tier.
+    pub owner_user_id: Option<String>,
 }
 
 /// Input for creating a new cron job.
@@ -73,6 +79,9 @@ pub struct NewCronJob<'a> {
     /// Optional Run → IM delivery spec. `None` / empty means no IM push.
     /// See [`CronJobRecord::deliver`] for the format.
     pub deliver: Option<&'a str>,
+    /// Creator identity (`session_user_id`). `None` / empty is stored as NULL so
+    /// "unknown owner" stays distinguishable from an empty user id.
+    pub owner_user_id: Option<&'a str>,
 }
 
 /// Derive the stable cron session *key* for a job (`cron:{job_id}`). This is
@@ -182,11 +191,15 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
         );
     }
     let schedule_raw = job.schedule_raw.map(str::trim).filter(|s| !s.is_empty());
+    let owner_user_id = job
+        .owner_user_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let affected = conn.execute(
         "INSERT OR IGNORE INTO cron_jobs
            (id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, prompt_text,
-            lead_agent_id, enabled, next_run_at_ms, created_at_ms, deliver)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            lead_agent_id, enabled, next_run_at_ms, created_at_ms, deliver, owner_user_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             job.id,
             job.label,
@@ -200,6 +213,7 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
             next,
             now.timestamp_millis(),
             job.deliver,
+            owner_user_id,
         ],
     )?;
     if affected == 0 {
@@ -222,7 +236,7 @@ pub fn list_due(conn: &Connection, now_ms: i64) -> Result<Vec<CronJobRecord>> {
     let mut stmt = conn.prepare(
         "SELECT id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, current_session_id,
                 prompt_text, lead_agent_id, enabled, last_run_at_ms,
-                next_run_at_ms, created_at_ms, deliver, last_delivery_error
+                next_run_at_ms, created_at_ms, deliver, last_delivery_error, owner_user_id
            FROM cron_jobs
           WHERE enabled = 1
             AND (next_run_at_ms IS NULL OR next_run_at_ms <= ?1)",
@@ -238,7 +252,7 @@ pub fn list_all(conn: &Connection) -> Result<Vec<CronJobRecord>> {
     let mut stmt = conn.prepare(
         "SELECT id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, current_session_id,
                 prompt_text, lead_agent_id, enabled, last_run_at_ms,
-                next_run_at_ms, created_at_ms, deliver, last_delivery_error
+                next_run_at_ms, created_at_ms, deliver, last_delivery_error, owner_user_id
            FROM cron_jobs
           ORDER BY created_at_ms ASC",
     )?;
@@ -253,7 +267,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<CronJobRecord>> {
         .query_row(
             "SELECT id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, current_session_id,
                     prompt_text, lead_agent_id, enabled, last_run_at_ms,
-                    next_run_at_ms, created_at_ms, deliver, last_delivery_error
+                    next_run_at_ms, created_at_ms, deliver, last_delivery_error, owner_user_id
                FROM cron_jobs WHERE id = ?1",
             params![id],
             row_to_record,
@@ -366,6 +380,7 @@ fn row_to_record(r: &rusqlite::Row<'_>) -> rusqlite::Result<CronJobRecord> {
         created_at_ms: r.get(12)?,
         deliver: r.get(13)?,
         last_delivery_error: r.get(14)?,
+        owner_user_id: r.get(15)?,
     })
 }
 
@@ -396,6 +411,9 @@ pub struct CronJobView {
     pub deliver: Option<String>,
     /// Last IM delivery error. Cleared when delivery succeeds.
     pub last_delivery_error: Option<String>,
+    /// Creator identity (`session_user_id`) or `None` for legacy rows. The
+    /// management API uses it to scope non-admin viewers to their own jobs.
+    pub owner_user_id: Option<String>,
 }
 
 impl CronJobView {
@@ -434,6 +452,7 @@ impl CronJobView {
             created_at_ms: r.created_at_ms,
             deliver: r.deliver.clone(),
             last_delivery_error: r.last_delivery_error.clone(),
+            owner_user_id: r.owner_user_id.clone(),
         }
     }
 }
@@ -494,12 +513,90 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
            next_run_at_ms INTEGER,
            created_at_ms INTEGER NOT NULL,
            deliver TEXT,
-           last_delivery_error TEXT
+           last_delivery_error TEXT,
+           owner_user_id TEXT
          );
          CREATE INDEX IF NOT EXISTS idx_cron_jobs_by_conv
            ON cron_jobs(conversation_id);",
     )?;
+    migrate_owner_user_id(conn)?;
     Ok(())
+}
+
+/// Add the `owner_user_id` column to databases created before it existed and
+/// backfill existing rows once from their cron session row's
+/// `conversations.session_user_id` (NULL when that row is unknown / anonymous).
+///
+/// Idempotent: the column check short-circuits on later startups, so the
+/// backfill only ever runs on the migration that actually adds the column.
+fn migrate_owner_user_id(conn: &Connection) -> Result<()> {
+    if table_has_column(conn, "cron_jobs", "owner_user_id")? {
+        return Ok(());
+    }
+    super::add_column_if_missing(conn, "cron_jobs", "owner_user_id", "TEXT")?;
+    log::info!("conversation_store: added cron_jobs.owner_user_id");
+    if !table_exists(conn, "conversations")? {
+        return Ok(());
+    }
+    // Only one row per job: the stable `cron:{job_id}` key lives in
+    // `cron_jobs.conversation_id`; the daily transcript ids
+    // (`cron:{job_id}:{yyyymmdd}`) are not linked back from the job row.
+    let updated = conn.execute(
+        "UPDATE cron_jobs
+            SET owner_user_id = (
+                  SELECT c.session_user_id FROM conversations c
+                   WHERE c.id = cron_jobs.conversation_id
+                )
+          WHERE owner_user_id IS NULL
+            AND EXISTS (
+                  SELECT 1 FROM conversations c
+                   WHERE c.id = cron_jobs.conversation_id
+                     AND TRIM(COALESCE(c.session_user_id, '')) <> ''
+                )",
+        [],
+    )?;
+    log::info!("conversation_store: backfilled cron_jobs.owner_user_id rows={updated}");
+    Ok(())
+}
+
+fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
+    let found: Option<String> = conn
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            params![table],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(found.is_some())
+}
+
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    while let Some(name) = rows.next() {
+        if name? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Management-API visibility for one job. Platform admins see every job;
+/// everyone else sees only the jobs they created. Rows without an owner
+/// (legacy jobs written before `owner_user_id` existed) stay admin-only — an
+/// unknown owner must not leak another user's schedule.
+pub fn is_visible_to(rec: &CronJobRecord, viewer_user_id: &str, is_admin: bool) -> bool {
+    if is_admin {
+        return true;
+    }
+    let viewer = viewer_user_id.trim();
+    if viewer.is_empty() {
+        return false;
+    }
+    rec.owner_user_id
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|owner| owner == viewer)
 }
 
 #[cfg(test)]
@@ -528,6 +625,7 @@ mod tests {
             lead_agent_id: None,
             enabled: true,
             deliver: None,
+            owner_user_id: Some("admin"),
         };
         assert!(insert(&conn, &job).unwrap());
         // next_run is in the future relative to a far-future now, so list_due
@@ -555,6 +653,7 @@ mod tests {
                 lead_agent_id: None,
                 enabled: false,
                 deliver: None,
+                owner_user_id: None,
             },
         )
         .unwrap();
@@ -581,6 +680,7 @@ mod tests {
                 lead_agent_id: None,
                 enabled: true,
                 deliver: None,
+                owner_user_id: None,
             },
         )
         .unwrap();
@@ -611,6 +711,7 @@ mod tests {
                 lead_agent_id: None,
                 enabled: true,
                 deliver: None,
+                owner_user_id: None,
             },
         )
         .unwrap());
@@ -701,11 +802,164 @@ mod tests {
             created_at_ms: 0,
             deliver: None,
             last_delivery_error: None,
+            owner_user_id: None,
         };
         let view = CronJobView::from_record(&r);
         assert_eq!(
             view.current_session_id.as_deref(),
             Some("cron:job1:20260628")
+        );
+    }
+
+    /// DB written before `owner_user_id` existed: no such column, and the job's
+    /// cron session row already knows its user.
+    fn legacy_schema_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE conversations (
+               id TEXT PRIMARY KEY,
+               session_user_id TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE cron_jobs (
+               id TEXT PRIMARY KEY,
+               label TEXT NOT NULL,
+               cron_expr TEXT NOT NULL,
+               schedule_kind TEXT NOT NULL DEFAULT 'cron',
+               schedule_raw TEXT,
+               conversation_id TEXT NOT NULL,
+               current_session_id TEXT,
+               prompt_text TEXT NOT NULL,
+               agent_mode TEXT,
+               lead_agent_id TEXT,
+               enabled INTEGER NOT NULL DEFAULT 1,
+               last_run_at_ms INTEGER,
+               next_run_at_ms INTEGER,
+               created_at_ms INTEGER NOT NULL,
+               deliver TEXT,
+               last_delivery_error TEXT
+             );
+             INSERT INTO conversations (id, session_user_id) VALUES ('cron:legacy', 'admin');
+             INSERT INTO conversations (id, session_user_id) VALUES ('cron:anon', '   ');
+             INSERT INTO cron_jobs (id, label, cron_expr, conversation_id, prompt_text, created_at_ms)
+               VALUES ('legacy', 'old', '0 * * * * *', 'cron:legacy', 'p', 1);
+             INSERT INTO cron_jobs (id, label, cron_expr, conversation_id, prompt_text, created_at_ms)
+               VALUES ('anon', 'old-anon', '0 * * * * *', 'cron:anon', 'p', 2);",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn migration_adds_owner_column_and_backfills_once() {
+        let conn = legacy_schema_conn();
+        ensure_schema(&conn).unwrap();
+        assert_eq!(
+            get(&conn, "legacy").unwrap().unwrap().owner_user_id.as_deref(),
+            Some("admin"),
+            "existing row must be backfilled from its cron session row"
+        );
+        assert_eq!(
+            get(&conn, "anon").unwrap().unwrap().owner_user_id,
+            None,
+            "blank session_user_id must stay NULL (unknown owner)"
+        );
+        // Repeatable: a second / third startup must not fail or rewrite rows.
+        ensure_schema(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
+        assert_eq!(
+            get(&conn, "legacy").unwrap().unwrap().owner_user_id.as_deref(),
+            Some("admin")
+        );
+    }
+
+    #[test]
+    fn insert_persists_owner_and_blank_becomes_null() {
+        let conn = mem();
+        for (id, owner) in [("o1", Some("   ")), ("o2", Some("admin"))] {
+            insert(
+                &conn,
+                &NewCronJob {
+                    id,
+                    label: id,
+                    cron_expr: "0 * * * * *",
+                    schedule_kind: SCHEDULE_KIND_CRON,
+                    schedule_raw: None,
+                    next_run_at_ms: None,
+                    conversation_id: "",
+                    prompt_text: "p",
+                    lead_agent_id: None,
+                    enabled: true,
+                    deliver: None,
+                    owner_user_id: owner,
+                },
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            get(&conn, "o1").unwrap().unwrap().owner_user_id,
+            None,
+            "whitespace-only owner must be stored as NULL"
+        );
+        assert_eq!(
+            get(&conn, "o2").unwrap().unwrap().owner_user_id.as_deref(),
+            Some("admin")
+        );
+        let due = list_due(&conn, i64::MAX).unwrap();
+        assert!(due
+            .iter()
+            .any(|r| r.id == "o2" && r.owner_user_id.as_deref() == Some("admin")));
+        assert!(list_all(&conn)
+            .unwrap()
+            .iter()
+            .any(|r| r.id == "o2" && r.owner_user_id.as_deref() == Some("admin")));
+        let view = CronJobView::from_record(&get(&conn, "o2").unwrap().unwrap());
+        assert_eq!(view.owner_user_id.as_deref(), Some("admin"));
+    }
+
+    #[test]
+    fn visibility_scopes_non_admin_to_own_jobs() {
+        let conn = mem();
+        for (id, owner) in [
+            ("a", Some("alice")),
+            ("b", Some("bob")),
+            ("legacy", None),
+        ] {
+            insert(
+                &conn,
+                &NewCronJob {
+                    id,
+                    label: id,
+                    cron_expr: "0 * * * * *",
+                    schedule_kind: SCHEDULE_KIND_CRON,
+                    schedule_raw: None,
+                    next_run_at_ms: None,
+                    conversation_id: "",
+                    prompt_text: "p",
+                    lead_agent_id: None,
+                    enabled: true,
+                    deliver: None,
+                    owner_user_id: owner,
+                },
+            )
+            .unwrap();
+        }
+        let rows = list_all(&conn).unwrap();
+        let visible = |viewer: &str, admin: bool| -> Vec<String> {
+            rows.iter()
+                .filter(|r| is_visible_to(r, viewer, admin))
+                .map(|r| r.id.clone())
+                .collect()
+        };
+        assert_eq!(visible("alice", false), vec!["a".to_string()]);
+        assert_eq!(visible("bob", false), vec!["b".to_string()]);
+        assert!(
+            visible("", false).is_empty(),
+            "unknown viewer must not see ownerless or other jobs"
+        );
+        assert_eq!(
+            visible("alice", true).len(),
+            3,
+            "admins keep seeing every job"
         );
     }
 }

@@ -337,7 +337,7 @@ export interface RuntimeApi {
   loadProjectConversationMetas(projectId: string, cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
   createProject(name: string, workspaceRoot: string): Promise<ProjectCreationResult>
   /** Create a managed worktree for a conversation, based on the source HEAD. */
-  createWorktree(conversationId: string, sourceWorkspaceRoot: string, base?: string): Promise<ManagedWorktree>
+  createWorktree(conversationId: string, sourceWorkspaceRoot?: string, base?: string): Promise<ManagedWorktree>
   /** Describe the workspace when it is a linked worktree; null for a main checkout. */
   inspectWorktree(workspaceRoot: string): Promise<WorktreeInfo | null>
   createDirectory(parentPath: string, name: string): Promise<string>

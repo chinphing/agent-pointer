@@ -2767,7 +2767,9 @@ async fn load_projects(
 #[derive(Deserialize)]
 struct CreateWorktreeRequest {
     conversation_id: String,
-    source_workspace_root: String,
+    /// Optional hint only. Preferred source is the conversation workspace.
+    #[serde(default)]
+    source_workspace_root: Option<String>,
     #[serde(default)]
     base: Option<String>,
 }
@@ -2781,7 +2783,7 @@ async fn create_worktree(
     let created = tokio::task::spawn_blocking(move || {
         pointer_core::worktree::session::create_for_conversation(
             &input.conversation_id,
-            &input.source_workspace_root,
+            input.source_workspace_root.as_deref(),
             input.base.as_deref(),
         )
     })

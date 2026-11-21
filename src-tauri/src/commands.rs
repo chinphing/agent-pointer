@@ -232,13 +232,13 @@ pub async fn workspace_select(
 #[tauri::command]
 pub async fn worktree_create(
     conversation_id: String,
-    source_workspace_root: String,
+    source_workspace_root: Option<String>,
     base: Option<String>,
 ) -> Result<pointer_core::worktree::ManagedWorktree, String> {
     tauri::async_runtime::spawn_blocking(move || {
         pointer_core::worktree::session::create_for_conversation(
             &conversation_id,
-            &source_workspace_root,
+            source_workspace_root.as_deref(),
             base.as_deref(),
         )
         .map_err(|e| e.to_string())

@@ -608,12 +608,12 @@ export async function createProject(name: string, workspaceRoot: string): Promis
 /** Create a managed git worktree for a conversation (base defaults to HEAD). */
 export async function createWorktree(
   conversationId: string,
-  sourceWorkspaceRoot: string,
+  sourceWorkspaceRoot?: string,
   base?: string
 ): Promise<ManagedWorktree> {
   return await invoke<ManagedWorktree>('worktree_create', {
     conversationId,
-    sourceWorkspaceRoot,
+    sourceWorkspaceRoot: sourceWorkspaceRoot?.trim() || null,
     base: base ?? null
   })
 }

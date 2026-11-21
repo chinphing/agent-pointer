@@ -10,19 +10,29 @@ use std::path::PathBuf;
 
 use super::{CreateWorktree, ManagedWorktree, WorktreeInfo, WorktreeManager};
 
-/// Create a checkout for `conversation_id` from `source_workspace`.
+/// Create a checkout for `conversation_id`.
+///
+/// Source is resolved from the conversation/project workspace. Clients must not
+/// pass a host absolute path for sandbox accounts; an optional hint is only used
+/// when the conversation has no persisted workspace yet (local).
 ///
 /// `base` defaults to the source checkout's current `HEAD`.
 pub fn create_for_conversation(
     conversation_id: &str,
-    source_workspace: &str,
+    source_workspace_hint: Option<&str>,
     base: Option<&str>,
 ) -> Result<ManagedWorktree> {
-    let manager = WorktreeManager::for_app()?;
+    let source = resolve_source_for_conversation(conversation_id, source_workspace_hint)?;
+    // Reject unresolved host absolute paths for sandbox accounts (client smuggling).
+    if !crate::workspace_resolve::looks_like_sandbox_guest_path(&source) {
+        reject_client_host_source_for_sandbox(conversation_id, &source)?;
+    }
+    let host_source = host_path_for_source(conversation_id, &source)?;
+    let manager = manager_for_conversation(conversation_id)?;
     create_with_manager(
         &manager,
         conversation_id,
-        source_workspace,
+        host_source.to_string_lossy().as_ref(),
         base,
         conversation_still_exists,
     )
@@ -32,6 +42,8 @@ pub fn create_for_conversation(
 ///
 /// `keep_owner` answers "is this owning conversation still alive?" and decides
 /// whether an old checkout survives pruning.
+///
+/// `source_workspace` must already be a host path the manager can run git against.
 pub fn create_with_manager(
     manager: &WorktreeManager,
     conversation_id: &str,
@@ -47,8 +59,8 @@ pub fn create_with_manager(
     if source.is_empty() {
         bail!("请先选择项目目录，再创建 worktree");
     }
-    reject_client_host_source_for_sandbox(conversation_id, source)?;
-
+    // Source is already a host path suitable for git. Sandbox clients are
+    // rejected earlier when they smuggle a host path as the unresolved hint.
     let created = manager.create(&CreateWorktree {
         source_cwd: PathBuf::from(source),
         base: base.map(str::to_owned),
@@ -64,6 +76,95 @@ pub fn create_with_manager(
     }
 
     Ok(created)
+}
+
+/// Resolve the Environment-namespace source path for a conversation.
+fn resolve_source_for_conversation(
+    conversation_id: &str,
+    hint: Option<&str>,
+) -> Result<String> {
+    if let Ok(store) = crate::conversation_store::global_store() {
+        if let Ok(workspace) = store.workspace_root(conversation_id) {
+            let trimmed = workspace.trim();
+            if !trimmed.is_empty() {
+                log::info!(
+                    "worktree: source from conversation store conversation={conversation_id} path={trimmed}"
+                );
+                return Ok(trimmed.to_string());
+            }
+        }
+    }
+    if let Some(hint) = hint.map(str::trim).filter(|s| !s.is_empty()) {
+        log::info!(
+            "worktree: source from client hint conversation={conversation_id} path={hint}"
+        );
+        return Ok(hint.to_string());
+    }
+    bail!("请先选择项目目录，再创建 worktree");
+}
+
+/// Map an Environment path to a host path for local git operations.
+fn host_path_for_source(conversation_id: &str, source: &str) -> Result<PathBuf> {
+    if crate::workspace_resolve::looks_like_sandbox_guest_path(source) {
+        if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
+            match env.path_map().to_host(std::path::Path::new(source)) {
+                Ok(host) => return Ok(host),
+                Err(e) => log::warn!(
+                    "worktree: path_map to_host failed conversation={conversation_id}: {e:#}"
+                ),
+            }
+        }
+        let uid = crate::conversation_store::global_store()
+            .ok()
+            .and_then(|store| store.session_user_id(conversation_id).ok())
+            .unwrap_or_default();
+        let data = crate::user_data_paths::user_data_host_root(&uid, conversation_id)?;
+        let rel = source
+            .trim()
+            .strip_prefix("/data/")
+            .or_else(|| source.trim().strip_prefix("/data"))
+            .unwrap_or("");
+        let host = if rel.is_empty() {
+            data.clone()
+        } else {
+            data.join(rel)
+        };
+        log::info!(
+            "worktree: mapped guest source {} -> {}",
+            source,
+            host.display()
+        );
+        return Ok(host);
+    }
+    Ok(PathBuf::from(source))
+}
+
+fn manager_for_conversation(conversation_id: &str) -> Result<WorktreeManager> {
+    let uid = crate::conversation_store::global_store()
+        .ok()
+        .and_then(|store| store.session_user_id(conversation_id).ok())
+        .unwrap_or_default();
+    // Sandbox users: keep managed trees under the user data volume so guest
+    // path `/data/worktrees/...` stays consistent. Local keeps app_data/worktrees.
+    let cfg = crate::env::provider::ProviderConfig::from_env().ok();
+    let is_sandbox = cfg
+        .and_then(|c| {
+            c.resolve(if uid.trim().is_empty() {
+                None
+            } else {
+                Some(uid.as_str())
+            })
+            .ok()
+        })
+        .map(|r| r.tier != crate::env::provider::Tier::Local)
+        .unwrap_or(false);
+    if is_sandbox {
+        let data = crate::user_data_paths::user_data_host_root(&uid, conversation_id)?;
+        let root = data.join("worktrees");
+        std::fs::create_dir_all(&root)?;
+        return Ok(WorktreeManager::with_root(root));
+    }
+    WorktreeManager::for_app()
 }
 
 /// Managed checkouts that belong to the repository of `source_workspace`.

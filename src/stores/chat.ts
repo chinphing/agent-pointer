@@ -3964,12 +3964,12 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * Create a managed worktree from `sourceWorkspaceRoot` and point the current
-   * (still blank) conversation at it. Throws so the caller can toast.
+   * Create a managed worktree for the current conversation.
+   * Source is resolved server-side from the conversation workspace; the argument
+   * is only a local hint when the conversation has no persisted root yet.
    */
-  async function startWorktreeConversation(sourceWorkspaceRoot: string): Promise<ManagedWorktree | null> {
-    const source = sourceWorkspaceRoot.trim()
-    if (!source) throw new Error('worktree source workspace is empty')
+  async function startWorktreeConversation(sourceWorkspaceRoot?: string): Promise<ManagedWorktree | null> {
+    const source = sourceWorkspaceRoot?.trim() || current.value?.workspaceRoot?.trim() || ''
     if (!current.value) newConversation()
     const conv = current.value
     if (!conv) throw new Error('no conversation to bind the worktree to')
@@ -3979,7 +3979,7 @@ export const useChatStore = defineStore('chat', () => {
     // Reuse: a second tree for the same conversation would leak (the old one keeps
     // this conversation as owner and therefore never gets pruned).
     if (worktreeInfoById.value[conv.id]?.managed) return null
-    const created = await createWorktree(conv.id, source)
+    const created = await createWorktree(conv.id, source || undefined)
     conv.workspaceRoot = created.cwd
     conv.workspaceUserSet = true
     conv.workspaceInheritDisabled = false

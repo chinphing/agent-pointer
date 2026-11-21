@@ -911,14 +911,14 @@ export async function createProject(name: string, workspaceRoot: string): Promis
 /** Create a managed git worktree for a conversation (base defaults to HEAD). */
 export async function createWorktree(
   conversationId: string,
-  sourceWorkspaceRoot: string,
+  sourceWorkspaceRoot?: string,
   base?: string
 ): Promise<ManagedWorktree> {
   return await request<ManagedWorktree>('/api/worktrees', {
     method: 'POST',
     body: JSON.stringify({
       conversation_id: conversationId,
-      source_workspace_root: sourceWorkspaceRoot,
+      source_workspace_root: sourceWorkspaceRoot?.trim() || null,
       base: base ?? null
     })
   })

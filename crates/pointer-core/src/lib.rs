@@ -47,6 +47,7 @@ pub mod text_util;
 pub mod thinking_strategy;
 pub mod token_usage_store;
 pub mod turn_file_baseline;
+pub mod user_key;
 pub mod user_rules;
 pub mod user_storage;
 pub mod webhook_attachment;

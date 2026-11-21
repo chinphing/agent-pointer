@@ -5,8 +5,11 @@
 //! | 宿主 | guest | 权限 |
 //! |---|---|---|
 //! | `{app_data}/session-sandboxes/{user}-home` | `/home/pointer` | rw |
-//! | `{app_data}/session-sandboxes/{user}/workspaces/{conv}` | `/workspace` | rw |
+//! | `{app_data}/session-sandboxes/{user}-ws-{conv}` | `/workspace` | rw |
 //! | 每个技能根 | `/skills/<name>` | ro |
+//!
+//! 沙箱挂载**不再**接受客户端传入的宿主项目目录作为 `/workspace` 源。
+//! 过渡期仍用每会话卷；完整 `/data` 布局在后续阶段切换。
 //!
 //! 这一层只产出 `Mount` 列表（业务类型）；序列化成 envd / Cube 的 metadata JSON
 //! 是 provider 的事（§3.2 原则 2）。
@@ -80,11 +83,10 @@ impl MountPlan {
     /// hooks 是插件目录里的脚本；headless 下插件目录不在沙箱里，脚本就无从执行。
     /// 工作区级插件（`<workspace>/.pointer/plugins`）本来就在 `/workspace` 里，
     /// 由 PathMap 自动映射，不需要额外挂载。
-    /// `workspace_root`：会话所属**项目目录**（用户在创建项目时选的本地目录）。
+    /// `workspace_root`：历史参数，曾用于把宿主项目目录挂到 `/workspace`。
     ///
-    /// 有值 → 直接把这个宿主目录挂到 `/workspace`（和 Hermes / OpenClaw 的
-    /// `-v <project>:/workspace` 一致，agent 改的就是用户的真实目录）。
-    /// 无值（未选项目 / 目录不存在）→ 退回每会话空卷，保持"从零开始"的语义。
+    /// 现已忽略：沙箱只挂服务端管理的每会话卷。后续阶段会改为用户级 `/data`
+    /// 并把 active cwd 指到 `/data/workspaces/...`。
     pub fn for_session_with_plugins(
         sandboxes_base: &Path,
         session_user_id: &str,
@@ -96,23 +98,26 @@ impl MountPlan {
         let user_seg = sanitize_segment(session_user_id);
         // 扁平布局：每个挂载点的目录名就是卷名（e2b-local 只接受卷根下的真实目录，
         // 且卷名必须是 `[A-Za-z0-9_-]+`），所以不能嵌套 `{user}/home`。
+        // 客户端传入的宿主项目目录一律忽略：沙箱挂载源只能是服务端管理的卷。
+        // 否则任意宿主路径会被绑进容器，造成路径泄露与跨用户数据风险。
+        if let Some(project) = workspace_root.filter(|dir| is_project_dir(dir)) {
+            log::warn!(
+                "mounts: ignoring client host project mount source host={} conversation={}",
+                project.display(),
+                conversation_id
+            );
+        }
+        let workspace_host = sandboxes_base.join(format!(
+            "{user_seg}-ws-{}",
+            sanitize_segment(conversation_id)
+        ));
         let mut mounts = vec![
             Mount::new(
                 sandboxes_base.join(format!("{user_seg}-home")),
                 GUEST_HOME,
                 false,
             ),
-            Mount::new(
-                match workspace_root.filter(|dir| is_project_dir(dir)) {
-                    Some(project) => project.to_path_buf(),
-                    None => sandboxes_base.join(format!(
-                        "{user_seg}-ws-{}",
-                        sanitize_segment(conversation_id)
-                    )),
-                },
-                GUEST_WORKSPACE,
-                false,
-            ),
+            Mount::new(workspace_host, GUEST_WORKSPACE, false),
         ];
 
         let mut used: Vec<String> = Vec::new();
@@ -327,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_mount_uses_project_dir_when_provided() {
+    fn workspace_mount_ignores_client_host_project_dir() {
         let base = std::path::Path::new("/data/session-sandboxes");
         let project = tempfile::tempdir().expect("project dir");
         let mounts = MountPlan::for_session_with_plugins(
@@ -342,8 +347,13 @@ mod tests {
             .iter()
             .find(|m| m.guest == std::path::Path::new("/workspace"))
             .expect("workspace mount");
-        assert_eq!(ws.host, project.path(), "有项目目录时应直接挂项目");
-        assert!(!ws.read_only, "项目目录必须可写");
+        assert_eq!(
+            ws.host,
+            base.join("alice-ws-c-1"),
+            "沙箱不得把客户端宿主项目目录挂成 /workspace"
+        );
+        assert_ne!(ws.host, project.path());
+        assert!(!ws.read_only, "托管工作区卷必须可写");
     }
 
     #[test]

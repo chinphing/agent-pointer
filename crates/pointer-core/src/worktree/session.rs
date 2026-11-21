@@ -47,6 +47,7 @@ pub fn create_with_manager(
     if source.is_empty() {
         bail!("请先选择项目目录，再创建 worktree");
     }
+    reject_client_host_source_for_sandbox(conversation_id, source)?;
 
     let created = manager.create(&CreateWorktree {
         source_cwd: PathBuf::from(source),
@@ -141,6 +142,43 @@ pub fn remove_for_conversation_with_manager(
 }
 
 /// Fail-safe: an unreadable store keeps the checkout instead of deleting it.
+
+/// Sandbox-tier conversations must not create worktrees from a client-supplied
+/// host path. The source must later come from the Environment project path.
+fn reject_client_host_source_for_sandbox(conversation_id: &str, source: &str) -> Result<()> {
+    let session_user_id = crate::conversation_store::global_store()
+        .ok()
+        .and_then(|store| store.session_user_id(conversation_id).ok())
+        .unwrap_or_default();
+    let cfg = match crate::env::provider::ProviderConfig::from_env() {
+        Ok(cfg) => cfg,
+        Err(error) => {
+            log::warn!(
+                "worktree: failed to read environment config while guarding source conversation={conversation_id}: {error:#}"
+            );
+            return Ok(());
+        }
+    };
+    let uid = session_user_id.trim();
+    let resolved = match cfg.resolve(if uid.is_empty() { None } else { Some(uid) }) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            log::warn!(
+                "worktree: failed to resolve tier while guarding source conversation={conversation_id}: {error:#}"
+            );
+            return Ok(());
+        }
+    };
+    if resolved.tier == crate::env::provider::Tier::Local {
+        return Ok(());
+    }
+    log::warn!(
+        "worktree: rejected host source for sandbox conversation conversation_id={conversation_id} tier={} source={source}",
+        resolved.tier.as_str()
+    );
+    bail!("沙箱会话不能使用宿主路径创建 worktree，请选择沙箱内的项目目录");
+}
+
 fn conversation_still_exists(conversation_id: &str) -> bool {
     crate::conversation_store::global_store()
         .ok()

@@ -8,7 +8,172 @@
 //! `classify_workspace` is the read-only label used by the UI and the API; it never
 //! changes behaviour and is not on the tool hot path.
 
-use std::path::Path;
+
+use std::path::{Component, Path, PathBuf};
+
+use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
+
+/// Absolute workspace path inside the current Environment namespace.
+///
+/// This is intentionally not a persisted kind. Local paths look like
+/// `/Users/a/project`; sandbox project paths look like `/data/workspaces/a`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceSelection {
+    pub path: String,
+}
+
+/// What the current account may browse / create / select as a workspace.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspacePolicy {
+    /// Absolute roots that may appear in the directory chooser.
+    pub selectable_roots: Vec<String>,
+    pub can_create_directories: bool,
+    /// Reserved relative names under a selectable root that must not be chosen.
+    pub reserved_names: Vec<String>,
+}
+
+/// Resolved roots for one Project/Conversation execution context.
+///
+/// This is conversation-scoped state, not a mutable field on Environment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedWorkspace {
+    pub owner_user_key: String,
+    /// Persistent user data root (`/data` in sandbox, unused/empty for pure local).
+    pub data_root: Option<PathBuf>,
+    /// Active project or worktree root in the Environment namespace.
+    pub workspace_root: PathBuf,
+    /// Default cwd for exec/spawn/PTY.
+    pub active_cwd: PathBuf,
+}
+
+impl ResolvedWorkspace {
+    pub fn active_root(&self) -> &Path {
+        &self.active_cwd
+    }
+}
+
+/// Guest path of the selectable projects tree in sandbox Environments.
+pub const SANDBOX_WORKSPACES_ROOT: &str = "/data/workspaces";
+/// Guest path of the persistent data root in sandbox Environments.
+pub const SANDBOX_DATA_ROOT: &str = "/data";
+
+/// True when `path` is an absolute Unix guest path under `/data`.
+pub fn looks_like_sandbox_guest_path(path: &str) -> bool {
+    let trimmed = path.trim().replace('\\', "/");
+    trimmed == "/data" || trimmed.starts_with("/data/")
+}
+
+/// True when `path` looks like an absolute host path that must not enter sandbox APIs.
+pub fn looks_like_host_absolute_path(path: &str) -> bool {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if looks_like_sandbox_guest_path(trimmed) {
+        return false;
+    }
+    let p = Path::new(trimmed);
+    if p.is_absolute() {
+        return true;
+    }
+    // Windows drive / UNC written with forward or back slashes.
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() >= 3
+        && chars[0].is_ascii_alphabetic()
+        && chars[1] == ':'
+        && (chars[2] == '/' || chars[2] == '\\')
+    {
+        return true;
+    }
+    trimmed.starts_with("\\\\") || trimmed.starts_with("//")
+}
+
+/// Validate that `candidate` stays under `root` without `..` escape.
+///
+/// This is a pure lexical check used before Environment-aware realpath. Existing
+/// files still need Environment-side canonicalization in later phases.
+pub fn ensure_descendant_path(root: &Path, candidate: &Path) -> Result<PathBuf> {
+    if root.as_os_str().is_empty() {
+        bail!("工作区可选根不能为空");
+    }
+    if candidate.as_os_str().is_empty() {
+        bail!("路径不能为空");
+    }
+    if candidate
+        .components()
+        .any(|c| matches!(c, Component::ParentDir))
+    {
+        bail!("路径不能包含 ..");
+    }
+    let root_norm = normalize_lexical(root);
+    let cand_norm = if candidate.is_absolute() {
+        normalize_lexical(candidate)
+    } else {
+        let mut joined = root_norm.clone();
+        joined.push(candidate);
+        normalize_lexical(&joined)
+    };
+    if !path_starts_with(&cand_norm, &root_norm) {
+        bail!("路径越出可选根");
+    }
+    Ok(cand_norm)
+}
+
+/// Sandbox chooser policy: only `/data/workspaces` and its descendants.
+pub fn sandbox_workspace_policy() -> WorkspacePolicy {
+    WorkspacePolicy {
+        selectable_roots: vec![SANDBOX_WORKSPACES_ROOT.to_string()],
+        can_create_directories: true,
+        reserved_names: vec![
+            "attachments".into(),
+            "media".into(),
+            "captures".into(),
+            "worktrees".into(),
+        ],
+    }
+}
+
+/// Reject sandbox selection payloads that smuggle host absolute paths.
+pub fn reject_sandbox_host_path(path: &str) -> Result<()> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        bail!("工作区路径不能为空");
+    }
+    if looks_like_host_absolute_path(trimmed) {
+        log::warn!("workspace: rejected host absolute path in sandbox selection");
+        bail!("沙箱工作区只能选择 /data/workspaces 下的目录");
+    }
+    if trimmed == SANDBOX_WORKSPACES_ROOT || trimmed.starts_with(&format!("{SANDBOX_WORKSPACES_ROOT}/")) {
+        return Ok(());
+    }
+    // Relative names are resolved under the selectable root.
+    ensure_descendant_path(Path::new(SANDBOX_WORKSPACES_ROOT), Path::new(trimmed))
+        .with_context(|| format!("非法沙箱工作区路径: {trimmed}"))?;
+    Ok(())
+}
+
+fn normalize_lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::ParentDir => {
+                let _ = out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+fn path_starts_with(path: &Path, root: &Path) -> bool {
+    let path_comps: Vec<_> = path.components().collect();
+    let root_comps: Vec<_> = root.components().collect();
+    path_comps.starts_with(&root_comps)
+}
+
 
 /// What kind of directory a conversation's workspace is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,4 +339,22 @@ mod tests {
         assert!(PathBuf::from(&resolved).is_dir());
         assert!(resolved.contains("session-sandboxes"));
     }
+
+    #[test]
+    fn sandbox_policy_rejects_host_paths() {
+        assert!(reject_sandbox_host_path("/Users/alice/project").is_err());
+        assert!(reject_sandbox_host_path("C:/Users/alice/project").is_err());
+        assert!(reject_sandbox_host_path("/data/../etc/passwd").is_err());
+        assert!(reject_sandbox_host_path("/data/workspaces/demo").is_ok());
+        assert!(reject_sandbox_host_path("demo").is_ok());
+    }
+
+    #[test]
+    fn descendant_check_blocks_parent_escape() {
+        let root = Path::new("/data/workspaces");
+        assert!(ensure_descendant_path(root, Path::new("a/b")).is_ok());
+        assert!(ensure_descendant_path(root, Path::new("../workspaces-x")).is_err());
+        assert!(ensure_descendant_path(root, Path::new("/data/workspaces/../etc")).is_err());
+    }
+
 }

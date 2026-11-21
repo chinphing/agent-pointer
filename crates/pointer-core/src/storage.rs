@@ -293,7 +293,14 @@ pub fn save_user_runtime_overlay(
         fs::create_dir_all(dir)?;
     }
     let raw = serde_json::to_string_pretty(overlay)?;
-    fs::write(&path, raw)?;
+    // 临时文件 + rename：迁移会在写成功后清理全局，这里必须「要么旧内容、要么新
+    // 内容」。半截写入既会被并发读成「没有覆盖」，崩溃后还会让该用户的值永久丢失。
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, raw)?;
+    if let Err(err) = fs::rename(&tmp, &path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(err.into());
+    }
     Ok(())
 }
 
@@ -308,6 +315,72 @@ pub fn current_user_runtime_overlay() -> crate::models::UserRuntimeOverlay {
 /// 该用户是否已有覆盖文件。
 fn user_overlay_exists(uid: &str) -> bool {
     user_overlay_path(uid).map(|p| p.exists()).unwrap_or(false)
+}
+
+/// 串行化「读全局文件 → 定向改 JSON → 落盘」。
+///
+/// 迁移是低频事件，但可能被多个读线程同时触发；没有这把锁，两个读-改-写会互相
+/// 覆盖，甚至把刚清空的字段又写回来。
+static GLOBAL_SETTINGS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// 一次性迁移的收尾：把三项从全局 `user_settings.json` 里去掉并落盘，
+/// 让它们不再充当所有人的共享默认值。
+///
+/// 定向改 JSON，不走 [`save_user_settings`]：那条会重新加密 provider key
+/// （每次密文都不同）、丢掉平台来源 provider，不是幂等写。
+/// 每次都从磁盘重新读，所以并发/重复调用不会把刚清空的字段写回来；
+/// 写盘用临时文件 + rename，读方永远看到完整文件。
+fn clear_legacy_runtime_settings_in_global() -> Result<()> {
+    const LEGACY_KEYS: [&str; 3] = [
+        "terminalEnvOverrides",
+        "maxParallelToolCalls",
+        "maxParallelSubAgents",
+    ];
+    let _guard = GLOBAL_SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let path = user_settings_path()?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let raw = fs::read_to_string(&path)?;
+    let mut doc: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(doc) => doc,
+        Err(e) => {
+            log::warn!(
+                "user-settings: clear legacy global runtime settings skipped (unparsable {}): {e}",
+                path.display()
+            );
+            return Ok(());
+        }
+    };
+    let Some(obj) = doc.as_object_mut() else {
+        log::warn!(
+            "user-settings: clear legacy global runtime settings skipped (not a json object): {}",
+            path.display()
+        );
+        return Ok(());
+    };
+    let mut removed = false;
+    for key in LEGACY_KEYS {
+        if obj.remove(key).is_some() {
+            removed = true;
+        }
+    }
+    if !removed {
+        return Ok(());
+    }
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_vec_pretty(&doc)?)?;
+    if let Err(err) = fs::rename(&tmp, &path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(err.into());
+    }
+    log::info!(
+        "user-settings: cleared legacy global runtime settings after migration ({})",
+        path.display()
+    );
+    Ok(())
 }
 
 /// 把某个用户的覆盖合并进 `UserSettings`（就地）。
@@ -328,8 +401,23 @@ pub fn apply_user_runtime_overlay(user: &mut UserSettings, uid: &str) {
             max_parallel_tool_calls: user.max_parallel_tool_calls,
             max_parallel_sub_agents: user.max_parallel_sub_agents,
         };
-        if let Err(err) = save_user_runtime_overlay(uid, &migrated) {
-            log::warn!("user-settings: migrate legacy runtime settings failed: {err:#}");
+        match save_user_runtime_overlay(uid, &migrated) {
+            Ok(()) => {
+                // 迁移成功才清理全局：写失败时保持现状，下次读取还能重试。
+                if let Err(err) = clear_legacy_runtime_settings_in_global() {
+                    log::warn!(
+                        "user-settings: clear legacy global runtime settings failed: {err:#}"
+                    );
+                }
+                // 内存里也清空，否则调用方看到的仍是全局值。这个用户自己那份
+                // 随后由下面的覆盖合并补回。
+                user.terminal_env_overrides.clear();
+                user.max_parallel_tool_calls = None;
+                user.max_parallel_sub_agents = None;
+            }
+            Err(err) => {
+                log::warn!("user-settings: migrate legacy runtime settings failed: {err:#}");
+            }
         }
     }
     let overlay = load_user_runtime_overlay(uid);
@@ -1847,35 +1935,127 @@ mod user_overlay_tests {
             assert!(fresh.terminal_env_overrides.is_empty());
         });
     }
-    fn user_without_overlay_keeps_global_values() {
+    /// 迁移成功 → 全局文件里三项消失、其他字段原样保留；迁移者本人仍读到自己的值。
+    #[test]
+    fn migration_clears_legacy_global_runtime_settings() {
         with_temp_data_dir(|| {
-            let mut user = UserSettings::default();
-            user.max_parallel_tool_calls = Some(5);
-            user.terminal_env_overrides = [("LANG".to_string(), "C.UTF-8".to_string())]
+            let mut legacy = UserSettings::default();
+            legacy.theme = "dark".into();
+            legacy.ui_locale = "en".into();
+            legacy.max_parallel_tool_calls = Some(5);
+            legacy.max_parallel_sub_agents = Some(4);
+            legacy.terminal_env_overrides = [("LANG".to_string(), "C.UTF-8".to_string())]
                 .into_iter()
                 .collect();
+            write_user_settings_file(&legacy).expect("write legacy global");
 
-            save_user_runtime_overlay(
-                "user-a",
-                &crate::models::UserRuntimeOverlay {
-                    terminal_env_overrides: Some(
-                        [("PATH".to_string(), "/a".to_string())].into_iter().collect(),
-                    ),
-                    max_parallel_tool_calls: Some(1),
-                    max_parallel_sub_agents: None,
-                },
-            )
-            .expect("save");
+            let mut user = load_user_settings_global().expect("load global");
+            apply_user_runtime_overlay(&mut user, "first-user");
 
-            // user-b 没有覆盖文件 → 保持全局值
-            apply_user_runtime_overlay(&mut user, "user-b");
+            // 迁移落成该用户自己的覆盖，本人仍读到这些值
+            let overlay = load_user_runtime_overlay("first-user");
+            assert_eq!(overlay.max_parallel_tool_calls, Some(5));
+            assert_eq!(overlay.max_parallel_sub_agents, Some(4));
+            assert_eq!(
+                overlay
+                    .terminal_env_overrides
+                    .as_ref()
+                    .and_then(|m| m.get("LANG")),
+                Some(&"C.UTF-8".to_string())
+            );
+            assert_eq!(user.max_parallel_tool_calls, Some(5));
+            assert_eq!(user.max_parallel_sub_agents, Some(4));
+
+            // 全局文件：三项消失，其他字段原样
+            let raw = fs::read_to_string(user_settings_path().expect("path")).expect("read global");
+            let doc: serde_json::Value = serde_json::from_str(&raw).expect("global json");
+            assert!(
+                doc.get("terminalEnvOverrides").is_none(),
+                "global must not keep terminalEnvOverrides: {doc}"
+            );
+            assert!(
+                doc.get("maxParallelToolCalls").is_none(),
+                "global must not keep maxParallelToolCalls: {doc}"
+            );
+            assert!(
+                doc.get("maxParallelSubAgents").is_none(),
+                "global must not keep maxParallelSubAgents: {doc}"
+            );
+            assert_eq!(doc.get("theme").and_then(|v| v.as_str()), Some("dark"));
+            assert_eq!(doc.get("uiLocale").and_then(|v| v.as_str()), Some("en"));
+
+            // 重新读全局：三项回到默认值
+            let reread = load_user_settings_global().expect("reload global");
+            assert!(reread.terminal_env_overrides.is_empty());
+            assert_eq!(reread.max_parallel_tool_calls, None);
+            assert_eq!(reread.max_parallel_sub_agents, None);
+        });
+    }
+
+    /// 迁移之后，第二个用户拿不到第一个用户的值，也拿不到全局那份。
+    #[test]
+    fn second_user_gets_defaults_after_legacy_migration() {
+        with_temp_data_dir(|| {
+            let mut legacy = UserSettings::default();
+            legacy.max_parallel_tool_calls = Some(5);
+            legacy.max_parallel_sub_agents = Some(4);
+            legacy.terminal_env_overrides = [("LANG".to_string(), "C.UTF-8".to_string())]
+                .into_iter()
+                .collect();
+            write_user_settings_file(&legacy).expect("write legacy global");
+
+            let mut first = load_user_settings_global().expect("load global");
+            apply_user_runtime_overlay(&mut first, "first-user");
+            assert_eq!(first.max_parallel_tool_calls, Some(5));
+
+            let mut second = load_user_settings_global().expect("load global");
+            apply_user_runtime_overlay(&mut second, "second-user");
+            assert!(second.terminal_env_overrides.is_empty());
+            assert_eq!(second.max_parallel_tool_calls, None);
+            assert_eq!(second.max_parallel_sub_agents, None);
+            assert!(!user_overlay_exists("second-user"));
+        });
+    }
+
+    /// 覆盖写入失败 → 全局不被清理，读取不 panic（下次读取还能重试）。
+    #[test]
+    fn failed_overlay_write_keeps_legacy_global_runtime_settings() {
+        with_temp_data_dir(|| {
+            let mut legacy = UserSettings::default();
+            legacy.max_parallel_tool_calls = Some(5);
+            legacy.terminal_env_overrides = [("LANG".to_string(), "C.UTF-8".to_string())]
+                .into_iter()
+                .collect();
+            write_user_settings_file(&legacy).expect("write legacy global");
+
+            // 注入不可写：`user-settings` 先占成普通文件，create_dir_all 必然失败。
+            let overlay_dir = user_settings_path()
+                .expect("path")
+                .parent()
+                .expect("data dir")
+                .join("user-settings");
+            fs::write(&overlay_dir, b"not a dir").expect("block overlay dir");
+
+            let mut user = load_user_settings_global().expect("load global");
+            apply_user_runtime_overlay(&mut user, "blocked-user");
+
+            // 迁移失败：全局保持现状
+            let raw = fs::read_to_string(user_settings_path().expect("path")).expect("read global");
+            let doc: serde_json::Value = serde_json::from_str(&raw).expect("global json");
+            assert_eq!(
+                doc.get("maxParallelToolCalls").and_then(|v| v.as_u64()),
+                Some(5),
+                "global must keep legacy values when migration failed: {doc}"
+            );
+            assert!(
+                doc.get("terminalEnvOverrides").is_some(),
+                "global must keep legacy env overrides when migration failed: {doc}"
+            );
+
+            // 读取没被阻断，内存里仍是全局值
             assert_eq!(user.max_parallel_tool_calls, Some(5));
             assert_eq!(user.terminal_env_overrides.get("LANG"), Some(&"C.UTF-8".to_string()));
-
-            // user-a 有自己的覆盖 → 只影响自己
-            apply_user_runtime_overlay(&mut user, "user-a");
-            assert_eq!(user.max_parallel_tool_calls, Some(1));
-            assert_eq!(user.terminal_env_overrides.get("PATH"), Some(&"/a".to_string()));
+            assert!(!user_overlay_exists("blocked-user"));
         });
     }
 }

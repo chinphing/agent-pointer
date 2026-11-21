@@ -179,6 +179,17 @@ skills_dir = "skills"
 # Execution environment (sandbox tiers). Fully commented out = `local`: agent
 # tools run on this host, no sandbox. Uncomment to run them inside one.
 #
+# RECOMMENDED DEFAULT: `local`. Keep the whole table commented out, or set
+# `provider = "local"` explicitly. A half-configured sandbox fails at startup
+# or on the first message, so stay on `local` until the sandbox is actually
+# needed AND fully set up (image built, backend reachable).
+#
+# PLATFORM-MODE TRAP: when `provider` is unset the default is derived from
+# `[deployment] mode` — standalone derives `local`, but **platform derives
+# `light`**, and `light` defaults to the `envd` backend, which requires
+# `sandbox_url`. A platform deployment with no `[environment]` section
+# therefore fails on the first message. Set `provider = "local"` to avoid it.
+#
 # This table is parsed with `deny_unknown_fields`: a misspelled key
 # (`provder` / `bakend` / `sandbox-url`) makes pointer-server FAIL AT STARTUP
 # and names the offending key. It is never silently ignored — copy the key
@@ -190,7 +201,8 @@ skills_dir = "skills"
 #   container -> docker      (desktop inside the container)
 # ---------------------------------------------------------------------------
 # [environment]
-# provider = "container"                   # local | light | container
+# provider = "local"                       # local (recommended default) | light | container
+#                                          # leave `local` until the sandbox is built and reachable
 # backend  = "docker"                      # host | envd | docker (global default; never applies to `local`)
 # sandbox_url = "http://10.0.0.5:3000"     # required when the resolved backend is envd
 # template = "pointer-sandbox-container:latest"

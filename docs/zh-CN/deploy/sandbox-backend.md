@@ -30,9 +30,17 @@ Pointer 支持两种后端，选错会在上线后返工，所以先看第 0 节
 
 `pointer-server` 的配置在 `server.toml`，也可以用同名环境变量覆盖。
 
+> **默认建议：`provider = "local"`。** 沙箱没配完整时（镜像没构建、后端连不上）
+> 会在启动或第一条消息就报错，所以**先留在 `local`，真要用沙箱时再改**。
+>
+> ⚠️ **platform 模式的坑**：不写 `provider` 时，默认档位按 `[deployment] mode` 派生——
+> standalone 派生 `local`，但 **platform 派生 `light`**，而 `light` 的后端默认是
+> `envd`，需要 `sandbox_url`。所以「platform 部署 + 完全没配 `[environment]`」
+> 会在第一条消息时报错。显式写 `provider = "local"` 可以避开。
+
 ```toml
 [environment]
-provider = "container"          # local | light | container
+provider = "local"              # local（建议默认）| light | container；沙箱就绪后再改
 backend  = "docker"             # host | envd | docker（全局默认，**不作用于 local**）
 template = "pointer-sandbox-container:latest"
 # sandbox_url        = "http://10.0.0.5:3000"   # envd 必填

@@ -31,9 +31,19 @@ Yes → Cube. No → Docker is enough.
 
 Configuration lives in `server.toml`; every key has an environment-variable override.
 
+> **Recommended default: `provider = "local"`.** A sandbox that is not fully set up
+> (image not built, backend unreachable) fails at startup or on the first message,
+> so **stay on `local` and switch only when the sandbox is actually needed**.
+>
+> ⚠️ **Platform-mode trap**: with `provider` unset the default tier is derived from
+> `[deployment] mode` — standalone derives `local`, but **platform derives `light`**,
+> and `light` defaults to the `envd` backend, which requires `sandbox_url`. So a
+> platform deployment with no `[environment]` section fails on the first message.
+> Set `provider = "local"` explicitly to avoid it.
+
 ```toml
 [environment]
-provider = "container"          # local | light | container
+provider = "local"              # local (recommended default) | light | container; switch once the sandbox is ready
 backend  = "docker"             # host | envd | docker (global default, **not applied to local**)
 template = "pointer-sandbox-container:latest"
 # sandbox_url        = "http://10.0.0.5:3000"   # required for envd

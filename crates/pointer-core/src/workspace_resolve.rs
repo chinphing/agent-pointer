@@ -215,6 +215,31 @@ pub fn classify_workspace(path: &Path) -> WorkspaceKind {
     WorkspaceKind::Project
 }
 
+
+fn first_sandbox_guest_candidate(conversation_id: &str, from_settings: &str) -> Option<String> {
+    let trimmed = from_settings.trim();
+    if looks_like_sandbox_guest_path(trimmed)
+        && (trimmed == SANDBOX_WORKSPACES_ROOT
+            || trimmed.starts_with(&format!("{SANDBOX_WORKSPACES_ROOT}/"))
+            || trimmed.starts_with("/data/worktrees/"))
+    {
+        return Some(trimmed.to_string());
+    }
+    if let Ok(store) = crate::conversation_store::global_store() {
+        if let Ok(workspace) = store.workspace_root(conversation_id) {
+            let w = workspace.trim();
+            if looks_like_sandbox_guest_path(w)
+                && (w == SANDBOX_WORKSPACES_ROOT
+                    || w.starts_with(&format!("{SANDBOX_WORKSPACES_ROOT}/"))
+                    || w.starts_with("/data/worktrees/"))
+            {
+                return Some(w.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Resolve the directory a file/terminal tool must use.
 ///
 /// Order (identical for every tool):
@@ -229,14 +254,26 @@ pub fn resolve_tool_workspace(
     from_settings: &str,
     source: &str,
 ) -> String {
+    // Prefer the conversation execution context when a turn already resolved it.
+    if let Some(ctx) = crate::conversation_execution::get(conversation_id) {
+        let path = ctx.active_cwd().display().to_string();
+        if !path.trim().is_empty() {
+            return path;
+        }
+    }
+
     // 已绑定远程环境时，工作区是**沙箱路径**（`/data/workspaces/...`）：settings / 会话存储
-    // 里记的是宿主路径，在沙箱里根本不存在。
+    // 里可能仍是宿主路径，在沙箱里根本不存在。优先使用 guest 绝对路径。
     //
     // 必须看 `current_env()`（本线程实际绑定的环境），不能看 `effective_env()`：
     // 后者在未绑定时会按**部署默认档位**返回 DeniedEnv，把 local 账号
     // （`[auth] admins` 里的账号）也当成远程，工作区被错误地改成沙箱路径。
     if let Some(env) = crate::env::current_env() {
         if env.kind() != crate::env::EnvKind::Local {
+            let candidate = first_sandbox_guest_candidate(conversation_id, from_settings);
+            if let Some(path) = candidate {
+                return path;
+            }
             return env.workspace_root().display().to_string();
         }
     }

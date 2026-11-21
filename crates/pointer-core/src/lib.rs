@@ -11,6 +11,7 @@ pub mod client_env;
 pub mod console_session;
 pub mod console_term_query;
 pub mod context_compression;
+pub mod conversation_execution;
 pub mod conversation_session;
 pub mod conversation_snapshot;
 pub mod conversation_store;

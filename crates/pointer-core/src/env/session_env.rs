@@ -383,10 +383,13 @@ pub fn bind_and_resolve_workspace(
         fallback.display()
     );
     if let Some(env) = already {
-        return Ok((
-            None,
-            env.workspace_root().to_string_lossy().into_owned(),
-        ));
+        let workspace = if env.kind() == crate::env::EnvKind::Local {
+            fallback.to_string_lossy().into_owned()
+        } else {
+            sandbox_active_cwd(&fallback, env.as_ref())
+        };
+        remember_execution_context(conversation_id, session_user_id, &workspace, env.as_ref());
+        return Ok((None, workspace));
     }
     let resolved =
         resolve_session_env_for_current(conversation_id, session_user_id, Some(fallback.as_path()))?;
@@ -412,7 +415,45 @@ fn bind_resolved_env(
     } else {
         sandbox_active_cwd(&fallback, env.as_ref())
     };
+    // session_user_id is not threaded here; owner key is recovered from store when needed.
+    let owner = crate::conversation_store::global_store()
+        .ok()
+        .and_then(|store| store.session_user_id(conversation_id).ok())
+        .unwrap_or_default();
+    remember_execution_context(conversation_id, &owner, &workspace, env.as_ref());
     (Some(EnvironmentGuard::enter(env)), workspace)
+}
+
+fn remember_execution_context(
+    conversation_id: &str,
+    session_user_id: &str,
+    workspace: &str,
+    env: &dyn Environment,
+) {
+    let owner = crate::user_key::user_key(session_user_id);
+    let root = std::path::PathBuf::from(workspace);
+    let data_root = if env.kind() == crate::env::EnvKind::Local {
+        None
+    } else {
+        Some(std::path::PathBuf::from(crate::workspace_resolve::SANDBOX_DATA_ROOT))
+    };
+    let worktree_root = if workspace.starts_with("/data/worktrees/") {
+        Some(root.clone())
+    } else {
+        None
+    };
+    crate::conversation_execution::remember(crate::conversation_execution::ConversationExecutionContext {
+        conversation_id: conversation_id.to_string(),
+        owner_user_key: owner.clone(),
+        workspace: crate::workspace_resolve::ResolvedWorkspace {
+            owner_user_key: owner,
+            data_root,
+            workspace_root: root.clone(),
+            active_cwd: root,
+        },
+        worktree_root,
+        started_at: std::time::Instant::now(),
+    });
 }
 
 /// 解析结果 → 真正要绑的环境。`None`（local 档位）绑一个工作区为 `fallback`

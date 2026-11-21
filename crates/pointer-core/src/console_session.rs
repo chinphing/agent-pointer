@@ -189,6 +189,38 @@ impl ConsoleSessionManager {
         }
     }
 
+    /// List console tabs that belong to one conversation.
+    pub fn list_for_conversation(&self, conversation_id: &str) -> Vec<ConsoleSessionInfo> {
+        let cid = conversation_id.trim();
+        self.sessions
+            .lock()
+            .values()
+            .filter(|s| s.info.conversation_id == cid)
+            .map(|s| s.info.clone())
+            .collect()
+    }
+
+    /// Close every console tab for a conversation (session delete / hard cancel).
+    pub fn close_for_conversation(&self, conversation_id: &str) -> usize {
+        let ids: Vec<String> = self
+            .list_for_conversation(conversation_id)
+            .into_iter()
+            .map(|info| info.id)
+            .collect();
+        let mut closed = 0;
+        for id in ids {
+            if self.close(&id) {
+                closed += 1;
+            }
+        }
+        if closed > 0 {
+            log::info!(
+                "console: closed {closed} session(s) for conversation={conversation_id}"
+            );
+        }
+        closed
+    }
+
     fn session(&self, session_id: &str) -> Result<Arc<ConsoleSession>> {
         self.sessions
             .lock()

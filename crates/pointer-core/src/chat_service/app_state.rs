@@ -737,6 +737,15 @@ impl AppState {
                 super::deferred_token_finalize::DeferredTokenFinalizeStore::new(),
         };
         state.spawn_mcp_watchdog();
+        let consoles = state.console_sessions.clone();
+        crate::conversation_execution::register_cleanup_hook(move |cid| {
+            let closed = consoles.close_for_conversation(cid);
+            if closed > 0 {
+                log::info!(
+                    "app_state: conversation cleanup closed {closed} console tab(s) conversation={cid}"
+                );
+            }
+        });
         state
     }
 

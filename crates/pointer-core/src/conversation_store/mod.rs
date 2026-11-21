@@ -729,6 +729,8 @@ impl ConversationStore {
         if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup_for_conversation(id) {
             log::warn!("session_sandbox cleanup failed for {id}: {e}");
         }
+        // Conversation-scoped resources (console, desktop lease, execution ctx).
+        crate::conversation_execution::release_conversation_resources(id);
         // 远端沙箱按会话缓存（§7.1 B3），会话删除时一并回收。
         crate::env::session_env::release(id);
         remove_worktree_for_deleted_conversation(id, &workspace_root);

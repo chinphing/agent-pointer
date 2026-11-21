@@ -220,7 +220,6 @@ mod tests {
         let b = MountPlan::for_session(dir.path(), "alice", "c-2", &[]);
         assert_eq!(a[0].host, b[0].host, "home 跨会话共享");
         assert_eq!(a[1].host, b[1].host, "data 跨会话共享");
-        assert_eq!(user_key("alice"), user_key("alice"));
     }
 
     #[test]

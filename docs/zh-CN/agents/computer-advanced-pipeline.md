@@ -214,7 +214,7 @@ Decision 注入前会 `strip_images_from_prior_messages`，避免历史消息堆
 | **Position** | `run_post_decision_phases` | `[Current screen]` + `[Annotated current screen]` |
 | **Verify** | `run_verify_phase` | `[Screen before action]` + `[Screen after action]` |
 
-目录：`{app_data_dir}/computer-captures/{YYYY-MM-DD}/{conversation_id}/`
+目录跟着执行环境走。本地是 `{app_data_dir}/computer-captures/{YYYY-MM-DD}/{conversation_id}/`。沙箱是该环境里的 `/data/captures/{YYYY-MM-DD}/{conversation_id}/`。
 
 **调试模式 UI（与工具卡相同）：** 开启 **调试模式**（标题栏 Bug / `debugMenusEnabled`）或 LLM 请求落盘时，Position 与 Verify 以合成工具卡展示（`computer_pipeline_position` / `computer_pipeline_verify`），通过 `tool_call_start` + `tool_call_status` 挂在当轮 assistant 消息下；展开可查看 **参数**（wire 输入）、**思考内容**、**输出内容**（JSON），不展示 System Prompt。
 

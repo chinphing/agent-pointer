@@ -1,13 +1,19 @@
-//! Persist screen-capture bundles for debugging under the app data directory.
+//! Persist screen-capture bundles for the execution environment.
+//!
+//! Local sessions write `{app_data}/computer-captures/`. Sandbox sessions write
+//! `/data/captures/` through that session's environment. The relative path
+//! `{date}/{conversation}/{file}` is the same for both, so Web and the desktop
+//! client keep one preview call.
+//!
 //! Only writes assets the active tier uses — no extra JPEG/PNG generation on disk.
 
 use crate::agents::computer::state::ScreenCaptureResult;
 use crate::agents::computer::vision::{screen, screen_overlay};
 use crate::media::jpeg_vision;
 use crate::models::ComputerAnnotatedPreview;
-use anyhow::{Context, Result};
-use std::fs;
-use std::path::PathBuf;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Day-level folders older than this are removed on app startup (desktop).
 pub const CAPTURE_RETENTION_DAYS: i64 = 7;
@@ -29,30 +35,156 @@ fn sanitize_path_segment(s: &str) -> String {
         .collect()
 }
 
+struct CaptureStore {
+    env: Arc<dyn crate::env::Environment>,
+    root: PathBuf,
+}
+
+fn path_text(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn join_capture(root: &Path, rel: &str) -> PathBuf {
+    let rel = rel
+        .trim()
+        .trim_start_matches(['/', '\\'])
+        .replace('\\', "/");
+    let text = path_text(root);
+    if crate::workspace_resolve::looks_like_sandbox_guest_path(&text) {
+        let root = text.trim_end_matches('/');
+        if rel.is_empty() {
+            return PathBuf::from(root);
+        }
+        return PathBuf::from(format!("{root}/{rel}"));
+    }
+    if rel.is_empty() {
+        return root.to_path_buf();
+    }
+    root.join(rel)
+}
+
+fn capture_parent(path: &Path) -> Option<PathBuf> {
+    let text = path_text(path);
+    if crate::workspace_resolve::looks_like_sandbox_guest_path(&text) {
+        let parent = text.trim_end_matches('/').rsplit_once('/')?.0;
+        if parent.is_empty() {
+            return None;
+        }
+        return Some(PathBuf::from(parent));
+    }
+    path.parent().map(Path::to_path_buf)
+}
+
+/// `{YYYY-MM-DD}/{conversation_id}/…` 里的会话段。`locate/` 和缺段的路径返回 `None`。
+fn capture_rel_conversation_id(rel: &str) -> Option<String> {
+    let normalized = rel.trim().replace('\\', "/");
+    let segments: Vec<&str> = normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+        .collect();
+    if segments.len() < 3 || segments.iter().any(|segment| *segment == "..") {
+        return None;
+    }
+    let date = segments[0].as_bytes();
+    if date.len() != 10 || date[4] != b'-' || date[7] != b'-' {
+        return None;
+    }
+    if !date
+        .iter()
+        .enumerate()
+        .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+    {
+        return None;
+    }
+    let conversation_id = segments[1].trim();
+    (!conversation_id.is_empty()).then(|| conversation_id.to_string())
+}
+
+fn checked_capture_rel(root: &Path, rel: &str) -> Option<PathBuf> {
+    let normalized = rel.trim().replace('\\', "/");
+    if normalized.is_empty()
+        || normalized.starts_with('/')
+        || Path::new(&normalized).is_absolute()
+        || normalized
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return None;
+    }
+    Some(join_capture(root, &normalized))
+}
+
+fn local_capture_store() -> Result<CaptureStore> {
+    let root = crate::storage::app_data_dir()?.join("computer-captures");
+    Ok(CaptureStore {
+        env: crate::env::host_env(),
+        root,
+    })
+}
+
+fn conversation_workspace_is_guest(conversation_id: &str) -> Result<bool> {
+    let store = crate::conversation_store::global_store().context("读取会话工作区失败")?;
+    let workspace = store
+        .workspace_root(conversation_id)
+        .with_context(|| format!("读取会话工作区失败（conversation={conversation_id}）"))?;
+    Ok(crate::workspace_resolve::looks_like_sandbox_guest_path(
+        workspace.trim(),
+    ))
+}
+
+/// 截图根跟着执行环境走。沙箱写 `/data/captures`，本地写应用数据目录。
+fn capture_store(conversation_id: &str) -> Result<CaptureStore> {
+    let id = conversation_id.trim();
+    if id.is_empty() {
+        bail!("缺少会话 id，无法保存电脑操控截图");
+    }
+    if let Some(env) = crate::env::session_env::env_for_conversation(id) {
+        if env.is_denied() {
+            bail!("沙箱会话的执行环境不可用，无法保存电脑操控截图（conversation={id}）");
+        }
+        if !env.path_map().is_host_passthrough() {
+            let data = path_text(env.data_root());
+            let data = data.trim_end_matches('/').to_string();
+            if data.is_empty() {
+                bail!("沙箱环境没有数据目录，无法保存电脑操控截图");
+            }
+            log::info!("computer capture: session environment conversation={id}");
+            return Ok(CaptureStore {
+                env,
+                root: PathBuf::from(format!("{data}/captures")),
+            });
+        }
+        return local_capture_store();
+    }
+    match conversation_workspace_is_guest(id) {
+        Ok(true) => {
+            log::warn!(
+                "computer capture: sandbox workspace has no session environment conversation={id}"
+            );
+            bail!("工作区在沙箱内，但当前没有会话环境，无法保存电脑操控截图（conversation={id}）");
+        }
+        Ok(false) => local_capture_store(),
+        Err(error) => {
+            log::warn!("computer capture: workspace lookup failed conversation={id}: {error:#}");
+            bail!("无法确认会话工作区，已拒绝保存电脑操控截图（conversation={id}）");
+        }
+    }
+}
+
 fn capture_root_dir() -> Option<PathBuf> {
-    match crate::storage::app_data_dir() {
-        Ok(base) => Some(base.join("computer-captures")),
-        Err(e) => {
-            log::warn!("computer capture: app_data_dir unavailable: {e}");
+    match local_capture_store() {
+        Ok(store) => Some(store.root),
+        Err(error) => {
+            log::warn!("computer capture: app_data_dir unavailable: {error:#}");
             None
         }
     }
 }
 
-/// Join `rel` under the capture root; rejects `..` and absolute paths.
+/// Join `rel` under the local capture root; rejects `..` and absolute paths.
 pub fn safe_capture_file_path(rel: &str) -> Option<PathBuf> {
     let root = capture_root_dir()?;
-    let rel = rel.trim().trim_start_matches(['/', '\\']);
-    if rel.is_empty() || rel.contains("..") {
-        return None;
-    }
-    let full = root.join(rel);
-    let root_str = root.to_string_lossy();
-    let full_str = full.to_string_lossy();
-    if !full_str.starts_with(root_str.as_ref()) {
-        return None;
-    }
-    Some(full)
+    checked_capture_rel(&root, rel)
 }
 
 /// Capture the host desktop for web manual preview: synthetic pointer + caret overlay, then
@@ -68,10 +200,20 @@ pub fn capture_manual_desktop_snapshot_jpeg() -> Result<Vec<u8>> {
     jpeg_vision::prepare_jpeg_for_manual_preview(&marked)
 }
 
-/// Read a saved annotated JPEG/PNG (legacy) and return the same shape as live preview.
+/// Read a saved annotated JPEG/PNG and return the same shape as live preview.
+///
+/// The relative path selects the conversation. A sandbox session is read from
+/// `/data/captures` in that session's environment.
 pub fn read_computer_capture_preview(rel: &str) -> anyhow::Result<ComputerAnnotatedPreview> {
-    let path = safe_capture_file_path(rel).context("invalid or disallowed capture path")?;
-    let bytes = fs::read(&path).with_context(|| format!("read {:?}", path))?;
+    let conversation_id =
+        capture_rel_conversation_id(rel).context("invalid or disallowed capture path")?;
+    let store = capture_store(&conversation_id)?;
+    let path =
+        checked_capture_rel(&store.root, rel).context("invalid or disallowed capture path")?;
+    let bytes = store
+        .env
+        .read_file(&path)
+        .with_context(|| format!("read {}", path.display()))?;
     Ok(ComputerAnnotatedPreview {
         image_base64: screen::encode_image_to_base64(&bytes),
         image_mime: screen::image_data_url_mime(&bytes).to_string(),
@@ -79,39 +221,55 @@ pub fn read_computer_capture_preview(rel: &str) -> anyhow::Result<ComputerAnnota
     })
 }
 
-/// Deletes `{root}/{YYYY-MM-DD}/` directories whose date is strictly before today − `days`.
-/// Returns how many day folders were removed.
-pub fn purge_computer_captures_older_than_days(days: i64) -> std::io::Result<usize> {
-    let Some(root) = capture_root_dir() else {
-        log::warn!("computer capture purge: could not resolve app data directory");
-        return Ok(0);
-    };
-    if !root.is_dir() {
+fn purge_in_store(store: &CaptureStore, days: i64) -> Result<usize> {
+    if !store.env.exists(&store.root) {
         return Ok(0);
     }
     let cutoff = chrono::Local::now().date_naive() - chrono::Duration::days(days);
     let mut removed = 0usize;
-    for entry in fs::read_dir(&root)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_dir() {
+    let entries = store
+        .env
+        .list_dir(&store.root)
+        .with_context(|| format!("list capture root {}", store.root.display()))?;
+    for entry in entries {
+        if !entry.is_dir {
             continue;
         }
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if let Ok(d) = chrono::NaiveDate::parse_from_str(&name_str, "%Y-%m-%d") {
-            if d < cutoff {
-                fs::remove_dir_all(&path)?;
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(&entry.name, "%Y-%m-%d") {
+            if date < cutoff {
+                store
+                    .env
+                    .remove_dir_all(&entry.path)
+                    .with_context(|| format!("remove capture day {}", entry.path.display()))?;
                 removed += 1;
-                log::info!("computer capture purge: removed {:?}", path);
+                log::info!("computer capture purge: removed {}", entry.path.display());
             }
         }
     }
     Ok(removed)
 }
 
+/// Deletes local `{app_data}/computer-captures/{YYYY-MM-DD}/` directories older than `days`.
+///
+/// Sandbox captures live in that session's `/data/captures` and are purged the
+/// next time that session writes a capture.
+pub fn purge_computer_captures_older_than_days(days: i64) -> std::io::Result<usize> {
+    let store = match local_capture_store() {
+        Ok(store) => store,
+        Err(error) => {
+            log::warn!("computer capture purge: could not resolve app data directory: {error:#}");
+            return Ok(0);
+        }
+    };
+    purge_in_store(&store, days).map_err(|error| {
+        log::warn!("computer capture purge: {error:#}");
+        std::io::Error::other(error.to_string())
+    })
+}
+
 fn write_bytes(
-    dir: &PathBuf,
+    store: &CaptureStore,
+    dir: &Path,
     pfx: &str,
     name: &str,
     ext: &str,
@@ -121,11 +279,12 @@ fn write_bytes(
     if bytes.is_empty() {
         return None;
     }
-    let path = dir.join(format!("{pfx}_{ts}_{name}.{ext}"));
-    match fs::write(&path, bytes) {
-        Ok(()) => Some(path.file_name()?.to_string_lossy().into_owned()),
-        Err(e) => {
-            log::warn!("computer capture dump: write {:?}: {e}", path);
+    let file_name = format!("{pfx}_{ts}_{name}.{ext}");
+    let path = join_capture(dir, &file_name);
+    match store.env.write_file(&path, bytes) {
+        Ok(()) => Some(file_name),
+        Err(error) => {
+            log::warn!("computer capture dump: write {}: {error:#}", path.display());
             None
         }
     }
@@ -141,20 +300,81 @@ pub fn slot_label_to_disk_stem(slot_label: &str) -> String {
     sanitize_path_segment(&inner.to_ascii_lowercase().replace(' ', "_"))
 }
 
-fn capture_dump_dir(conversation_id: &str) -> Option<(String, PathBuf, i64)> {
+/// Write one debug file under the conversation's capture directory.
+///
+/// `rel` is relative to `{date}/{conversation}/`. Sandbox sessions land in
+/// `/data/captures/`; local sessions land in `{app_data}/computer-captures/`.
+pub(crate) fn write_session_capture_file(
+    conversation_id: &str,
+    rel: &str,
+    bytes: &[u8],
+) -> Result<()> {
+    let rel = rel
+        .trim()
+        .trim_start_matches(['/', '\\'])
+        .replace('\\', "/");
+    if rel.is_empty()
+        || rel
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        bail!("invalid capture file name");
+    }
+    let store = capture_store(conversation_id)?;
+    let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let conv_seg = sanitize_path_segment(conversation_id);
+    let path = join_capture(&store.root, &format!("{date}/{conv_seg}/{rel}"));
+    let parent = capture_parent(&path).context("capture file has no parent directory")?;
+    store
+        .env
+        .create_dir_all(&parent)
+        .with_context(|| format!("create capture dir {}", parent.display()))?;
+    store
+        .env
+        .write_file(&path, bytes)
+        .with_context(|| format!("write capture file {}", path.display()))?;
+    Ok(())
+}
+
+pub(crate) fn purge_session_captures(conversation_id: &str) {
+    let store = match capture_store(conversation_id) {
+        Ok(store) => store,
+        Err(error) => {
+            log::warn!("computer capture purge: {error:#}");
+            return;
+        }
+    };
+    if let Err(error) = purge_in_store(&store, CAPTURE_RETENTION_DAYS) {
+        log::warn!("computer capture purge: {error:#}");
+    }
+}
+
+fn capture_dump_dir(conversation_id: &str) -> Option<(CaptureStore, String, PathBuf, i64)> {
     if !computer_capture_dump_enabled() {
         return None;
     }
-    let root = capture_root_dir()?;
+    let store = match capture_store(conversation_id) {
+        Ok(store) => store,
+        Err(error) => {
+            log::warn!("computer capture dump: {error:#}");
+            return None;
+        }
+    };
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let ts = chrono::Local::now().timestamp_millis();
     let conv_seg = sanitize_path_segment(conversation_id);
-    let dir = root.join(&date).join(&conv_seg);
-    if let Err(e) = fs::create_dir_all(&dir) {
-        log::warn!("computer capture dump: create_dir_all {:?}: {e}", dir);
+    let dir = join_capture(&store.root, &format!("{date}/{conv_seg}"));
+    if let Err(error) = store.env.create_dir_all(&dir) {
+        log::warn!(
+            "computer capture dump: create_dir_all {}: {error:#}",
+            dir.display()
+        );
         return None;
     }
-    Some((date, dir, ts))
+    if let Err(error) = purge_in_store(&store, CAPTURE_RETENTION_DAYS) {
+        log::warn!("computer capture purge: {error:#}");
+    }
+    Some((store, date, dir, ts))
 }
 
 /// Save one pipeline-phase image; on-disk stem matches the vision slot label.
@@ -172,12 +392,12 @@ pub fn save_pipeline_slot_image(
     if bytes.is_empty() {
         return None;
     }
-    let (date, dir, ts) = capture_dump_dir(conversation_id)?;
+    let (store, date, dir, ts) = capture_dump_dir(conversation_id)?;
     let pfx = sanitize_path_segment(file_prefix);
     let stem = slot_label_to_disk_stem(slot_label);
     let fname = format!("{pfx}_{ts}_{phase_label}_{stem}.{ext}");
-    let path = dir.join(&fname);
-    fs::write(&path, bytes).ok()?;
+    let path = join_capture(&dir, &fname);
+    store.env.write_file(&path, bytes).ok()?;
     let conv_seg = sanitize_path_segment(conversation_id);
     let rel = format!("{date}/{conv_seg}/{fname}");
     log::info!(
@@ -197,7 +417,7 @@ pub fn save_pipeline_phase_captures(
     if slots.is_empty() {
         return None;
     }
-    let (date, dir, ts) = capture_dump_dir(conversation_id)?;
+    let (store, date, dir, ts) = capture_dump_dir(conversation_id)?;
     let pfx = sanitize_path_segment(file_prefix);
     let conv_seg = sanitize_path_segment(conversation_id);
     let mut last_rel = None;
@@ -208,8 +428,8 @@ pub fn save_pipeline_phase_captures(
         }
         let stem = slot_label_to_disk_stem(slot_label);
         let fname = format!("{pfx}_{ts}_{phase_label}_{stem}.{ext}");
-        let path = dir.join(&fname);
-        fs::write(&path, bytes).ok()?;
+        let path = join_capture(&dir, &fname);
+        store.env.write_file(&path, bytes).ok()?;
         last_rel = Some(format!("{date}/{conv_seg}/{fname}"));
         log::info!(
             "computer pipeline capture dump: slot={slot_label} rel={} ({} bytes)",
@@ -250,12 +470,15 @@ pub fn write_sample_file(
     if bytes.is_empty() {
         return None;
     }
-    let (date, dir, _ts) = capture_dump_dir(conversation_id)?;
+    let (store, date, dir, _ts) = capture_dump_dir(conversation_id)?;
     let pfx = sample_prefix(conversation_id, round_seq, msg_seq);
     let fname = format!("{pfx}_{stage}.{ext}");
-    let path = dir.join(&fname);
-    if let Err(e) = fs::write(&path, bytes) {
-        log::warn!("computer capture dump: sample {path:?}: {e}");
+    let path = join_capture(&dir, &fname);
+    if let Err(error) = store.env.write_file(&path, bytes) {
+        log::warn!(
+            "computer capture dump: sample {}: {error:#}",
+            path.display()
+        );
         return None;
     }
     let conv_seg = sanitize_path_segment(conversation_id);
@@ -284,10 +507,12 @@ pub fn write_sample_json(
     );
 }
 
-/// Writes capture files under `{data_dir}/computer-captures/{YYYY-MM-DD}/{conversation_id}/`.
-/// All tiers use the same Primary slot layout (optional before + after + annotated).
+/// Writes one annotated frame for a conversation.
 ///
-/// Returns the **path relative to `computer-captures/`** of the annotated JPEG (for lazy UI load).
+/// Local sessions use `{app_data}/computer-captures/{date}/{conversation}/`.
+/// Sandbox sessions use `/data/captures/{date}/{conversation}/` in that environment.
+///
+/// Returns `{date}/{conversation}/{file}` for lazy UI load.
 pub fn save_computer_capture_debug(
     conversation_id: &str,
     file_prefix: &str,
@@ -301,22 +526,14 @@ pub fn save_computer_capture_debug(
         return None;
     }
 
-    let Some(root) = capture_root_dir() else {
-        log::warn!("computer capture dump: could not resolve app data directory");
+    let Some((store, date, dir, ts)) = capture_dump_dir(conversation_id) else {
         return None;
     };
-    let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let ts = chrono::Local::now().timestamp_millis();
     let conv_seg = sanitize_path_segment(conversation_id);
-    let dir = root.join(&date).join(&conv_seg);
-    if let Err(e) = fs::create_dir_all(&dir) {
-        log::warn!("computer capture dump: create_dir_all {:?}: {e}", dir);
-        return None;
-    }
-
     let pfx = sanitize_path_segment(file_prefix);
 
     write_bytes(
+        &store,
         &dir,
         &pfx,
         "screen",
@@ -327,9 +544,11 @@ pub fn save_computer_capture_debug(
 
     let annotated_name = format!("{pfx}_{ts}_screen.jpg");
     let rel = format!("{date}/{conv_seg}/{annotated_name}");
-    // One line per saved frame, with the id first so it is greppable:
-    //   computer capture: id=2026-10-23/<conv>/round_1_1729.._screen.jpg
-    log::info!("computer capture: id={rel} bytes={} dir={:?}", cap.screenshot_jpeg.len(), dir);
+    log::info!(
+        "computer capture: id={rel} bytes={} dir={}",
+        cap.screenshot_jpeg.len(),
+        dir.display()
+    );
     Some(rel)
 }
 
@@ -372,12 +591,30 @@ mod tests {
         // Short ids are not padded: there is nothing to pad.
         assert_eq!(sample_prefix("abc", 1, 1), "abc_001_001");
         // Long ids are cut to 8 chars so the name stays readable.
-        assert_eq!(
-            sample_prefix("0123456789abcdef", 12, 7),
-            "01234567_012_007"
-        );
+        assert_eq!(sample_prefix("0123456789abcdef", 12, 7), "01234567_012_007");
         // Round / msg are zero-padded to 3 so lexical sort == numeric sort.
         assert_eq!(sample_prefix("c", 9, 99), "c_009_099");
     }
 
+    #[test]
+    fn guest_capture_path_stays_under_data() {
+        let path = join_capture(Path::new("/data/captures"), "2026-01-02/conv/a.jpg");
+        assert_eq!(path_text(&path), "/data/captures/2026-01-02/conv/a.jpg");
+        assert_eq!(
+            capture_parent(&path).as_deref().map(path_text),
+            Some("/data/captures/2026-01-02/conv".to_string())
+        );
+    }
+
+    #[test]
+    fn capture_rel_rejects_parent_segments() {
+        assert!(
+            checked_capture_rel(Path::new("/data/captures"), "2026-01-02/conv/../../x").is_none()
+        );
+        assert!(capture_rel_conversation_id("locate/a.jpg").is_none());
+        assert_eq!(
+            capture_rel_conversation_id("2026-01-02/conv-1/screen.jpg").as_deref(),
+            Some("conv-1")
+        );
+    }
 }

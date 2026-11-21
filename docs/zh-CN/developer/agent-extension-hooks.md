@@ -74,7 +74,7 @@
 | `round_screen_dump_prefix` | 可选；落盘调试图时的文件名前缀，缺省同 `round_assistant_message_id`。子 Agent 每轮迭代用自己的 id，避免与父消息 id 混用。 |
 | `workspace_root` | 本轮会话工作区（`ensure_workspace_at_run_start` 之后）。插件规则等 hook 可读；**`AGENTS.md` 已不再经本扩展点注入**（见 [`workspace-root.md`](workspace-root.md)）。 |
 
-**`StreamEvent::AssistantRoundScreen`** 只携带 `annotatedRelPath`（相对于与设置/技能相同的应用数据根目录下的 `PointerApp/computer-captures/`；**仅 `debugMenusEnabled` 调试模式**时落盘），避免把大图 base64 塞进流与内存；UI 在点击预览时读盘：**Tauri** 用 `preview_computer_round_screen`，**pointer-server** 用 `GET /api/computer/round-screen-preview?relPath=…`（与 `GET /api/computer/annotated-preview` 对应 Tauri 的 `preview_computer_annotated_screen`）。**桌面端与 server 端启动时**都会执行相同的 **7 天**截图目录清理（`capture_debug::CAPTURE_RETENTION_DAYS`），若有删除则向事件总线发送 **`UiToast`**（`conversationId` 为空 = 全局「截图过期已清理」）。
+**`StreamEvent::AssistantRoundScreen`** 只携带 `annotatedRelPath`（`{YYYY-MM-DD}/{conversation_id}/{file}`。本地落在应用数据目录的 `computer-captures/`，沙箱落在该环境的 `/data/captures/`；**仅 `debugMenusEnabled` 调试模式**时落盘），避免把大图 base64 塞进流与内存；UI 在点击预览时按这条相对路径读盘：**Tauri** 用 `preview_computer_round_screen`，**pointer-server** 用 `GET /api/computer/round-screen-preview?relPath=…`（与 `GET /api/computer/annotated-preview` 对应 Tauri 的 `preview_computer_annotated_screen`）。**桌面端与 server 端启动时**清理本机 `computer-captures/` 里超过 **7 天**的日期目录（`capture_debug::CAPTURE_RETENTION_DAYS`）；沙箱目录在该会话下次写入截图时清理。若有删除则向事件总线发送 **`UiToast`**（`conversationId` 为空 = 全局「截图过期已清理」）。
 
 **`BeforeMainLlmCallContext`**
 

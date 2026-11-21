@@ -8,15 +8,17 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
-use super::geometry::{crop_side_px, nearly_same, px_to_rel, rel_to_norm, CropBounds, NormBox, PxBox};
+use super::geometry::{
+    crop_side_px, nearly_same, px_to_rel, rel_to_norm, CropBounds, NormBox, PxBox,
+};
 use super::prompt::{locate_prompt, refine_hint, verify_prompt_views, LocateAnswer};
-use super::render::{render_crop_marked, render_full, render_full_marked, LocateFrame, LocateImage};
+use super::render::{
+    render_crop_marked, render_full, render_full_marked, LocateFrame, LocateImage,
+};
 use super::trace::{
     FrameTrace, LocateStep, LocateTrace, OutcomeTrace, RequestTrace, RoundTrace, VerifyStep,
 };
-use super::types::{
-    FailureReason, LocateConfig, LocateOutcome, LocateRequest, VerifyVerdict,
-};
+use super::types::{FailureReason, LocateConfig, LocateOutcome, LocateRequest, VerifyVerdict};
 
 /// One switch for everything diagnostic — **the one in the settings UI**.
 ///
@@ -25,8 +27,9 @@ use super::types::{
 /// private switch would give two places to look when nothing appears, and the
 /// person debugging a miss has no reason to know that locate has its own.
 ///
-/// So: that checkbox turns on the trace log **and** the locate crops, written
-/// next to the other captures under `<app data>/computer-captures/locate/`.
+/// So: that checkbox turns on the trace log **and** the locate crops. A session
+/// writes them beside that session's other captures (`/data/captures/…/locate/`
+/// in a sandbox, `{app_data}/computer-captures/…/locate/` locally).
 ///
 /// `POINTER_LOCATE_DEBUG=1` / `POINTER_LOCATE_DEBUG_DIR` stay as a back door for
 /// tests and CLIs, which have no settings UI to tick. They are not the documented
@@ -36,7 +39,9 @@ fn debug_on() -> bool {
         return true;
     }
     matches!(
-        std::env::var("POINTER_LOCATE_DEBUG").as_deref().map(str::trim),
+        std::env::var("POINTER_LOCATE_DEBUG")
+            .as_deref()
+            .map(str::trim),
         Ok("1") | Ok("on") | Ok("true")
     )
 }
@@ -44,21 +49,35 @@ fn debug_on() -> bool {
 /// Where images and traces are written.
 ///
 /// An explicit `POINTER_LOCATE_DEBUG_DIR` wins — a test that writes to a temp
-/// directory must not scribble in the user's app data. Otherwise the captures
-/// live beside the other computer captures, which is where someone looking for
-/// 「what did it see」 already goes.
-fn debug_dir() -> Option<std::path::PathBuf> {
-    if let Ok(d) = std::env::var("POINTER_LOCATE_DEBUG_DIR") {
-        if !d.trim().is_empty() {
-            return Some(std::path::PathBuf::from(d));
+/// directory must not scribble in the user's app data. A conversation writes
+/// through that session's capture store. With neither, leftovers from a CLI
+/// stay under the local capture root.
+enum DebugSink {
+    Host(std::path::PathBuf),
+    Session(String),
+}
+
+fn debug_sink(conversation_id: Option<&str>) -> Option<DebugSink> {
+    if let Ok(dir) = std::env::var("POINTER_LOCATE_DEBUG_DIR") {
+        if !dir.trim().is_empty() {
+            return Some(DebugSink::Host(std::path::PathBuf::from(dir)));
         }
     }
     if !debug_on() {
         return None;
     }
-    crate::storage::app_data_dir()
-        .ok()
-        .map(|base| base.join("computer-captures").join("locate"))
+    if let Some(id) = conversation_id.map(str::trim).filter(|id| !id.is_empty()) {
+        return Some(DebugSink::Session(id.to_string()));
+    }
+    match crate::storage::app_data_dir() {
+        Ok(base) => Some(DebugSink::Host(
+            base.join("computer-captures").join("locate"),
+        )),
+        Err(error) => {
+            log::warn!("locate: app data directory unavailable: {error:#}");
+            None
+        }
+    }
 }
 
 /// `debug_log!("round={n} box={:?}", b)` — printed only while debugging is on.
@@ -74,13 +93,36 @@ macro_rules! debug_log {
     };
 }
 
-/// A short id that ties one `locate_one` run's log lines and dumped images
-/// together.
-///
-/// Diagnosing a miss from the log alone is hopeless once two runs interleave:
-/// `round=2` appears dozens of times per screen and there is no way to tell
-/// whose `verify` verdict belongs to whose `locate` box. Every line and every
-/// dumped file carries `run=<id>`, so a failure can be replayed from disk.
+fn write_debug_bytes(sink: &DebugSink, file_name: &str, bytes: &[u8]) {
+    match sink {
+        DebugSink::Host(dir) => {
+            if let Err(error) = std::fs::create_dir_all(dir) {
+                log::warn!("locate: debug dir {} unusable: {error}", dir.display());
+                return;
+            }
+            let path = dir.join(file_name);
+            match std::fs::write(&path, bytes) {
+                Ok(()) => debug_log!("dumped {} ({} bytes)", path.display(), bytes.len()),
+                Err(error) => log::warn!("locate: dump {} failed: {error}", path.display()),
+            }
+        }
+        DebugSink::Session(conversation_id) => {
+            let rel = format!("locate/{file_name}");
+            match crate::agents::computer::capture_debug::write_session_capture_file(
+                conversation_id,
+                &rel,
+                bytes,
+            ) {
+                Ok(()) => debug_log!(
+                    "dumped session capture conversation={conversation_id} file={file_name} ({} bytes)",
+                    bytes.len()
+                ),
+                Err(error) => log::warn!("locate: dump {file_name} failed: {error:#}"),
+            }
+        }
+    }
+}
+
 /// Map a locate `where_` tag to the collected-sample stage name.
 ///
 /// `full_init` is the first call; everything else is a re-locate. The engine
@@ -100,6 +142,13 @@ fn locate_stage_name(where_: &str) -> String {
     format!("relocate_{n}")
 }
 
+/// A short id that ties one `locate_one` run's log lines and dumped images
+/// together.
+///
+/// Diagnosing a miss from the log alone is hopeless once two runs interleave:
+/// `round=2` appears dozens of times per screen and there is no way to tell
+/// whose `verify` verdict belongs to whose `locate` box. Every line and every
+/// dumped file carries `run=<id>`, so a failure can be replayed from disk.
 fn new_run_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -153,20 +202,12 @@ fn short_desc(desc: &str) -> (String, bool) {
 /// the same string. Without a directory it still returns an id — the log then
 /// says what *would* have been saved, which is enough to ask for a re-run with
 /// dumping enabled.
-fn dump_image(run: &str, name: &str, image: &LocateImage) -> String {
+fn dump_image(conversation_id: Option<&str>, run: &str, name: &str, image: &LocateImage) -> String {
     let id = format!("{run}_{name}");
-    let Some(dir) = debug_dir() else {
+    let Some(sink) = debug_sink(conversation_id) else {
         return id;
     };
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        log::warn!("locate: debug dir {} unusable: {e}", dir.display());
-        return id;
-    }
-    let file = dir.join(format!("{id}.jpg"));
-    match std::fs::write(&file, &image.jpeg) {
-        Ok(()) => debug_log!("dumped {} ({} bytes)", file.display(), image.jpeg.len()),
-        Err(e) => log::warn!("locate: dump {} failed: {e}", file.display()),
-    }
+    write_debug_bytes(&sink, &format!("{id}.jpg"), &image.jpeg);
     id
 }
 
@@ -178,18 +219,17 @@ fn dump_image(run: &str, name: &str, image: &LocateImage) -> String {
 /// case is ready to be turned into a fixture — no re-typing the description, the
 /// hint, or which round failed.
 fn write_trace(trace: &LocateTrace) {
-    let Some(dir) = debug_dir() else {
+    let Some(sink) = debug_sink(trace.session.as_deref()) else {
         return;
     };
-    let path = dir.join(format!("{}.json", trace.run_id));
     match serde_json::to_string_pretty(trace) {
-        Ok(json) => match std::fs::write(&path, json) {
-            Ok(()) => debug_log!("trace -> {}", path.display()),
-            Err(e) => log::warn!("locate: trace {} failed: {e}", path.display()),
-        },
-        Err(e) => log::warn!("locate: trace serialise failed: {e}"),
+        Ok(json) => write_debug_bytes(&sink, &format!("{}.json", trace.run_id), json.as_bytes()),
+        Err(error) => log::warn!("locate: trace serialise failed: {error}"),
     }
-    write_stage_files(&dir, trace);
+    write_stage_files(&sink, trace);
+    if let DebugSink::Session(conversation_id) = &sink {
+        crate::agents::computer::capture_debug::purge_session_captures(conversation_id);
+    }
 }
 
 /// One JSON file per **step** of the run, named `{prefix}_{stage}.json`.
@@ -208,7 +248,7 @@ fn write_trace(trace: &LocateTrace) {
 /// `locate` and a `verify`, so they are written as one file rather than two —
 /// a re-locate is one correction step, and splitting it would make the
 /// labeler re-read the same box twice.
-fn write_stage_files(dir: &std::path::Path, trace: &LocateTrace) {
+fn write_stage_files(sink: &DebugSink, trace: &LocateTrace) {
     #[derive(serde::Serialize)]
     struct StageFile<'a> {
         run_id: &'a str,
@@ -296,14 +336,10 @@ fn write_stage_files(dir: &std::path::Path, trace: &LocateTrace) {
             locate,
             verify,
         };
-        let path = dir.join(format!("{}_{stage}.json", trace.run_id));
+        let name = format!("{}_{stage}.json", trace.run_id);
         match serde_json::to_string_pretty(&file) {
-            Ok(json) => {
-                if let Err(e) = std::fs::write(&path, json) {
-                    log::warn!("locate: stage file {} failed: {e}", path.display());
-                }
-            }
-            Err(e) => log::warn!("locate: stage {stage} serialise failed: {e}"),
+            Ok(json) => write_debug_bytes(sink, &name, json.as_bytes()),
+            Err(error) => log::warn!("locate: stage {stage} serialise failed: {error}"),
         }
     }
 }
@@ -465,7 +501,7 @@ pub async fn locate_one<V: LocateVision>(
 /// that window is on the screen. 「偏了一格」 is a question about the whole
 /// screen — this image answers it at a glance.
 fn dump_annotated_frame(frame: &LocateFrame, trace: &LocateTrace) {
-    if debug_dir().is_none() {
+    if debug_sink(trace.session.as_deref()).is_none() {
         return;
     }
     let mut boxes: Vec<PxBox> = Vec::new();
@@ -502,7 +538,7 @@ fn dump_annotated_frame(frame: &LocateFrame, trace: &LocateTrace) {
     let point = trace.outcome.point.map(|p| (p[0], p[1]));
     match super::render::render_annotated_frame(frame, &boxes, point) {
         Ok(img) => {
-            dump_image(&trace.run_id, "annotated", &img);
+            dump_image(trace.session.as_deref(), &trace.run_id, "annotated", &img);
         }
         Err(e) => log::warn!("locate: annotated frame failed: {e}"),
     }
@@ -607,7 +643,21 @@ async fn locate_one_traced<V: LocateVision>(
         // Same encoded image the frame JPEG was written from: re-rendering it
         // would run Lanczos3 over the whole screen a second time and could only
         // produce the same bytes.
-        let (attempt, step) = locate_in(vision, &run, "full_init", &full_image, full, w, h, &req.target_desc, req.hint_center(), None, None).await;
+        let (attempt, step) = locate_in(
+            vision,
+            cfg.trace_session.as_deref(),
+            &run,
+            "full_init",
+            &full_image,
+            full,
+            w,
+            h,
+            &req.target_desc,
+            req.hint_center(),
+            None,
+            None,
+        )
+        .await;
         trace.rounds.push(RoundTrace {
             round: 0,
             locate: Some(step),
@@ -753,10 +803,20 @@ async fn locate_one_traced<V: LocateVision>(
             // `locate_verify` already says "verify", so the suffix is just `_inN`
             // here; only the locate call needs the explicit `_locate_in` marker
             // to tell it apart from the verify that follows it.
-            let close_id = dump_image(&run, &format!("{verify_stage}_in1"), &image);
-            let wide_id = wide_image
-                .as_ref()
-                .map(|w| dump_image(&run, &format!("{verify_stage}_in2"), w));
+            let close_id = dump_image(
+                cfg.trace_session.as_deref(),
+                &run,
+                &format!("{verify_stage}_in1"),
+                &image,
+            );
+            let wide_id = wide_image.as_ref().map(|w| {
+                dump_image(
+                    cfg.trace_session.as_deref(),
+                    &run,
+                    &format!("{verify_stage}_in2"),
+                    w,
+                )
+            });
             debug_log!(
                 "locate: verify_input run={run} round={rounds} side={ver_side:.0} loc_side={loc_side:.0} box=[{:.0},{:.0},{:.0},{:.0}] close_id={close_id} close={}x{} wide_id={:?} wide={:?}",
                 current.to_px(w, h).x1,
@@ -903,6 +963,7 @@ async fn locate_one_traced<V: LocateVision>(
                 from_crop = true;
                 let (attempt, step) = locate_in(
                     vision,
+                    cfg.trace_session.as_deref(),
                     &run,
                     &format!("crop_r{rounds}"),
                     image,
@@ -958,7 +1019,21 @@ async fn locate_one_traced<V: LocateVision>(
             // element nearest (x, y)」, so on a board of identical empty cells
             // the locator walks straight back to the hint. `widen` has to mean
             // "search from scratch", or it is not a widen.
-            let (attempt, step) = locate_in(vision, &run, &format!("full_widen_r{rounds}"), &image, full, w, h, &req.target_desc, None, Some(&hint), Some(current.to_px(w, h))).await;
+            let (attempt, step) = locate_in(
+                vision,
+                cfg.trace_session.as_deref(),
+                &run,
+                &format!("full_widen_r{rounds}"),
+                &image,
+                full,
+                w,
+                h,
+                &req.target_desc,
+                None,
+                Some(&hint),
+                Some(current.to_px(w, h)),
+            )
+            .await;
             trace.rounds.push(RoundTrace {
                 round: rounds,
                 locate: Some(step),
@@ -989,7 +1064,21 @@ async fn locate_one_traced<V: LocateVision>(
             // Same reasoning as the widen above: the crop-local locator barely
             // moved, so its anchor is not helping. Re-arming the original hint
             // centre would just reproduce the same answer on a harder image.
-            let (attempt, step) = locate_in(vision, &run, &format!("full_escalate_r{rounds}"), &image, full, w, h, &req.target_desc, None, Some(&hint), Some(current.to_px(w, h))).await;
+            let (attempt, step) = locate_in(
+                vision,
+                cfg.trace_session.as_deref(),
+                &run,
+                &format!("full_escalate_r{rounds}"),
+                &image,
+                full,
+                w,
+                h,
+                &req.target_desc,
+                None,
+                Some(&hint),
+                Some(current.to_px(w, h)),
+            )
+            .await;
             trace.rounds.push(RoundTrace {
                 round: rounds,
                 locate: Some(step),
@@ -1084,6 +1173,7 @@ enum LocateAttempt {
 /// by the crop offset.
 async fn locate_in<V: LocateVision>(
     vision: &V,
+    conversation_id: Option<&str>,
     run: &str,
     where_: &str,
     image: &LocateImage,
@@ -1129,7 +1219,7 @@ async fn locate_in<V: LocateVision>(
     // to `vision.locate`. Named after the stage (`locate_init`, `relocate_N`) so
     // a collected episode is `glob("{prefix}_*")` with no filename parsing.
     let stage = locate_stage_name(where_);
-    let image_id = dump_image(run, &format!("{stage}_locate_in"), image);
+    let image_id = dump_image(conversation_id, run, &format!("{stage}_locate_in"), image);
     let (desc_log, desc_cut) = short_desc(description);
     // The inputs matter as much as the answer: a box that is wrong because the
     // crop was wrong looks identical to a box that is wrong because the model
@@ -1453,14 +1543,29 @@ mod tests {
 
         assert!(!out.ok);
         assert_eq!(out.reason, Some(FailureReason::NotFound));
-        assert_eq!(out.rounds, 1, "rounds counts verify rounds, not model calls");
+        assert_eq!(
+            out.rounds, 1,
+            "rounds counts verify rounds, not model calls"
+        );
         assert_eq!(
             vision.calls(),
             vec![
-                Call::Locate { width: 1000, height: 800 },  // full_init
-                Call::Verify { width: 64, height: 64 },     // 校验裁片
-                Call::Locate { width: 1920, height: 1920 }, // crop_r1
-                Call::Locate { width: 1000, height: 800 },  // full_widen_r1
+                Call::Locate {
+                    width: 1000,
+                    height: 800
+                }, // full_init
+                Call::Verify {
+                    width: 64,
+                    height: 64
+                }, // 校验裁片
+                Call::Locate {
+                    width: 1920,
+                    height: 1920
+                }, // crop_r1
+                Call::Locate {
+                    width: 1000,
+                    height: 800
+                }, // full_widen_r1
             ]
         );
     }
@@ -1609,7 +1714,10 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(!out.ok, "silent verifier must not produce a successful locate");
+        assert!(
+            !out.ok,
+            "silent verifier must not produce a successful locate"
+        );
         assert_eq!(out.reason, Some(FailureReason::NotFound));
         assert_eq!(out.what_i_saw, "校验器无有效输出");
     }
@@ -1637,7 +1745,10 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(!out.ok, "silent verifier must not produce a successful locate");
+        assert!(
+            !out.ok,
+            "silent verifier must not produce a successful locate"
+        );
         assert_eq!(out.reason, Some(FailureReason::NotFound));
         assert_eq!(out.what_i_saw, "校验器无有效输出");
     }
@@ -1672,8 +1783,14 @@ mod tests {
         .unwrap();
 
         let calls = vision.calls();
-        let verify_calls = calls.iter().filter(|c| matches!(c, Call::Verify { .. })).count();
-        let locate_calls = calls.iter().filter(|c| matches!(c, Call::Locate { .. })).count();
+        let verify_calls = calls
+            .iter()
+            .filter(|c| matches!(c, Call::Verify { .. }))
+            .count();
+        let locate_calls = calls
+            .iter()
+            .filter(|c| matches!(c, Call::Locate { .. }))
+            .count();
         assert!(
             verify_calls >= 2,
             "a silent verifier should be asked again, got {calls:?}"
@@ -1682,7 +1799,10 @@ mod tests {
             locate_calls >= 1,
             "silence should also spend a locate round, got {calls:?}"
         );
-        assert!(out.ok, "the second, decisive verdict should land the target");
+        assert!(
+            out.ok,
+            "the second, decisive verdict should land the target"
+        );
     }
 
     #[tokio::test]
@@ -1698,9 +1818,8 @@ mod tests {
             x2: 172.0,
             y2: 800.0,
         };
-        let vision = FakeVision::new().with_verify_errors(vec![
-            "校验器连续 3 次没有返回可用的判定（没有调用 report）",
-        ]);
+        let vision = FakeVision::new()
+            .with_verify_errors(vec!["校验器连续 3 次没有返回可用的判定（没有调用 report）"]);
         let out = locate_one(
             &vision,
             &frame_1080p(),
@@ -1722,12 +1841,18 @@ mod tests {
         // instead of silently treating it as a wrong box.
         let calls = vision.calls();
         assert_eq!(
-            calls.iter().filter(|c| matches!(c, Call::Verify { .. })).count(),
+            calls
+                .iter()
+                .filter(|c| matches!(c, Call::Verify { .. }))
+                .count(),
             1,
             "got {calls:?}"
         );
         assert_eq!(
-            calls.iter().filter(|c| matches!(c, Call::Locate { .. })).count(),
+            calls
+                .iter()
+                .filter(|c| matches!(c, Call::Locate { .. }))
+                .count(),
             0,
             "a verify failure must not be mistaken for a bad box, got {calls:?}"
         );
@@ -1763,8 +1888,6 @@ mod tests {
         ));
     }
 
-
-
     #[tokio::test]
     async fn unverified_target_fails_without_coordinates() {
         let hint = PxBox {
@@ -1775,11 +1898,7 @@ mod tests {
         };
         let box_ = NormBox::new(400.0, 300.0, 500.0, 400.0);
         let vision = FakeVision::new()
-            .with_verify(vec![
-                no_left("空白"),
-                no_left("空白"),
-                no_left("空白"),
-            ])
+            .with_verify(vec![no_left("空白"), no_left("空白"), no_left("空白")])
             .with_locate(vec![Some(box_), Some(box_), None]);
         let out = locate_one(
             &vision,
@@ -1802,15 +1921,15 @@ mod tests {
     #[tokio::test]
     async fn batch_isolates_failures() {
         let vision = FakeVision::new()
-            .with_locate(vec![
-                None,
-                Some(NormBox::new(400.0, 300.0, 500.0, 400.0)),
-            ])
+            .with_locate(vec![None, Some(NormBox::new(400.0, 300.0, 500.0, 400.0))])
             .with_verify(vec![yes("保存按钮")]);
         let out = locate_elements(
             &vision,
             &frame(),
-            &[LocateRequest::new("地址栏", "点击它"), LocateRequest::new("保存按钮", "点击它")],
+            &[
+                LocateRequest::new("地址栏", "点击它"),
+                LocateRequest::new("保存按钮", "点击它"),
+            ],
             &cfg(),
             &cancel_token(),
         )
@@ -1950,7 +2069,8 @@ mod tests {
     async fn trace_keeps_a_description_the_log_line_would_cut() {
         // The words do not matter, only that the description is longer than the
         // log line's cap (4 × ~41 chars).
-        let long = "「财务分析」标签页右侧的导出按钮，位于下拉箭头左边，仅在报表有数据时出现。".repeat(4);
+        let long =
+            "「财务分析」标签页右侧的导出按钮，位于下拉箭头左边，仅在报表有数据时出现。".repeat(4);
         assert!(
             long.chars().count() > LOG_DESC_MAX,
             "this test is pointless unless the description exceeds the log cap"
@@ -1976,6 +2096,9 @@ mod tests {
             .prompt
             .as_deref()
             .unwrap();
-        assert!(prompt.contains(&long), "the trace must keep the whole prompt");
+        assert!(
+            prompt.contains(&long),
+            "the trace must keep the whole prompt"
+        );
     }
 }

@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use super::pathmap::Mount;
-use crate::user_key::{data_volume_name, home_volume_name, user_key};
+use crate::user_key::{data_volume_name, home_volume_name};
 
 /// Deprecated guest alias. New mounts use [`GUEST_DATA`]; keep the constant so
 /// older call sites that still mention `/workspace` fail loudly in tests.

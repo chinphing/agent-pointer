@@ -867,6 +867,9 @@ async fn run() -> anyhow::Result<()> {
         )
         .route("/api/projects/sidebar", get(load_sidebar_projects))
         .route("/api/projects", get(load_projects).post(create_project))
+        .route("/api/workspace/policy", get(workspace_policy))
+        .route("/api/workspace/dirs", get(workspace_list_dirs).post(workspace_create_dir))
+        .route("/api/workspace/select", post(workspace_select))
         .route("/api/worktrees", post(create_worktree))
         .route("/api/worktrees/inspect", get(inspect_worktree))
         .route(
@@ -2814,15 +2817,136 @@ struct CreateProjectRequest {
     workspace_root: String,
 }
 
+
+#[derive(Deserialize)]
+struct WorkspaceBrowseQuery {
+    #[serde(default)]
+    parent: Option<String>,
+    #[serde(default)]
+    conversation_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WorkspaceCreateDirBody {
+    parent: String,
+    name: String,
+    #[serde(default)]
+    conversation_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WorkspaceSelectBody {
+    path: String,
+    #[serde(default)]
+    conversation_id: Option<String>,
+}
+
+async fn workspace_policy(
+    State(state): State<ServerState>,
+) -> Result<Json<pointer_core::workspace_resolve::WorkspacePolicy>, ApiError> {
+    require_platform_access(&state)?;
+    let uid = platform_session_user_id(&state);
+    Ok(Json(
+        pointer_core::workspace_service::policy_for_user(&uid).map_err(ApiError::from)?,
+    ))
+}
+
+async fn workspace_list_dirs(
+    State(state): State<ServerState>,
+    Query(q): Query<WorkspaceBrowseQuery>,
+) -> Result<Json<pointer_core::workspace_service::WorkspaceListResult>, ApiError> {
+    require_platform_access(&state)?;
+    let uid = platform_session_user_id(&state);
+    if let Some(cid) = q.conversation_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        require_conversation_access(&state, cid)?;
+    }
+    let cid = q
+        .conversation_id
+        .clone()
+        .unwrap_or_else(|| format!("browse-{}", uid));
+    let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
+        .map_err(ApiError::from)?;
+    let parent = q.parent.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        pointer_core::workspace_service::list_directories(&uid, parent.as_deref(), env)
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!(e)))?
+    .map_err(ApiError::from)?;
+    Ok(Json(result))
+}
+
+async fn workspace_create_dir(
+    State(state): State<ServerState>,
+    Json(body): Json<WorkspaceCreateDirBody>,
+) -> Result<Json<pointer_core::workspace_service::WorkspaceDirEntry>, ApiError> {
+    require_platform_access(&state)?;
+    let uid = platform_session_user_id(&state);
+    if let Some(cid) = body.conversation_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        require_conversation_access(&state, cid)?;
+    }
+    let cid = body
+        .conversation_id
+        .clone()
+        .unwrap_or_else(|| format!("browse-{}", uid));
+    let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
+        .map_err(ApiError::from)?;
+    let result = tokio::task::spawn_blocking(move || {
+        pointer_core::workspace_service::create_directory(&uid, &body.parent, &body.name, env)
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!(e)))?
+    .map_err(ApiError::from)?;
+    Ok(Json(result))
+}
+
+async fn workspace_select(
+    State(state): State<ServerState>,
+    Json(body): Json<WorkspaceSelectBody>,
+) -> Result<Json<pointer_core::workspace_service::WorkspaceSelectResult>, ApiError> {
+    require_platform_access(&state)?;
+    let uid = platform_session_user_id(&state);
+    if let Some(cid) = body.conversation_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        require_conversation_access(&state, cid)?;
+    }
+    let cid = body
+        .conversation_id
+        .clone()
+        .unwrap_or_else(|| format!("browse-{}", uid));
+    let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
+        .map_err(ApiError::from)?;
+    let selection = pointer_core::workspace_resolve::WorkspaceSelection {
+        path: body.path.clone(),
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        pointer_core::workspace_service::select_workspace(&uid, &selection, env)
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!(e)))?
+    .map_err(ApiError::from)?;
+    Ok(Json(result))
+}
+
 async fn create_project(
     State(state): State<ServerState>,
     Json(input): Json<CreateProjectRequest>,
 ) -> Result<Json<pointer_core::models::ProjectCreationResult>, ApiError> {
     require_platform_access(&state)?;
     let uid = platform_session_user_id(&state);
+    let cid = format!("browse-{uid}");
+    let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
+        .map_err(ApiError::from)?;
+    let selected = pointer_core::workspace_service::select_workspace(
+        &uid,
+        &pointer_core::workspace_resolve::WorkspaceSelection {
+            path: input.workspace_root.clone(),
+        },
+        env,
+    )
+    .map_err(ApiError::from)?;
     Ok(Json(storage::create_project(
         &input.name,
-        &input.workspace_root,
+        &selected.path,
         &uid,
     )?))
 }

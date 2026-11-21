@@ -341,6 +341,10 @@ export interface RuntimeApi {
   /** Describe the workspace when it is a linked worktree; null for a main checkout. */
   inspectWorktree(workspaceRoot: string): Promise<WorktreeInfo | null>
   createDirectory(parentPath: string, name: string): Promise<string>
+  getWorkspacePolicy(): Promise<import('../types/chat').WorkspacePolicy>
+  listWorkspaceChooserDirs(parent?: string, conversationId?: string): Promise<import('../types/chat').WorkspaceListResult>
+  createWorkspaceChooserDir(parent: string, name: string, conversationId?: string): Promise<import('../types/chat').WorkspaceChooserEntry>
+  selectWorkspacePath(path: string, conversationId?: string): Promise<import('../types/chat').WorkspaceSelectResult>
   updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'workspaceRoot' | 'isPinned' | 'isArchived'>>): Promise<Project>
   deleteProject(id: string): Promise<void>
   searchConversations(query: string, limit?: number): Promise<ConversationSearchHit[]>
@@ -540,6 +544,10 @@ export const createProject = api.createProject
 export const createWorktree = api.createWorktree
 export const inspectWorktree = api.inspectWorktree
 export const createDirectory = api.createDirectory
+export const getWorkspacePolicy = api.getWorkspacePolicy
+export const listWorkspaceChooserDirs = api.listWorkspaceChooserDirs
+export const createWorkspaceChooserDir = api.createWorkspaceChooserDir
+export const selectWorkspacePath = api.selectWorkspacePath
 export const updateProject = api.updateProject
 export const deleteProject = api.deleteProject
 export const searchConversations = api.searchConversations

@@ -57,6 +57,7 @@ pub mod webhook_result;
 pub mod workspace_delegation;
 pub mod workspace_read;
 pub mod workspace_resolve;
+pub mod workspace_service;
 pub mod worktree;
 
 /// Deprecated re-export — use [`task_board::history_trim`] instead.

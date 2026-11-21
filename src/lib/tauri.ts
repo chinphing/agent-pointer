@@ -623,6 +623,36 @@ export async function inspectWorktree(workspaceRoot: string): Promise<WorktreeIn
   return await invoke<WorktreeInfo | null>('worktree_inspect', { workspaceRoot })
 }
 
+export async function getWorkspacePolicy(): Promise<import('../types/chat').WorkspacePolicy> {
+  return await invoke('workspace_policy')
+}
+
+export async function listWorkspaceChooserDirs(
+  parent?: string,
+  conversationId?: string
+): Promise<import('../types/chat').WorkspaceListResult> {
+  return await invoke('workspace_list_dirs', { parent: parent ?? null, conversationId: conversationId ?? null })
+}
+
+export async function createWorkspaceChooserDir(
+  parent: string,
+  name: string,
+  conversationId?: string
+): Promise<import('../types/chat').WorkspaceChooserEntry> {
+  return await invoke('workspace_create_dir', {
+    parent,
+    name,
+    conversationId: conversationId ?? null
+  })
+}
+
+export async function selectWorkspacePath(
+  path: string,
+  conversationId?: string
+): Promise<import('../types/chat').WorkspaceSelectResult> {
+  return await invoke('workspace_select', { path, conversationId: conversationId ?? null })
+}
+
 export async function createDirectory(parentPath: string, name: string): Promise<string> {
   return await invoke<string>('create_directory', { parentPath, name })
 }

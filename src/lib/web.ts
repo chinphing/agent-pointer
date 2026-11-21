@@ -931,8 +931,52 @@ export async function inspectWorktree(workspaceRoot: string): Promise<WorktreeIn
   )
 }
 
-export async function createDirectory(_parentPath: string, _name: string): Promise<string> {
-  throw new Error('当前网页环境不支持创建目录，请先在系统中创建目录后选择')
+export async function createDirectory(parentPath: string, name: string): Promise<string> {
+  const entry = await createWorkspaceChooserDir(parentPath, name)
+  return entry.path
+}
+
+export async function getWorkspacePolicy(): Promise<import('../types/chat').WorkspacePolicy> {
+  return await request('/api/workspace/policy')
+}
+
+export async function listWorkspaceChooserDirs(
+  parent?: string,
+  conversationId?: string
+): Promise<import('../types/chat').WorkspaceListResult> {
+  const params = new URLSearchParams()
+  if (parent) params.set('parent', parent)
+  if (conversationId) params.set('conversation_id', conversationId)
+  const q = params.toString()
+  return await request(`/api/workspace/dirs${q ? `?${q}` : ''}`)
+}
+
+export async function createWorkspaceChooserDir(
+  parent: string,
+  name: string,
+  conversationId?: string
+): Promise<import('../types/chat').WorkspaceChooserEntry> {
+  return await request('/api/workspace/dirs', {
+    method: 'POST',
+    body: JSON.stringify({
+      parent,
+      name,
+      conversation_id: conversationId ?? null
+    })
+  })
+}
+
+export async function selectWorkspacePath(
+  path: string,
+  conversationId?: string
+): Promise<import('../types/chat').WorkspaceSelectResult> {
+  return await request('/api/workspace/select', {
+    method: 'POST',
+    body: JSON.stringify({
+      path,
+      conversation_id: conversationId ?? null
+    })
+  })
 }
 
 export async function updateProject(

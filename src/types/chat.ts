@@ -1320,3 +1320,27 @@ export interface TaskBoardDocument {
   /** Legacy v3 alias of `global_milestones`. */
   board?: TaskBoardItem[]
 }
+
+
+/** Shared workspace chooser policy returned by WorkspaceService. */
+export interface WorkspacePolicy {
+  selectableRoots: string[]
+  canCreateDirectories: boolean
+  reservedNames: string[]
+}
+
+export interface WorkspaceChooserEntry {
+  name: string
+  path: string
+  isDir: boolean
+}
+
+export interface WorkspaceListResult {
+  parent: string
+  entries: WorkspaceChooserEntry[]
+}
+
+export interface WorkspaceSelectResult {
+  path: string
+  displayPath: string
+}

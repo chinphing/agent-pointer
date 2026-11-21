@@ -156,6 +156,79 @@ pub fn delete_workspace_path(
     .map_err(|e| e.to_string())
 }
 
+
+#[tauri::command]
+pub async fn workspace_policy() -> Result<pointer_core::workspace_resolve::WorkspacePolicy, String> {
+    let uid = pointer_core::session_user_env::current_session_user_id().unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::workspace_service::policy_for_user(&uid).map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn workspace_list_dirs(
+    parent: Option<String>,
+    conversation_id: Option<String>,
+) -> Result<pointer_core::workspace_service::WorkspaceListResult, String> {
+    let uid = pointer_core::session_user_env::current_session_user_id().unwrap_or_default();
+    let cid = conversation_id
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("browse-{uid}"));
+    tauri::async_runtime::spawn_blocking(move || {
+        let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
+            .map_err(|e| format!("{e:#}"))?;
+        pointer_core::workspace_service::list_directories(&uid, parent.as_deref(), env)
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn workspace_create_dir(
+    parent: String,
+    name: String,
+    conversation_id: Option<String>,
+) -> Result<pointer_core::workspace_service::WorkspaceDirEntry, String> {
+    let uid = pointer_core::session_user_env::current_session_user_id().unwrap_or_default();
+    let cid = conversation_id
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("browse-{uid}"));
+    tauri::async_runtime::spawn_blocking(move || {
+        let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
+            .map_err(|e| format!("{e:#}"))?;
+        pointer_core::workspace_service::create_directory(&uid, &parent, &name, env)
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn workspace_select(
+    path: String,
+    conversation_id: Option<String>,
+) -> Result<pointer_core::workspace_service::WorkspaceSelectResult, String> {
+    let uid = pointer_core::session_user_env::current_session_user_id().unwrap_or_default();
+    let cid = conversation_id
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("browse-{uid}"));
+    tauri::async_runtime::spawn_blocking(move || {
+        let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
+            .map_err(|e| format!("{e:#}"))?;
+        pointer_core::workspace_service::select_workspace(
+            &uid,
+            &pointer_core::workspace_resolve::WorkspaceSelection { path },
+            env,
+        )
+        .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
 #[tauri::command]
 pub async fn worktree_create(
     conversation_id: String,

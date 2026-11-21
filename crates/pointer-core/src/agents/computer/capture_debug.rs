@@ -39,6 +39,25 @@ fn capture_root_dir() -> Option<PathBuf> {
     }
 }
 
+/// Prefer the user data volume captures tree when a session user is known.
+fn capture_dir_for_conversation(conversation_id: &str, date: &str) -> Option<PathBuf> {
+    let uid = crate::user_storage::session_user_id_for_conversation(conversation_id);
+    match crate::user_data_paths::captures_host_dir(&uid, conversation_id, date) {
+        Ok(dir) => Some(dir),
+        Err(error) => {
+            log::warn!("computer capture: user data captures unavailable ({error:#}); using legacy root");
+            let root = capture_root_dir()?;
+            let conv_seg = sanitize_path_segment(conversation_id);
+            let dir = root.join(date).join(conv_seg);
+            if let Err(e) = fs::create_dir_all(&dir) {
+                log::warn!("computer capture dump: create_dir_all {:?}: {e}", dir);
+                return None;
+            }
+            Some(dir)
+        }
+    }
+}
+
 /// Join `rel` under the capture root; rejects `..` and absolute paths.
 pub fn safe_capture_file_path(rel: &str) -> Option<PathBuf> {
     let root = capture_root_dir()?;
@@ -301,18 +320,13 @@ pub fn save_computer_capture_debug(
         return None;
     }
 
-    let Some(root) = capture_root_dir() else {
-        log::warn!("computer capture dump: could not resolve app data directory");
-        return None;
-    };
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let ts = chrono::Local::now().timestamp_millis();
     let conv_seg = sanitize_path_segment(conversation_id);
-    let dir = root.join(&date).join(&conv_seg);
-    if let Err(e) = fs::create_dir_all(&dir) {
-        log::warn!("computer capture dump: create_dir_all {:?}: {e}", dir);
+    let Some(dir) = capture_dir_for_conversation(conversation_id, &date) else {
+        log::warn!("computer capture dump: could not resolve capture directory");
         return None;
-    }
+    };
 
     let pfx = sanitize_path_segment(file_prefix);
 

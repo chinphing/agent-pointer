@@ -12,7 +12,7 @@ use crate::user_storage::session_user_id_for_conversation;
 
 use super::access::{assert_app_media_preview_allowed, path_has_traversal};
 use super::filename::safe_attachment_basename;
-use super::layout::{parse_storage_rel, verify_storage_rel_access};
+use super::layout::{build_v2_storage_rel, parse_storage_rel, resolve_v2_host_path, verify_storage_rel_access, LAYOUT_VERSION_PREFIX};
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
 
@@ -49,7 +49,9 @@ pub fn ensure_composer_attachment_size(len: u64, file_name: &str) -> Result<()> 
 /// True for rel paths stored directly under `{app_data}/` (not conversation attachment layout).
 pub fn is_app_data_subtree_rel(raw: &str) -> bool {
     let rel = raw.trim().trim_start_matches('/');
-    rel.starts_with(GENERATED_MEDIA_PREFIX) || rel.starts_with(SESSION_SANDBOXES_PREFIX)
+    rel.starts_with(GENERATED_MEDIA_PREFIX)
+        || rel.starts_with(SESSION_SANDBOXES_PREFIX)
+        || rel.starts_with(&format!("{LAYOUT_VERSION_PREFIX}/"))
 }
 
 /// Return a 12-character lowercase hex attachment ID embedded in a sandbox attachment path.
@@ -66,15 +68,34 @@ pub fn short_attachment_id_from_sandbox_rel(raw: &str) -> Option<String> {
 
 fn sandbox_attachment_rel(conversation_id: &str) -> Result<(PathBuf, String)> {
     let session_user_id = session_user_id_for_conversation(conversation_id);
-    let sandbox = SessionSandbox::ensure_default(conversation_id, &session_user_id)?;
-    let dir = sandbox.join(SANDBOX_ATTACHMENTS_DIR);
-    fs::create_dir_all(&dir).context("create sandbox attachment directory")?;
-    let rel = dir
-        .strip_prefix(app_data_dir()?)
-        .context("sandbox attachment outside app data")?
-        .to_string_lossy()
-        .replace('\\', "/");
-    Ok((dir, rel))
+    // Prefer the user data volume layout (`/data/attachments/...`). Fall back to
+    // the legacy per-conversation sandbox only when the data volume is unavailable.
+    match crate::user_data_paths::attachments_host_dir(&session_user_id, conversation_id) {
+        Ok(dir) => {
+            let placeholder = build_v2_storage_rel(
+                &session_user_id,
+                conversation_id,
+                "attachments",
+                "__dir__",
+            );
+            let rel_base = placeholder.rsplit_once('/').map(|(b, _)| b.to_string()).unwrap_or(placeholder);
+            Ok((dir, rel_base))
+        }
+        Err(error) => {
+            log::warn!(
+                "media: user data attachments dir unavailable ({error:#}); falling back to session sandbox"
+            );
+            let sandbox = SessionSandbox::ensure_default(conversation_id, &session_user_id)?;
+            let dir = sandbox.join(SANDBOX_ATTACHMENTS_DIR);
+            fs::create_dir_all(&dir).context("create sandbox attachment directory")?;
+            let rel = dir
+                .strip_prefix(app_data_dir()?)
+                .context("sandbox attachment outside app data")?
+                .to_string_lossy()
+                .replace('\\', "/");
+            Ok((dir, rel))
+        }
+    }
 }
 
 fn sandbox_attachment_dir_for_path(path: &Path) -> Result<Option<PathBuf>> {
@@ -183,8 +204,20 @@ pub fn conversation_media_root() -> Result<PathBuf> {
 }
 
 pub fn media_abs_path(storage_rel_path: &str) -> Result<PathBuf> {
+    let rel = storage_rel_path.trim().trim_start_matches('/');
+    if rel.starts_with(&format!("{LAYOUT_VERSION_PREFIX}/")) {
+        if let Err(e) = verify_storage_rel_access(storage_rel_path) {
+            log::info!("media_abs_path verify_storage_rel_access FAILED: {e:#}");
+            return Err(e);
+        }
+        let path = resolve_v2_host_path(storage_rel_path)?;
+        if path.exists() {
+            return Ok(path);
+        }
+        anyhow::bail!("media file not found under user data: {}", path.display());
+    }
     if is_app_data_subtree_rel(storage_rel_path) {
-        let path = app_data_dir()?.join(storage_rel_path.trim().trim_start_matches('/'));
+        let path = app_data_dir()?.join(rel);
         if path.exists() {
             return Ok(path);
         }
@@ -202,6 +235,12 @@ pub fn media_abs_path_unscoped(storage_rel_path: &str) -> Result<PathBuf> {
     let rel = storage_rel_path.trim().trim_start_matches('/');
     if rel.is_empty() || rel.contains("..") {
         anyhow::bail!("invalid media rel path");
+    }
+    if rel.starts_with(&format!("{LAYOUT_VERSION_PREFIX}/")) {
+        let path = resolve_v2_host_path(storage_rel_path)?;
+        if path.is_file() {
+            return Ok(path);
+        }
     }
     let primary = conversation_media_root()?.join(rel);
     if primary.is_file() {
@@ -762,7 +801,10 @@ mod tests {
         fs::write(&src, &payload).expect("write src");
 
         let rel = save_attachment_from_path("conv-path-copy", &src, "photo.png").expect("copy");
-        assert!(rel.contains("session-sandboxes/"));
+        assert!(
+            rel.starts_with("v2/") || rel.contains("session-sandboxes/"),
+            "expected v2 or legacy sandbox rel, got {rel}"
+        );
         assert!(rel.contains("attachments/"));
         assert!(rel.ends_with("_photo.png") || rel.contains("_photo.png"));
 

@@ -53,18 +53,6 @@ impl ClipboardOps for ControlClipboard {
     }
 }
 
-struct SystemClipboard;
-
-impl ClipboardOps for SystemClipboard {
-    fn replace_text(&mut self, text: &str) -> Result<Option<String>> {
-        crate::platform::clipboard::replace_text(text)
-    }
-
-    fn write_text(&mut self, text: &str) -> Result<()> {
-        crate::platform::clipboard::write_text(text)
-    }
-}
-
 /// Paste `text`, then restore the previous clipboard content **after** the
 /// target app has had time to read it.
 ///

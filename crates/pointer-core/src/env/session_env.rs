@@ -934,7 +934,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn adopt_returns_none_when_container_absent() {
         // 收养只在容器**已经存在**时才有意义；不存在就该老老实实返回 None，
         // 不能顺手把容器建起来（面板轮询会反复调用）。

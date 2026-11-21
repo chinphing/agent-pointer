@@ -38,6 +38,7 @@ pub mod server_access;
 pub mod server_config;
 pub mod server_workspace;
 pub(crate) mod scoped_env_slot;
+pub mod secret_store;
 pub mod session_sandbox;
 pub mod session_search;
 pub mod session_user_env;

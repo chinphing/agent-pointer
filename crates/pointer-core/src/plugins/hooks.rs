@@ -615,7 +615,10 @@ async fn run_hook_command(
     let timeout = Duration::from_millis(timeout_ms);
     let path = command_path.clone();
 
-    let out = tokio::task::spawn_blocking(move || run_hook_blocking(env, &path, &event_json, timeout))
+    let plugin_dir_owned = plugin_dir.to_path_buf();
+    let out = tokio::task::spawn_blocking(move || {
+        run_hook_blocking(env, &path, &event_json, timeout, &plugin_dir_owned)
+    })
         .await
         .map_err(|e| anyhow!("插件 hook 任务失败: {e}"))??;
     parse_hook_decision(&out.stdout, out.code)
@@ -634,12 +637,23 @@ fn run_hook_blocking(
     command_path: &Path,
     event_json: &str,
     timeout: Duration,
+    plugin_dir: &Path,
 ) -> Result<HookOutput> {
     use crate::env::SpawnOptions;
 
     let argv = vec![command_path.to_string_lossy().into_owned()];
+    let uid = crate::session_user_env::current_session_user_id().unwrap_or_default();
+    let plugin_id = plugin_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("plugin");
+    let mut opts = SpawnOptions::default();
+    match crate::secret_store::plugin_process_env(&uid, plugin_id, plugin_dir, None) {
+        Ok(extra) => opts.env.extend(extra),
+        Err(e) => log::warn!("hook: plugin process env unavailable: {e:#}"),
+    }
     let mut child = env
-        .spawn(&argv, SpawnOptions::default())
+        .spawn(&argv, opts)
         .map_err(|e| anyhow!("启动插件 hook 失败 ({}): {e:#}", command_path.display()))?;
     child
         .write_all(event_json.as_bytes())

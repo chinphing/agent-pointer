@@ -55,7 +55,7 @@ pub struct PluginRecord {
     pub enabled: bool,
 }
 
-/// 持久化授权记录（单文件 JSON，位于用户级插件根目录 `.auth.json`）。
+/// 持久化授权记录（单文件 JSON，位于用户 Home `.pointer/plugin-auth.json`）。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct AuthEntry {
     pub(crate) dir: String,
@@ -74,7 +74,7 @@ pub(crate) struct AuthStore {
 #[derive(Default)]
 pub struct PluginRegistry {
     inner: RwLock<HashMap<String, PluginRecord>>,
-    /// 授权状态文件路径覆盖（测试用；默认 `~/.pointer/plugins/.auth.json`）。
+    /// 授权状态文件路径覆盖（测试用；默认用户 Home `plugin-auth.json`）。
     auth_path_override: Option<PathBuf>,
     /// 上次扫描见过的插件 id 集合（检测目录被外部删除）。
     seen_ids: RwLock<HashSet<String>>,
@@ -97,7 +97,7 @@ impl PluginRegistry {
         }
     }
 
-    /// 授权状态文件路径。
+    /// 授权状态文件路径（用户 Home 状态目录，不在插件代码树内）。
     fn auth_path(&self) -> Result<PathBuf> {
         match &self.auth_path_override {
             Some(p) => {
@@ -106,7 +106,35 @@ impl PluginRegistry {
                 }
                 Ok(p.clone())
             }
-            None => Ok(crate::plugins::user_plugins_dir()?.join(".auth.json")),
+            None => {
+                // Prefer `{home}/.pointer/plugin-auth.json`. Fall back to the
+                // legacy plugins-root `.auth.json` so existing installs keep working.
+                let uid = crate::session_user_env::current_session_user_id().unwrap_or_default();
+                if let Ok(path) = crate::user_data_paths::plugin_auth_store_path(&uid) {
+                    if path.is_file() {
+                        return Ok(path);
+                    }
+                    let legacy = crate::plugins::user_plugins_dir()?.join(".auth.json");
+                    if legacy.is_file() {
+                        log::info!(
+                            "plugins: using legacy auth store {}; new writes go to {}",
+                            legacy.display(),
+                            path.display()
+                        );
+                        // Migrate once when possible.
+                        if let Ok(raw) = std::fs::read(&legacy) {
+                            if let Err(e) = std::fs::write(&path, &raw) {
+                                log::warn!("plugins: failed to migrate auth store: {e:#}");
+                                return Ok(legacy);
+                            }
+                            log::info!("plugins: migrated auth store to {}", path.display());
+                        }
+                        return Ok(path);
+                    }
+                    return Ok(path);
+                }
+                Ok(crate::plugins::user_plugins_dir()?.join(".auth.json"))
+            }
         }
     }
 

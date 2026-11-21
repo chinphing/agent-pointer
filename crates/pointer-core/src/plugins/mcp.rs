@@ -113,13 +113,32 @@ impl McpClient {
         let command_path = Self::resolve_command(plugin_dir, &decl.command)?;
         let mut argv = vec![command_path.to_string_lossy().into_owned()];
         argv.extend(decl.args.iter().cloned());
+        let uid = crate::session_user_env::current_session_user_id().unwrap_or_default();
+        let mut env: Vec<(String, String)> = decl
+            .env
+            .iter()
+            .map(|(k, v)| {
+                let resolved = crate::secret_store::resolve_secret_placeholders(&uid, plugin_id, v)
+                    .unwrap_or_else(|e| {
+                        log::warn!("mcp: secret resolve failed for {k}: {e:#}");
+                        v.clone()
+                    });
+                (k.clone(), resolved)
+            })
+            .collect();
+        match crate::secret_store::plugin_process_env(&uid, plugin_id, plugin_dir, None) {
+            Ok(extra) => {
+                for (k, v) in extra {
+                    if !env.iter().any(|(ek, _)| ek == &k) {
+                        env.push((k, v));
+                    }
+                }
+            }
+            Err(e) => log::warn!("mcp: plugin process env unavailable: {e:#}"),
+        }
         let opts = SpawnOptions {
             cwd: None,
-            env: decl
-                .env
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
+            env,
         };
         // MCP server 是**插件加载期**起的宿主子进程（stdio 管道对端），这里没有会话上下文，
         // 所以显式按宿主起进程；**调用**侧（`register_mcp_tool`）已限制为 local 会话，

@@ -5,7 +5,9 @@ mod reference_image;
 mod save;
 mod volcengine;
 
-pub use reference_image::resolve_reference_image_for_api;
+pub use reference_image::{
+    resolve_reference_image_for_api, resolve_reference_image_for_api_in_env,
+};
 
 pub use billing::{GenerationBillingMode, GenerationUsage};
 pub use dashscope::{GenerationArtifact, ImageGenerateRequest, VideoGenerateRequest};

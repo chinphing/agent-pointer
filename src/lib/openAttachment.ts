@@ -18,15 +18,17 @@ function triggerBrowserDownload(url: string, fileName: string) {
 /** Download (web) or open with the OS default app (desktop). */
 export async function downloadAttachment(
   att: RenderableAttachment,
-  loadedPreviewUrl?: string | null
+  loadedPreviewUrl?: string | null,
+  conversationId?: string | null
 ): Promise<void> {
-  return openAttachmentWithSystemDefault(att, loadedPreviewUrl)
+  return openAttachmentWithSystemDefault(att, loadedPreviewUrl, conversationId)
 }
 
 /** Open a file attachment with the OS default app (desktop) or download/open preview (web). */
 export async function openAttachmentWithSystemDefault(
   att: RenderableAttachment,
-  loadedPreviewUrl?: string | null
+  loadedPreviewUrl?: string | null,
+  conversationId?: string | null
 ): Promise<void> {
   if (isTauriRuntime()) {
     if (att.localAbsPath) {
@@ -60,7 +62,7 @@ export async function openAttachmentWithSystemDefault(
   }
   const mediaRef = att.localAbsPath?.trim() || att.mediaRef?.trim()
   if (mediaRef) {
-    await downloadChatMediaRef(mediaRef, att.fileName || 'attachment')
+    await downloadChatMediaRef(mediaRef, att.fileName || 'attachment', conversationId)
     return
   }
   throw new Error('网页端暂不支持打开该附件')

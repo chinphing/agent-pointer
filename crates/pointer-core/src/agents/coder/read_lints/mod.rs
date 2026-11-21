@@ -228,9 +228,9 @@ fn monorepo_fallback_plans(
         .collect()
 }
 
-fn build_run_plan(root: &Path, mode: StackMode, filters: &[PathBuf]) -> Vec<RunPlan> {
-    match mode {
-        StackMode::ConfigOnly => load_lint_config(root)
+fn build_run_plan(root: &Path, mode: StackMode, filters: &[PathBuf]) -> Result<Vec<RunPlan>> {
+    let plans = match mode {
+        StackMode::ConfigOnly => load_lint_config(root)?
             .map(|f| f.commands.into_iter().map(RunPlan::Config).collect())
             .unwrap_or_default(),
         StackMode::JavaAuto => detect::pick_java_stack(root)
@@ -278,14 +278,15 @@ fn build_run_plan(root: &Path, mode: StackMode, filters: &[PathBuf]) -> Vec<RunP
             let mut v: Vec<RunPlan> = builtins.into_iter().map(RunPlan::Builtin).collect();
             append_eslint_plans_from_filters(root, filters, &mut v);
             append_oxlint_plans_from_filters(root, filters, &mut v);
-            if let Some(f) = load_lint_config(root) {
+            if let Some(f) = load_lint_config(root)? {
                 for c in f.commands {
                     v.push(RunPlan::Config(c));
                 }
             }
             v
         }
-    }
+    };
+    Ok(plans)
 }
 
 fn node_tool_program_and_args(
@@ -918,12 +919,50 @@ fn run_config_entry(
     Ok((meta, diags))
 }
 
+/// 在 worker 线程里执行一个 lint 计划。
+///
+/// 线程局部绑定不跟线程走（`std::thread::scope` 起来的是新线程），这里显式重放
+/// 会话环境，`exec` 里的 `require_env()` 才拿得到。旧代码在 worker 里靠
+/// `effective_env()` 兜底：沙箱部署下拿到的是 `DeniedEnv`，lint 一条都跑不起来。
+fn run_plan_in_env(
+    env: std::sync::Arc<dyn crate::env::Environment>,
+    plan: RunPlan,
+    root: &Path,
+    filters: &[PathBuf],
+    slice: u64,
+) -> (Value, Vec<Value>) {
+    let _guard = crate::env::EnvironmentGuard::enter(env);
+    match plan {
+        RunPlan::Builtin(b) => run_builtin(b, root, root, filters, slice),
+        RunPlan::BuiltinInDir { stack, dir } => run_builtin(stack, root, &dir, filters, slice),
+        RunPlan::Config(c) => match run_config_entry(root, &c, slice) {
+            Ok((meta, diags)) => (meta, diags),
+            Err(e) => {
+                warn!("read_lints: config command failed: {e}");
+                (
+                    json!({
+                        "engine": "pointer-lint-config",
+                        "shell": c.shell,
+                        "skipped": true,
+                        "reason": e.to_string(),
+                    }),
+                    Vec::new(),
+                )
+            }
+        },
+    }
+}
+
 fn run_read_lints(args: Value) -> Result<String> {
+    // 工具分发点（`ToolRegistry::invoke`）已把会话环境挂到本线程；这里要求显式绑定，
+    // 拿不到就报错——沙箱部署下按部署档位兜底会拿到 `DeniedEnv`，lint 全部跑不起来，
+    // 报出来的却是「工作区里没有 linter」。
+    let env = crate::env::require_env()?;
     let root = resolve_tool_workspace_root()?;
     let mode = parse_stack_mode(&args);
     let wall_total = wall_ms_from_args(&args);
     let filters = parse_paths_filter(&root, &args)?;
-    let plans = build_run_plan(&root, mode, &filters);
+    let plans = build_run_plan(&root, mode, &filters)?;
     if plans.is_empty() {
         let hint = match mode {
             StackMode::ConfigOnly => "Add `.pointer/lint.toml` with [[commands]] or use stack \"auto\".",
@@ -967,33 +1006,9 @@ fn run_read_lints(args: Value) -> Result<String> {
                 .map(|plan| {
                     let root = root.clone();
                     let filters = filters.clone();
+                    let env = env.clone();
                     scope
-                        .spawn(move || match plan {
-                            RunPlan::Builtin(b) => {
-                                let (meta, diags) = run_builtin(b, &root, &root, &filters, slice);
-                                (meta, diags)
-                            }
-                            RunPlan::BuiltinInDir { stack, dir } => {
-                                let (meta, diags) =
-                                    run_builtin(stack, &root, &dir, &filters, slice);
-                                (meta, diags)
-                            }
-                            RunPlan::Config(c) => match run_config_entry(&root, &c, slice) {
-                                Ok((meta, diags)) => (meta, diags),
-                                Err(e) => {
-                                    warn!("read_lints: config command failed: {e}");
-                                    (
-                                        json!({
-                                            "engine": "pointer-lint-config",
-                                            "shell": c.shell,
-                                            "skipped": true,
-                                            "reason": e.to_string(),
-                                        }),
-                                        Vec::new(),
-                                    )
-                                }
-                            },
-                        })
+                        .spawn(move || run_plan_in_env(env, plan, &root, &filters, slice))
                         .join()
                         .expect("read_lints worker")
                 })

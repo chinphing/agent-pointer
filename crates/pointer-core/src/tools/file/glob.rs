@@ -1,7 +1,8 @@
 use super::list::list_entry_type_allowed;
 use super::path::{expand_user_path_for_file, path_display_abs, resolve_existing_read_path};
+use super::tool_env;
 use super::{json_u64_opt_keys, DEFAULT_GLOB_RESULTS, MAX_GLOB_RESULTS, MAX_WALK_DEPTH};
-use crate::env::{effective_env, WalkOptions};
+use crate::env::WalkOptions;
 use anyhow::{anyhow, Result};
 use globset::{Glob, GlobSetBuilder};
 use log::{info, warn};
@@ -157,7 +158,7 @@ pub(crate) fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -
             };
             (walk_root, pattern_raw.to_string())
         };
-    let env = effective_env();
+    let env = tool_env(root);
     let walk_root = env
         .canonicalize(&walk_root)
         .map_err(|e| anyhow!("glob 搜索根路径无效: {e}"))?;

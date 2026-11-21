@@ -498,6 +498,115 @@ pub fn read_media_ref_preview(media_ref: &str) -> Result<ChatMediaPreview> {
     read_file_preview(&path)
 }
 
+/// 沙箱档位下媒体引用预览的整段读上限（32 MB，与工作区在线预览同一口径）。
+pub const MEDIA_REF_ENV_PREVIEW_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// 沙箱档位下媒体引用**下载**的整段读上限（256 MB）。
+///
+/// 远端后端（envd）宿主上没有文件句柄，只能整段读进内存；超过上限明确报错，
+/// 不静默截断。容器后端有宿主挂载，走宿主流式，不受这个上限影响。
+pub const MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+/// 媒体引用在**会话环境内**的路径。
+///
+/// 只有绝对路径才按会话环境解析：相对 / 存储 rel 路径是应用数据目录里的附件，
+/// 宿主解析失败就是真的没有，不该拿去环境里猜。
+pub fn media_ref_env_path(media_ref: &str) -> Result<PathBuf> {
+    let trimmed = media_ref.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("empty media ref");
+    }
+    let rel = trimmed
+        .strip_prefix(MEDIA_URI_SCHEME)
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    if path_has_traversal(rel) {
+        anyhow::bail!("media path traversal not allowed: {rel}");
+    }
+    let path = PathBuf::from(rel);
+    if !path.is_absolute() {
+        anyhow::bail!("media ref is not an absolute path: {rel}");
+    }
+    Ok(path)
+}
+
+/// 媒体引用的字节来源：宿主上找不到时按**会话环境**再解析一次。
+///
+/// 沙箱档位下 `MEDIA:` 引用是**环境内路径**（`/workspace/x.png`），宿主上没有这个
+/// 文件，只有取到该会话的环境才读得到。`env = None` 时直接返回宿主错误——这条
+/// 路由的调用方可能来自非工作区场景，缺会话参数**不 fail-closed**，维持宿主读取。
+///
+/// 字节来源判定复用 [`crate::workspace_read::media_body_for_streaming`]：
+/// 宿主挂载（local / docker）→ 宿主流式；远端后端 → 整段读（有上限）。
+pub fn media_ref_body_in_env(
+    media_ref: &str,
+    env: Option<&dyn crate::env::Environment>,
+    max_bytes: u64,
+) -> Result<(crate::workspace_read::WorkspaceMediaBody, String, String)> {
+    match chat_media_ref_file_meta(media_ref) {
+        Ok((path, mime_type, file_name)) => Ok((
+            crate::workspace_read::WorkspaceMediaBody::HostPath(path),
+            mime_type,
+            file_name,
+        )),
+        Err(host_err) => {
+            let Some(env) = env else {
+                return Err(host_err);
+            };
+            // 相对 / 存储 rel 路径只在宿主应用数据目录里有意义：环境里没得猜，
+            // 保持宿主错误原文（缺会话参数时也走这里，行为与以前一致）。
+            let Ok(path) = media_ref_env_path(media_ref) else {
+                return Err(host_err);
+            };
+            let body = crate::workspace_read::media_body_for_streaming(env, &path, max_bytes)
+                .with_context(|| format!("read media ref {media_ref} from session env"))?;
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|n| !n.is_empty())
+                .unwrap_or("attachment")
+                .to_string();
+            let mime_type = mime_from_path(&path);
+            Ok((body, mime_type, file_name))
+        }
+    }
+}
+
+/// 同 [`read_media_ref_preview`]，宿主上找不到时按**会话环境**再读一次。
+///
+/// `env = None` 时行为与 [`read_media_ref_preview`] 完全一致（宿主读取），
+/// 不因为缺会话参数而失败。
+pub fn read_media_ref_preview_in_env(
+    media_ref: &str,
+    env: Option<&dyn crate::env::Environment>,
+) -> Result<ChatMediaPreview> {
+    match read_media_ref_preview(media_ref) {
+        Ok(preview) => Ok(preview),
+        Err(host_err) => {
+            let Some(env) = env else {
+                return Err(host_err);
+            };
+            // 相对 / 存储 rel 路径只在宿主应用数据目录里有意义：环境里没得猜，
+            // 保持宿主错误原文（缺会话参数时也走这里，行为与以前一致）。
+            if media_ref_env_path(media_ref).is_err() {
+                return Err(host_err);
+            }
+            let (body, mime_type, file_name) =
+                media_ref_body_in_env(media_ref, Some(env), MEDIA_REF_ENV_PREVIEW_MAX_BYTES)?;
+            let bytes = match body {
+                crate::workspace_read::WorkspaceMediaBody::HostPath(host) => fs::read(&host)
+                    .with_context(|| format!("read media file {}", host.display()))?,
+                crate::workspace_read::WorkspaceMediaBody::Inline(bytes) => bytes,
+            };
+            Ok(ChatMediaPreview {
+                data_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+                mime_type,
+                file_name,
+            })
+        }
+    }
+}
+
 fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
     assert_app_media_preview_allowed(path)?;
     // 媒体库预览是宿主侧能力（应用数据目录里的附件），调用方是面板 / 服务端路由，

@@ -171,7 +171,7 @@ pub(crate) fn effective_terminal_cwd(
         //
         // 三种失败必须分开报：环境没绑定 ≠ 沙箱里没这个路径 ≠ 宿主目录不存在。
         // 以前一律报「工作区目录无效或不存在」，把"漏绑定"藏成"路径不对"。
-        let env = crate::env::effective_env();
+        let env = crate::env::require_env()?;
         if let Some(err) = crate::env::workspace_dir_error(Some(env.as_ref()), &p) {
             return Err(err);
         }
@@ -324,7 +324,7 @@ pub fn run_terminal_command_streaming(
 
     if terminal_requests_elevation(&args) {
         // 提权是宿主概念：沙箱里没有 sudo/管理员会话，直接说明而不是尝试宿主提权。
-        if crate::env::effective_env().kind() != crate::env::EnvKind::Local {
+        if crate::env::require_env()?.kind() != crate::env::EnvKind::Local {
             return Err(anyhow!(
                 "当前执行环境（headless/desktop）不支持提权命令：请在沙箱内用普通权限完成，或让用户在本机执行"
             ));
@@ -357,7 +357,7 @@ pub fn run_terminal_command_streaming(
 
     // headless/desktop 档位：命令在环境内执行，不经宿主 shell / PTY。
     // 宿主 spawn 会把命令跑在本机（工作区在沙箱里根本不存在）。
-    let active_env = crate::env::effective_env();
+    let active_env = crate::env::require_env()?;
     if active_env.kind() != crate::env::EnvKind::Local {
         let started = std::time::Instant::now();
         let opts = crate::env::ExecOptions {
@@ -417,7 +417,7 @@ pub fn run_terminal_command_streaming(
 
     // 只在 Host 档位刷新进程 PATH：headless/desktop 的命令跑在环境里，
     // 宿主 PATH 与它无关（Windows 注册表刷新是进程级副作用）。
-    if crate::env::effective_env().kind() == crate::env::EnvKind::Local {
+    if active_env.kind() == crate::env::EnvKind::Local {
         crate::shell_env::refresh_process_path_from_registry();
     }
 
@@ -1461,6 +1461,10 @@ mod cwd_tests {
     fn effective_terminal_cwd_defaults_to_workspace_root() {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().display().to_string();
+        // 执行路径上分发点已经绑过环境；严格入口要求显式绑定。
+        let _g = crate::env::EnvironmentGuard::enter(
+            Arc::new(crate::env::LocalEnv::new(dir.path())) as Arc<dyn crate::env::Environment>,
+        );
         let cwd = effective_terminal_cwd(None, &ws).unwrap();
         assert_eq!(cwd, dir.path().canonicalize().unwrap());
     }
@@ -1504,10 +1508,19 @@ mod cwd_tests {
     #[test]
     fn effective_terminal_cwd_uses_session_workspace_not_thread_local() {
         let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
         let ws = dir.path().display().to_string();
-        let resolved = std::thread::spawn(move || effective_terminal_cwd(None, &ws).unwrap())
-            .join()
-            .unwrap();
+        let other_root = other.path().to_path_buf();
+        let resolved = std::thread::spawn(move || {
+            // 绑一个**工作区不同**的环境：cwd 必须来自入参，不能来自线程绑定。
+            let _g = crate::env::EnvironmentGuard::enter(
+                Arc::new(crate::env::LocalEnv::new(other_root))
+                    as Arc<dyn crate::env::Environment>,
+            );
+            effective_terminal_cwd(None, &ws).unwrap()
+        })
+        .join()
+        .unwrap();
         let expected = dir.path().canonicalize().unwrap();
         #[cfg(windows)]
         let expected = normalize_terminal_cwd(expected);
@@ -1553,6 +1566,10 @@ mod process_tree_tests {
     fn cancel_kills_forked_grandchild() {
         let _path_lock = crate::test_support::path_env_lock();
         let dir = tempfile::tempdir().unwrap();
+        // 执行路径上分发点已经绑过环境；严格入口要求显式绑定。
+        let _env_guard = crate::env::EnvironmentGuard::enter(
+            Arc::new(crate::env::LocalEnv::new(dir.path())) as Arc<dyn crate::env::Environment>,
+        );
         let ws = dir.path().display().to_string();
         let pidfile = dir.path().join("grandchild.pid");
         // `&` forces the shell to fork, so the recorded pid is a grandchild of the

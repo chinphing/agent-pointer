@@ -1615,6 +1615,26 @@ struct MediaRefQuery {
     /// Optional display name for Content-Disposition (UTF-8 via filename*).
     #[serde(default, rename = "fileName")]
     file_name: Option<String>,
+    /// 会话 id。沙箱档位下媒体引用是**环境内路径**（`/workspace/...`），宿主上没有
+    /// 这个文件，只有按会话取到环境才读得到。缺省维持宿主读取（非工作区调用方）。
+    #[serde(default, rename = "conversationId")]
+    conversation_id: Option<String>,
+}
+
+/// media-ref 请求的会话环境：**只取该会话已建好的环境，不新建沙箱**。
+///
+/// 预览 / 下载是只读面板请求，为了读一张图去起容器（或拉起远端沙箱）代价太大；
+/// 会话正在跑时环境一定在缓存里。取不到就按宿主读，维持原有行为。
+fn media_ref_env(
+    state: &ServerState,
+    conversation_id: Option<&str>,
+) -> Result<Option<std::sync::Arc<dyn pointer_core::env::Environment>>, ApiError> {
+    let Some(id) = conversation_id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return Ok(None);
+    };
+    // 会话 id 是客户端可传的：先确认归属，否则普通用户能拿别人的 id 读别人的沙箱。
+    require_conversation_access(state, id)?;
+    Ok(pointer_core::env::session_env::env_for_conversation(id))
 }
 
 async fn preview_media_ref(
@@ -1623,9 +1643,16 @@ async fn preview_media_ref(
 ) -> Result<Json<ChatMediaPreview>, ApiError> {
     require_platform_access(&state)?;
     require_media_ref_access(&state, &q.media_ref)?;
-    Ok(Json(
-        pointer_core::media::read_media_ref_preview(&q.media_ref).map_err(ApiError::from)?,
-    ))
+    let env = media_ref_env(&state, q.conversation_id.as_deref())?;
+    let media_ref = q.media_ref.clone();
+    // 远端后端的读取走网络（阻塞），丢到阻塞线程池，别卡住 tokio worker。
+    let preview = tokio::task::spawn_blocking(move || {
+        pointer_core::media::read_media_ref_preview_in_env(&media_ref, env.as_deref())
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!("media ref preview task failed: {e}")))?
+    .map_err(ApiError::from)?;
+    Ok(Json(preview))
 }
 
 async fn download_media_ref(
@@ -1634,16 +1661,36 @@ async fn download_media_ref(
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
     require_media_ref_access(&state, &q.media_ref)?;
-    let (path, mime_type, stored_name) =
-        pointer_core::media::chat_media_ref_file_meta(&q.media_ref).map_err(ApiError::from)?;
+    let env = media_ref_env(&state, q.conversation_id.as_deref())?;
+    let media_ref = q.media_ref.clone();
+    let (body, mime_type, stored_name) = tokio::task::spawn_blocking(move || {
+        pointer_core::media::media_ref_body_in_env(
+            &media_ref,
+            env.as_deref(),
+            pointer_core::media::MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES,
+        )
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!("media ref resolve task failed: {e}")))?
+    .map_err(ApiError::from)?;
     let file_name = preferred_download_file_name(q.file_name.as_deref(), &stored_name);
     log::info!(
-        "media-ref-download start ref={} file={} path={}",
+        "media-ref-download start ref={} file={} source={}",
         q.media_ref,
         file_name,
-        path.display()
+        body.source_label()
     );
-    stream_media_file_response(&path, &mime_type, &file_name, false).await
+    match body {
+        WorkspaceMediaBody::HostPath(path) => {
+            stream_media_file_response(&path, &mime_type, &file_name, false).await
+        }
+        WorkspaceMediaBody::Inline(bytes) => Ok(media_bytes_response(
+            bytes,
+            &mime_type,
+            &file_name,
+            false,
+        )),
+    }
 }
 
 #[derive(Deserialize)]

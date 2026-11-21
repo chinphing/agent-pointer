@@ -146,7 +146,7 @@ fn run_sidecar(
         cwd: None,
         env: env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
     };
-    let mut child = crate::env::effective_env()
+    let mut child = crate::env::require_env()?
         .spawn(&argv, opts)
         .map_err(|e| anyhow!("启动插件工具失败 ({}): {e}", command_path.display()))?;
 

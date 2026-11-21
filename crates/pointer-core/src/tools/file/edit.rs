@@ -1,6 +1,6 @@
 use super::json_str;
 use super::path::{path_display_abs, resolve_writable_path};
-use crate::env::effective_env;
+use super::tool_env;
 use crate::text_diff::compute_diff_lines;
 use anyhow::{anyhow, Result};
 use log::info;
@@ -102,7 +102,7 @@ fn file_edit_apply_one(
         return Err(anyhow!("oldString 不能为空"));
     }
     let full = resolve_writable_path(root, path)?;
-    let env = effective_env();
+    let env = tool_env(root);
     if !env.exists(&full) {
         return Err(anyhow!("路径不存在: {}", full.display()));
     }

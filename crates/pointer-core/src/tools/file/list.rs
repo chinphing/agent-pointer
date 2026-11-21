@@ -1,6 +1,7 @@
 use super::path::{path_display_abs, resolve_existing_read_path};
+use super::tool_env;
 use super::{json_u64_opt_keys, DEFAULT_LIST_ENTRIES, MAX_LIST_ENTRIES, MAX_WALK_DEPTH};
-use crate::env::{effective_env, WalkOptions};
+use crate::env::WalkOptions;
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use std::path::Path;
@@ -54,7 +55,7 @@ pub(crate) fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -
         .unwrap_or("all");
 
     let base = resolve_existing_read_path(root, path_str, "list")?;
-    let env = effective_env();
+    let env = tool_env(root);
     if !env.metadata(&base).map(|m| m.is_dir).unwrap_or(false) {
         return Err(anyhow!("不是目录: {}", base.display()));
     }

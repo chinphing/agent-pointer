@@ -17,11 +17,14 @@ import {
   openAttachmentWithSystemDefault
 } from '../../../lib/openAttachment'
 import { isTauriRuntime } from '../../../lib/runtime'
+import { useChatStore } from '../../../stores/chat'
 
 const props = defineProps<{
   attachments: RenderableAttachment[]
   align?: 'start' | 'end'
 }>()
+
+const chat = useChatStore()
 
 const {
   mediaSrc,
@@ -29,11 +32,11 @@ const {
   onDownloadAttachment,
   copyFilePath,
   onRevealInFinder
-} = useChatAttachmentDisplay(() => props.attachments)
+} = useChatAttachmentDisplay(() => props.attachments, () => chat.currentId)
 
 async function onOpenAttachment(att: RenderableAttachment) {
   try {
-    await openAttachmentWithSystemDefault(att, mediaSrc(att))
+    await openAttachmentWithSystemDefault(att, mediaSrc(att), chat.currentId)
   } catch (e) {
     console.warn('open attachment failed', e)
   }

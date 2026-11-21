@@ -27,6 +27,20 @@ use list::execute_file_list_payload;
 use read::execute_file_read_with;
 use write::execute_file_write_payload;
 
+/// 文件工具执行路径用的执行环境。
+///
+/// 分发点（`ToolRegistry::invoke` → `ToolContextGuard`）已经按会话绑过环境，
+/// 所以正常情况下拿到的一定是绑定实例。没绑定时按**宿主**处理——这与本组
+/// 路径层既有约定一致（`path::env_exists` / `env_is_dir` /
+/// `effective_write_scope` 都是「`current_env()` 为 `None` = local 直跑」），
+/// 也与 `resolve_tool_workspace_root` 的报错口径一致。
+///
+/// 刻意**不按部署档位兜底**：沙箱部署下那会给出 `DeniedEnv`，把「漏绑定」
+/// 伪装成「沙箱里没这个路径」。
+pub(super) fn tool_env(root: &std::path::Path) -> Arc<dyn crate::env::Environment> {
+    crate::env::current_env().unwrap_or_else(|| crate::env::host_env_at(root))
+}
+
 /// Doc for registry tool `file`; keep in sync with `prompts/file.md`.
 const FILE_MD: &str = include_str!("../prompts/file.md");
 /// Stable dedup key for system tool appendix (under `crates/pointer-core/src/`).

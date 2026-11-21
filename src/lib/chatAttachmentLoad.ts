@@ -21,19 +21,20 @@ export function showsWebDownloadOnly(att: Pick<RenderableAttachment, 'kind'>): b
 }
 
 export async function resolveImagePreviewDataUrl(
-  att: RenderableAttachment
+  att: RenderableAttachment,
+  conversationId?: string | null
 ): Promise<string | null> {
   if (isUsableAttachmentPreviewUrl(att.previewUrl)) return att.previewUrl!.trim()
 
   let preview
   if (att.mediaRef && !att.storageRelPath) {
-    preview = await previewMediaRef(att.mediaRef)
+    preview = await previewMediaRef(att.mediaRef, conversationId)
   } else if (att.localAbsPath) {
-    preview = await previewMediaRef(att.localAbsPath)
+    preview = await previewMediaRef(att.localAbsPath, conversationId)
   } else if (att.storageRelPath) {
     preview = await previewChatMedia(att.storageRelPath)
   } else if (att.mediaRef) {
-    preview = await previewMediaRef(att.mediaRef)
+    preview = await previewMediaRef(att.mediaRef, conversationId)
   } else {
     return null
   }
@@ -73,9 +74,10 @@ export async function resolveDesktopPlaybackUrl(
 }
 
 export async function resolveEagerPreviewUrl(
-  att: RenderableAttachment
+  att: RenderableAttachment,
+  conversationId?: string | null
 ): Promise<string | null> {
-  if (att.kind === 'image') return resolveImagePreviewDataUrl(att)
+  if (att.kind === 'image') return resolveImagePreviewDataUrl(att, conversationId)
   if (isTauriRuntime() && (att.kind === 'video' || att.kind === 'audio')) {
     return resolveDesktopPlaybackUrl(att)
   }

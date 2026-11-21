@@ -595,8 +595,14 @@ export async function previewChatMedia(storageRelPath: string): Promise<ChatMedi
   return await request<ChatMediaPreview>(`/api/chat/media-preview?${q}`)
 }
 
-export async function previewMediaRef(mediaRef: string): Promise<ChatMediaPreview> {
+export async function previewMediaRef(
+  mediaRef: string,
+  conversationId?: string | null
+): Promise<ChatMediaPreview> {
   const q = new URLSearchParams({ mediaRef })
+  // 沙箱档位下 mediaRef 是环境内路径，服务端要按会话取环境才读得到。
+  const conv = conversationId?.trim()
+  if (conv) q.set('conversationId', conv)
   return await request<ChatMediaPreview>(`/api/chat/media-ref-preview?${q}`)
 }
 
@@ -662,10 +668,16 @@ export async function downloadChatMedia(
   )
 }
 
-export async function downloadChatMediaRef(mediaRef: string, fileName?: string): Promise<void> {
+export async function downloadChatMediaRef(
+  mediaRef: string,
+  fileName?: string,
+  conversationId?: string | null
+): Promise<void> {
   const params = new URLSearchParams({ mediaRef: mediaRef.trim() })
   const name = fileName?.trim()
   if (name) params.set('fileName', name)
+  const conv = conversationId?.trim()
+  if (conv) params.set('conversationId', conv)
   triggerNativeDownload(
     `${WEB_API_BASE}/api/chat/media-ref-download?${params}`,
     name || 'attachment'
@@ -691,10 +703,16 @@ export function chatMediaStreamUrl(storageRelPath: string): string {
   return `${WEB_API_BASE}/api/chat/media-stream?storageRelPath=${q}`
 }
 
-export function chatMediaRefDownloadUrl(mediaRef: string, fileName?: string): string {
+export function chatMediaRefDownloadUrl(
+  mediaRef: string,
+  fileName?: string,
+  conversationId?: string | null
+): string {
   const params = new URLSearchParams({ mediaRef: mediaRef.trim() })
   const name = fileName?.trim()
   if (name) params.set('fileName', name)
+  const conv = conversationId?.trim()
+  if (conv) params.set('conversationId', conv)
   return `${WEB_API_BASE}/api/chat/media-ref-download?${params}`
 }
 

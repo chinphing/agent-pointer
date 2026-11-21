@@ -251,7 +251,13 @@ fn resolve_compact_home_prefixes() -> Vec<PathBuf> {
 /// 技能索引里的 `<location>`：非 Host 档位要换成沙箱挂载点（`/skills/<name>/…`），
 /// 否则 agent 会拿着宿主路径去 `terminal` 里读，沙箱内根本不存在。
 fn map_skill_location(manifest: &Path, compact: String) -> String {
-    let env = crate::env::effective_env();
+    // 与 `tools::file::path::env_is_dir` 同一套约定：本线程绑定了会话环境就按它映射，
+    // 没绑定（宿主侧拼 prompt / 单元测试）就保持宿主 compact 路径。
+    // 不能用 `effective_env()`：沙箱部署下未绑定会拿到 `DeniedEnv`，映射表是空的，
+    // 技能路径会被换成错的（或原样漏出宿主路径）。
+    let Some(env) = crate::env::current_env() else {
+        return compact;
+    };
     if env.kind() == crate::env::EnvKind::Local {
         return compact;
     }

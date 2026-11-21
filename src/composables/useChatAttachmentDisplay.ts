@@ -10,11 +10,21 @@ import { downloadAttachment } from '../lib/openAttachment'
 import { revealInFinder } from '../lib/api'
 
 export function useChatAttachmentDisplay(
-  attachmentsSource: WatchSource<RenderableAttachment[]>
+  attachmentsSource: WatchSource<RenderableAttachment[]>,
+  /**
+   * 当前会话 id（沙箱档位下 mediaRef 是环境内路径，预览 / 下载要按会话解析）。
+   * 缺省 / 空值时服务端按宿主读，行为与以前一致。
+   */
+  conversationIdSource?: () => string | null | undefined
 ) {
   const loadedPreviews = ref<Record<string, string>>({})
   const resolvedAbsPaths = ref<Record<string, string>>({})
   const previewInflight = new Set<string>()
+
+  function currentConversationId(): string | null {
+    const id = conversationIdSource?.()?.trim() ?? ''
+    return id || null
+  }
 
   async function ensureMediaPreview(att: RenderableAttachment) {
     if (loadedPreviews.value[att.id] || previewInflight.has(att.id)) return
@@ -29,7 +39,7 @@ export function useChatAttachmentDisplay(
 
     previewInflight.add(att.id)
     try {
-      const url = await resolveEagerPreviewUrl(att)
+      const url = await resolveEagerPreviewUrl(att, currentConversationId())
       if (url) {
         loadedPreviews.value = { ...loadedPreviews.value, [att.id]: url }
       }
@@ -51,7 +61,7 @@ export function useChatAttachmentDisplay(
 
   async function onDownloadAttachment(att: RenderableAttachment) {
     try {
-      await downloadAttachment(att, mediaSrc(att))
+      await downloadAttachment(att, mediaSrc(att), currentConversationId())
     } catch (e) {
       console.warn('download attachment failed', e)
     }

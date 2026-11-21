@@ -119,7 +119,11 @@ impl McpClient {
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
         };
-        let mut child = crate::env::effective_env()
+        // MCP server 是**插件加载期**起的宿主子进程（stdio 管道对端），
+        // 这里没有会话上下文，显式按宿主环境处理。
+        // 不能用 `effective_env()`：沙箱部署下它会按部署档位返回 `DeniedEnv`，
+        // 把「插件加载没有会话」伪装成「启动 MCP server 失败」。
+        let mut child = crate::env::host_env()
             .spawn(&argv, opts)
             .map_err(|e| anyhow!("启动 MCP server 失败 ({}): {e}", command_path.display()))?;
         let stdout = child

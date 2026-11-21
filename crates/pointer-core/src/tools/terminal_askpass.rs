@@ -72,9 +72,11 @@ pub struct AskpassBridge {
 impl AskpassBridge {
     pub fn start() -> Result<Self> {
         let dir = std::env::temp_dir().join("pointer-askpass");
-        crate::env::effective_env().create_dir_all(&dir)?;
+        // 分发点已绑定环境（askpass 只在 terminal 执行路径上创建）。
+        let env = crate::env::require_env()?;
+        env.create_dir_all(&dir)?;
         let socket_path = dir.join(format!("askpass-{}.sock", uuid::Uuid::new_v4()));
-        let _ = crate::env::effective_env().remove_file(&socket_path);
+        let _ = env.remove_file(&socket_path);
         let listener = UnixListener::bind(&socket_path)
             .map_err(|e| anyhow!("askpass: bind socket failed: {e}"))?;
         let (connection_tx, connection_rx) = mpsc::channel();
@@ -141,8 +143,9 @@ pub fn try_create_ssh_askpass(
 #[cfg(unix)]
 pub fn ensure_askpass_helper_script() -> Result<PathBuf> {
     let path = std::env::temp_dir().join(format!("pointer-ssh-askpass-{}.sh", std::process::id()));
-    crate::env::effective_env().write_file(&path, ASKPASS_HELPER.as_bytes())?;
-    crate::env::effective_env().set_executable(&path)?;
+    let env = crate::env::require_env()?;
+    env.write_file(&path, ASKPASS_HELPER.as_bytes())?;
+    env.set_executable(&path)?;
     Ok(path)
 }
 

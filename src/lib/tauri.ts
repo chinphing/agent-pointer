@@ -423,8 +423,14 @@ export async function getChatMediaLocalPath(storageRelPath: string): Promise<str
   return await invoke<string>('get_chat_media_local_path', { storageRelPath })
 }
 
-export async function previewMediaRef(mediaRef: string): Promise<ChatMediaPreview> {
-  return await invoke<ChatMediaPreview>('preview_media_ref', { mediaRef })
+export async function previewMediaRef(
+  mediaRef: string,
+  conversationId?: string | null
+): Promise<ChatMediaPreview> {
+  return await invoke<ChatMediaPreview>('preview_media_ref', {
+    mediaRef,
+    conversationId: conversationId?.trim() || null
+  })
 }
 
 export async function saveChatAttachment(

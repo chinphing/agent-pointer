@@ -28,13 +28,25 @@ pub fn config_file_path(root: &Path) -> PathBuf {
 }
 
 
+/// 探测用的执行环境。
+///
+/// 与 `tools::file::path::env_is_dir` 同一套约定：**本线程绑定了就用绑定**，
+/// 没绑定（直接调探测函数的单元测试 / 工具自检）显式按宿主探测。
+///
+/// 不能用 `effective_env()`：它在未绑定时按**部署档位**兜底，沙箱部署下给
+/// `DeniedEnv`，把「线程上没绑定」伪装成「工作区里没有 linter 配置」——
+/// 报告 `skipped_no_matching_stack` 却查的是错的那份文件系统。
+fn probe_env() -> std::sync::Arc<dyn crate::env::Environment> {
+    crate::env::current_env().unwrap_or_else(crate::env::host_env)
+}
+
 /// 环境感知的读取：headless/desktop 档位下工作区在沙箱里，宿主 `fs` 看不到。
 fn env_read_text(path: &Path) -> Option<String> {
-    crate::env::effective_env().read_to_string(path).ok()
+    probe_env().read_to_string(path).ok()
 }
 
 fn env_is_file(path: &Path) -> bool {
-    crate::env::effective_env()
+    probe_env()
         .metadata(path)
         .map(|m| m.is_file)
         .unwrap_or(false)

@@ -16,15 +16,18 @@ pub struct AppAccessTool {
 /// §3.3：GUI 自动化只能在本机跑。headless/desktop 没有桌面会话时直接拒绝，
 /// 绝不能让 agent 的请求落到宿主桌面。
 fn require_desktop() -> Result<()> {
-    let env = crate::env::effective_env();
+    // 分发点（`ToolRegistry::invoke`）已绑定会话环境，这里要求显式绑定：
+    // 拿不到就报错，不按部署档位回落——沙箱部署下兜底拿到的是 `DeniedEnv`，
+    // 桌面能力判定会变成「没有桌面」，把漏绑定伪装成能力缺失。
+    let env = crate::env::require_env()?;
     ensure_desktop(env.capabilities().desktop, env.kind())
 }
 
 /// 桌面由执行环境提供时必须落到那里：宿主的 app_access 读的是 Mac 装了哪些
 /// 应用，在那里 launch 会打开宿主的同名程序，窗口根本不在沙箱桌面上。
-fn sandbox_env() -> Option<std::sync::Arc<dyn crate::env::Environment>> {
-    let env = crate::env::effective_env();
-    env.capabilities().desktop.then_some(env)
+fn sandbox_env() -> Result<Option<std::sync::Arc<dyn crate::env::Environment>>> {
+    let env = crate::env::require_env()?;
+    Ok(env.capabilities().desktop.then_some(env))
 }
 
 fn ensure_desktop(desktop: bool, kind: crate::env::EnvKind) -> Result<()> {
@@ -51,7 +54,7 @@ impl AppAccessTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let options = ListAppsOptions { include_all };
-        let apps = match sandbox_env() {
+        let apps = match sandbox_env()? {
             Some(env) => super::app_access_container::list(&env, include_all)?,
             None => {
                 require_desktop()?;
@@ -106,7 +109,7 @@ impl AppAccessTool {
         };
         options.validate().map_err(anyhow::Error::msg)?;
 
-        let result = match sandbox_env() {
+        let result = match sandbox_env()? {
             Some(env) => super::app_access_container::launch(&env, app, options)?,
             None => {
                 require_desktop()?;

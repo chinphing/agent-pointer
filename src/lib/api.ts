@@ -305,7 +305,7 @@ export interface RuntimeApi {
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
   previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview>
   getChatMediaLocalPath?(storageRelPath: string): Promise<string>
-  previewMediaRef(mediaRef: string): Promise<ChatMediaPreview>
+  previewMediaRef(mediaRef: string, conversationId?: string | null): Promise<ChatMediaPreview>
   saveChatAttachment(
     payload: SaveChatAttachmentPayload,
     onProgress?: (p: AttachmentUploadProgress) => void,
@@ -474,7 +474,7 @@ export const downloadChatMedia = isTauriRuntime()
     }
   : webApi.downloadChatMedia
 export const downloadChatMediaRef = isTauriRuntime()
-  ? async (_ref: string, _fileName?: string) => {
+  ? async (_ref: string, _fileName?: string, _conversationId?: string | null) => {
       throw new Error('downloadChatMediaRef is not supported in desktop runtime')
     }
   : webApi.downloadChatMediaRef
@@ -484,7 +484,7 @@ export const chatMediaDownloadUrl = isTauriRuntime()
     }
   : webApi.chatMediaDownloadUrl
 export const chatMediaRefDownloadUrl = isTauriRuntime()
-  ? (_ref: string) => {
+  ? (_ref: string, _fileName?: string, _conversationId?: string | null) => {
       throw new Error('chatMediaRefDownloadUrl is not supported in desktop runtime')
     }
   : webApi.chatMediaRefDownloadUrl

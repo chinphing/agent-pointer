@@ -1152,8 +1152,20 @@ pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmen
 }
 
 #[tauri::command]
-pub fn preview_media_ref(media_ref: String) -> Result<ChatMediaPreview, String> {
-    pointer_core::media::read_media_ref_preview(&media_ref).map_err(|e| e.to_string())
+pub fn preview_media_ref(
+    media_ref: String,
+    conversation_id: Option<String>,
+) -> Result<ChatMediaPreview, String> {
+    // 沙箱档位下媒体引用是环境内路径（`/workspace/...`），宿主上没有这个文件。
+    // 这里只**取会话已建好的环境**（不新建沙箱）：会话在跑时一定在缓存里，
+    // 取不到就按宿主读——与 Web 端 `/api/chat/media-ref-preview` 同一口径。
+    let env = conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(pointer_core::env::session_env::env_for_conversation);
+    pointer_core::media::read_media_ref_preview_in_env(&media_ref, env.as_deref())
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

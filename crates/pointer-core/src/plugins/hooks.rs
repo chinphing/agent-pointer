@@ -570,7 +570,12 @@ async fn run_hook_command(
     let command_path = resolve_hook_command(plugin_dir, command)?;
     // §3.3：hook 是 agent 可触发的进程，必须经 `Environment::spawn` 在环境内跑。
     // 环境是**线程局部**绑定的，所以要在进阻塞线程之前取出来。
-    let env = crate::env::effective_env();
+    //
+    // hook 由会话回合触发，但 async 任务换线程后 thread-local 绑定会丢；拿不到绑定
+    // 就显式按宿主处理（插件脚本本身装在宿主上）。不能用 `effective_env()`：它在
+    // 未绑定时按部署档位兜底，沙箱部署下给 `DeniedEnv`，把「线程局部丢了」伪装成
+    // 「插件脚本不在环境可见范围内」。
+    let env = crate::env::current_env().unwrap_or_else(crate::env::host_env);
     // 非 Host 档位：插件目录是宿主路径，要换成沙箱里的挂载点（`/plugins/...`
     // 或工作区内的 `.pointer/plugins/...`）。映射不到就明确报错，不猜。
     let command_path = if env.kind() == crate::env::EnvKind::Local {

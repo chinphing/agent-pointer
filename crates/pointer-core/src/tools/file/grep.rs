@@ -3,8 +3,9 @@ use super::path::{
     resolve_existing_read_path, SKIP_EXT,
 };
 use super::{json_str, json_u64_opt_keys};
+use super::tool_env;
 use super::{FileToolLimits, CONTEXT_LINES, MAX_GREP_FILE_BYTES, MAX_WALK_DEPTH};
-use crate::env::{effective_env, Environment, WalkOptions};
+use crate::env::{Environment, WalkOptions};
 use crate::text_util::truncate_bytes;
 use anyhow::{anyhow, Result};
 use grep_regex::RegexMatcherBuilder;
@@ -363,7 +364,7 @@ pub(crate) fn execute_file_grep_payload_with(
         GrepScope::SingleFile { file } => (path_display_abs(file), true),
     };
 
-    let env = effective_env();
+    let env = tool_env(&root);
     match scope {
         GrepScope::SingleFile { file } => {
             grep_one_path_with_searcher(

@@ -152,7 +152,7 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
         conversation_id,
         &session_user_id,
         tool_workspace,
-    );
+    )?;
     let result = state
         .tools
         .invoke(&tool_ctx, tool_id, args_value)

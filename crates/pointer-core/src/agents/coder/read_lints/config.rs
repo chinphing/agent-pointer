@@ -27,25 +27,27 @@ fn default_parser() -> String {
     "text-on-failure".to_string()
 }
 
-pub fn load_lint_config(root: &Path) -> Option<LintFile> {
+pub fn load_lint_config(root: &Path) -> Result<Option<LintFile>> {
     let path = config_file_path(root);
     // 走执行环境：headless 档位下配置文件在沙箱工作区里，宿主路径不存在。
-    let env = crate::env::effective_env();
+    // 工具入口（`run_read_lints`）在分发点已绑定环境，这里要求显式绑定：
+    // 拿不到就报错，不按部署档位回落到 `DeniedEnv` / 宿主。
+    let env = crate::env::require_env()?;
     if !env.exists(&path) {
-        return None;
+        return Ok(None);
     }
     let raw = match env.read_to_string(&path) {
         Ok(s) => s,
         Err(e) => {
             warn!("read_lints: failed to read {}: {e}", path.display());
-            return None;
+            return Ok(None);
         }
     };
     match toml::from_str::<LintFile>(&raw) {
-        Ok(f) => Some(f),
+        Ok(f) => Ok(Some(f)),
         Err(e) => {
             warn!("read_lints: invalid TOML in {}: {e}", path.display());
-            None
+            Ok(None)
         }
     }
 }

@@ -616,6 +616,14 @@ pub fn host_env() -> Arc<dyn Environment> {
         .clone()
 }
 
+/// 当前生效的环境：本线程绑过就用绑定的，否则**按部署档位兜底**。
+///
+/// 兜底出来的实例可能与会话无关（local 部署 → 与当前会话无关的 `LocalEnv`；
+/// 沙箱部署 → [`DeniedEnv`]）。所以工具执行路径一律用 [`require_env`]：
+/// 分发点已经绑过环境，兜底只会把「漏绑定」伪装成另一个错误。
+///
+/// 仍然合法的用途：UI 面板 / 宿主专属能力 / 还没解析会话档位的早期阶段。
+/// **工具层不允许新增调用**（守卫见 `tests::tool_and_chat_layers_do_not_fall_back_to_effective_env`）。
 pub fn effective_env() -> Arc<dyn Environment> {
     if let Some(env) = current_env() {
         return env;
@@ -631,6 +639,24 @@ pub fn effective_env() -> Arc<dyn Environment> {
     DEFAULT_LOCAL
         .get_or_init(|| Arc::new(LocalEnv::from_settings()) as Arc<dyn Environment>)
         .clone()
+}
+
+/// 取**当前线程已绑定**的执行环境；没绑定就报错，不按部署档位兜底。
+///
+/// 与 [`effective_env`] 的唯一区别就是「没绑定时怎么办」：这里直接失败。
+/// 工具执行路径（terminal / file / media …）在分发点已经绑过环境，兜底只会把
+/// 漏绑定藏成别处的错误——沙箱部署下是 `DeniedEnv` 报「工作区不存在」，local
+/// 部署下是一个与会话无关的 `LocalEnv`，把命令跑到宿主上。
+///
+/// 错误文案刻意**不复用**工作区那套（[`WorkspaceDirState::Unbound`]）：那是
+/// 「工作区不可用」的措辞，这里是「调用方要求显式绑定」的契约问题，指向不同。
+pub fn require_env() -> Result<Arc<dyn Environment>> {
+    current_env().ok_or_else(|| {
+        anyhow::anyhow!(
+            "执行环境未绑定，且调用方要求显式绑定：该入口不会按部署档位回落到默认环境\
+             （请先在该线程上绑定会话环境，见 env::session_env::bind_cached / bind_and_resolve_workspace）"
+        )
+    })
 }
 
 /// 工作区目录的检查结果。
@@ -768,6 +794,30 @@ mod tests {
     fn prompt_workspace_root_falls_back_without_binding() {
         assert!(!is_bound());
         assert_eq!(prompt_workspace_root("  /tmp/ws  "), "/tmp/ws");
+    }
+
+    #[test]
+    fn require_env_refuses_to_fall_back_when_unbound() {
+        // 严格入口：没绑定就报错，绝不按部署档位兜底。
+        assert!(!is_bound());
+        let err = require_env()
+            .map(|_| ())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("执行环境未绑定"), "{err}");
+        assert!(err.contains("要求显式绑定"), "{err}");
+        // 不能复用工作区那套文案：那是「路径不可用」，会把人带偏。
+        assert!(!err.contains("工作区"), "{err}");
+        assert!(!err.contains("沙箱内不存在"), "{err}");
+    }
+
+    #[test]
+    fn require_env_returns_the_bound_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = EnvironmentGuard::enter(temp_env(dir.path()));
+        let env = require_env().expect("绑定后必须拿得到");
+        assert_eq!(env.kind(), EnvKind::Local);
+        assert_eq!(env.workspace_root(), dir.path());
     }
 
     #[test]
@@ -980,6 +1030,121 @@ mod tests {
             violations.is_empty(),
             "以下位置绕过 Environment 直连宿主（请改走 env::effective_env() 或加入白名单并写明理由）：\n{}",
             violations.join("\n")
+        );
+    }
+
+    /// 递归收集「生产代码里出现 `symbol`」的位置（文件 + 行号）。
+    ///
+    /// `target` 可以是文件也可以是目录；只扫 `.rs`。生产代码 = 第一个**行首**
+    /// `#[cfg(test)]` 之前的部分（`#[allow(dead_code)] // 仅 #[cfg(test)] 引用`
+    /// 这类注释不算模块边界），注释行本身跳过。
+    fn scan_symbol_hits(target: &Path, root: &Path, symbol: &str, out: &mut Vec<(String, usize)>) {
+        if target.is_dir() {
+            let Ok(entries) = std::fs::read_dir(target) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                scan_symbol_hits(&entry.path(), root, symbol, out);
+            }
+            return;
+        }
+        if target.extension().and_then(|e| e.to_str()) != Some("rs") {
+            return;
+        }
+        let Ok(text) = std::fs::read_to_string(target) else {
+            return;
+        };
+        let rel = target
+            .strip_prefix(root)
+            .unwrap_or(target)
+            .to_string_lossy()
+            .replace('\\', "/");
+        // 生产代码：第一个行首 `#[cfg(test)]` 之前。
+        let mut prod_end = text.len();
+        let mut offset = 0usize;
+        for line in text.split_inclusive('\n') {
+            if line.trim_start().starts_with("#[cfg(test)]") {
+                prod_end = offset;
+                break;
+            }
+            offset += line.len();
+        }
+        for (idx, line) in text[..prod_end].lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            if line.contains(symbol) {
+                out.push((rel.clone(), idx + 1));
+            }
+        }
+    }
+
+    /// 架构守卫：工具层 / 会话层不得回落到 `effective_env()`。
+    ///
+    /// `effective_env()` 在「本线程没绑定」时会按**部署档位**兜底：沙箱部署下给出
+    /// `DeniedEnv`（把漏绑定伪装成「沙箱里没这个路径」），local 部署下给出一个与
+    /// 会话无关的 `LocalEnv`（命令可能跑到宿主上）。工具执行路径上分发点已经绑过
+    /// 环境，所以这些入口一律用 [`require_env`]：拿不到就显式失败。
+    ///
+    /// 白名单是「确实要按部署档位兜底」的位置，每条都要写理由；并且**必须仍然存在**
+    /// ——迁移走之后忘删白名单，守卫就静默失效了。
+    ///
+    /// 扫描范围含 `agents/` 与 `plugins/`：前者是工具实现（`read_lints` / `computer`），
+    /// 后者是插件 / MCP / hook 的子进程 spawn 点，都在工具执行路径或会话回合上。
+    /// `skills/mod.rs`（技能加载）与 `turn_file_baseline.rs`（回合文件基线）同属会话
+    /// 回合路径，一并扫，防迁移后回潮。
+    ///
+    /// 注意 `env/docker.rs` 里的 `self.effective_env(&opts.env)` 是**同名方法**
+    /// （环境变量合并），与本主题无关；`env/` 不在扫描目标里，不会被误判。
+    #[test]
+    fn tool_and_chat_layers_do_not_fall_back_to_effective_env() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        // 白名单：**空**。工具层 / 会话层已经全部改成显式环境
+        // （`env::require_env()` 或显式宿主 / 显式拒绝），不再有「按部署档位兜底」
+        // 的合法位置。新增条目必须先写清为什么这条**必须**兜底。
+        let allowed: &[(&str, &str)] = &[];
+        let mut hits: Vec<(String, usize)> = Vec::new();
+        for target in [
+            "crates/pointer-core/src/tools",
+            "crates/pointer-core/src/chat_service",
+            "crates/pointer-core/src/agents",
+            "crates/pointer-core/src/plugins",
+            "crates/pointer-core/src/console_session.rs",
+            // 技能加载 / 回合文件基线也是会话回合路径，曾经各自回落到
+            // `effective_env()`；已迁到显式环境，列进来防回潮。
+            "crates/pointer-core/src/skills/mod.rs",
+            "crates/pointer-core/src/turn_file_baseline.rs",
+            "src-tauri/src",
+        ] {
+            scan_symbol_hits(&repo.join(target), &repo, "effective_env", &mut hits);
+        }
+
+        let mut violations: Vec<String> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for (file, line) in &hits {
+            if !seen.contains(file) {
+                seen.push(file.clone());
+            }
+            if allowed.iter().any(|(f, _)| f == file) {
+                continue;
+            }
+            violations.push(format!(
+                "{file}:{line} 调用了 effective_env（改用 env::require_env()?，或在白名单登记并写理由）"
+            ));
+        }
+        let mut stale: Vec<&str> = Vec::new();
+        for (file, _) in allowed {
+            if !seen.iter().any(|s| s == file) {
+                stale.push(file);
+            }
+        }
+
+        assert!(
+            violations.is_empty() && stale.is_empty(),
+            "工具/会话层不得回落到 effective_env()（未绑定时会按部署档位兜底，把漏绑定藏成别的错误）\n\
+             违规：\n{}\n白名单里已不存在（请删除该条）：{:?}",
+            violations.join("\n"),
+            stale
         );
     }
 }

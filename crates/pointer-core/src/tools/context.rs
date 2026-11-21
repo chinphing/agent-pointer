@@ -7,14 +7,17 @@
 //!
 //! 这里的做法：**上下文由 `ToolRegistry::invoke` 的入参显式传入**，
 //! 调用期间在**同一线程**上短暂挂成线程局部（`invoke` 是同步函数，工具体内部
-//! 不跨 `await`，所以作用域是紧的），工具实现照旧用 `env::effective_env()`
-//! 即可拿到正确实例；调用返回即恢复，不会把环境泄漏到线程复用后的下一轮。
+//! 不跨 `await`，所以作用域是紧的），工具实现用 `env::require_env()` 取实例
+//! ——绑不上就显式报错，不按部署档位兜底；调用返回即恢复，不会把环境泄漏到
+//! 线程复用后的下一轮。
 //!
 //! 工具对模型暴露的 JSON Schema **不包含**这些字段——上下文只存在于执行侧。
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use anyhow::Result;
 
 use crate::env::{EnvKind, Environment, EnvironmentGuard};
 
@@ -53,8 +56,13 @@ impl ToolContext {
         }
     }
 
-    /// 按会话解析上下文：该会话已经建过沙箱就用沙箱环境，
-    /// 否则按部署档位回落（local 用宿主，headless 用拒绝环境）。
+    /// 按会话解析上下文：本线程已绑定的环境优先，其次是该会话建过的环境
+    /// （子线程 / 阻塞线程上 thread-local 丢了，只能按会话重放）。
+    ///
+    /// 两条都拿不到就是**漏绑定**：调用方必须先
+    /// `env::session_env::bind_and_resolve_workspace` / `bind_cached`，这里不再按
+    /// 部署档位兜底——沙箱部署下那会给出 `DeniedEnv`（把漏绑定伪装成「路径不存在」），
+    /// local 部署下会给出与会话无关的 `LocalEnv`（工具可能落到宿主）。
     ///
     /// `fallback_workspace` 只在 local 档位生效——headless 档位的工作区一律是
     /// `env.workspace_root()`（沙箱内的 guest 路径），宿主路径在沙箱里不存在。
@@ -62,20 +70,28 @@ impl ToolContext {
         conversation_id: &str,
         session_user_id: &str,
         fallback_workspace: impl Into<PathBuf>,
-    ) -> Self {
-        let env = crate::env::session_env::env_for_conversation(conversation_id)
-            .unwrap_or_else(crate::env::effective_env);
+    ) -> Result<Self> {
+        let env = match crate::env::current_env()
+            .or_else(|| crate::env::session_env::env_for_conversation(conversation_id))
+        {
+            Some(env) => env,
+            None => crate::env::require_env()?,
+        };
         let workspace_root = if env.kind() == EnvKind::Local {
             fallback_workspace.into()
         } else {
             env.workspace_root().to_path_buf()
         };
-        Self::new(conversation_id, session_user_id, env, workspace_root)
+        Ok(Self::new(conversation_id, session_user_id, env, workspace_root))
     }
 
-    /// 无会话场景（测试、工具自检）：使用当前线程/部署解析出的环境。
+    /// 无会话场景（单元测试、工具自检）：显式按宿主处理。
+    ///
+    /// 只在测试构建里存在：生产路径一律走 [`Self::for_conversation`]，
+    /// 免得「没有会话上下文」变成一条静默落到宿主的入口。
+    #[cfg(test)]
     pub fn local_default() -> Self {
-        let env = crate::env::effective_env();
+        let env = crate::env::host_env();
         let workspace_root = env.workspace_root().to_path_buf();
         Self::new("", "", env, workspace_root)
     }

@@ -5,7 +5,7 @@
 //! 超时与输出上限由 `ExecOptions` 表达，`ExecOutput` 回传 `timed_out` / `*_truncated`。
 
 use anyhow::{anyhow, Result};
-use crate::env::{effective_env, ExecOptions};
+use crate::env::ExecOptions;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::time::Duration;
@@ -45,7 +45,7 @@ pub fn run_argv_capture_lines(
     argv.push(program.as_ref().to_string_lossy().into_owned());
     argv.extend(args.iter().cloned());
 
-    let out = effective_env().exec(
+    let out = crate::env::require_env()?.exec(
         &argv,
         ExecOptions::new()
             .with_cwd(cwd)
@@ -75,7 +75,7 @@ pub fn run_shell_capture(
         vec!["sh".to_string(), "-lc".to_string(), shell_cmd.to_string()]
     };
 
-    let out = effective_env()
+    let out = crate::env::require_env()?
         .exec(
             &argv,
             ExecOptions::new()

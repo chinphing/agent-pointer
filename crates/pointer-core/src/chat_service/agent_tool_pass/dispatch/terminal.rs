@@ -615,8 +615,12 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
     let scoped_message_id_for_terminal = trace_id_opt(spawn.host_scoped_message_id.as_deref());
     let session_work_dir_for_blocking = session_workspace.clone();
     let access_host_for_blocking = crate::access_host_scope::current();
+    // 阻塞线程上没有 tokio 线程局部：与前台一致，按会话缓存重放环境绑定。
+    // 不重放的话 `env::require_env()` 在这里必然失败（后台 terminal 全线报未绑定）。
+    let conversation_id_for_blocking = spawn.conversation_id.clone();
 
     let join = tokio::task::spawn_blocking(move || {
+        let _env_guard = crate::env::session_env::bind_cached(&conversation_id_for_blocking);
         let _workspace_guard = ConversationWorkspaceGuard::enter(session_workspace.clone());
         let _work_dir_guard =
             crate::session_work_dir_env::SessionWorkDirGuard::enter(session_work_dir_for_blocking);

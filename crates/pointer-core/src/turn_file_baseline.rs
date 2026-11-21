@@ -474,8 +474,11 @@ pub fn turn_file_diff(
 ) -> Result<TurnFileDiff> {
     // 执行环境：headless/desktop 档位下工作区在沙箱里（`/workspace`），
     // 宿主路径不存在——这里必须按会话解析，否则 diff 永远是空的。
+    // 查不到会话环境（面板先于回合请求 diff / 本机直跑）就显式按宿主 + 调用方给的
+    // 工作区处理。不能用 `effective_env()`：沙箱部署下未绑定会拿到 `DeniedEnv`，
+    // 把「没绑定」伪装成「沙箱里没有这个文件」。
     let env = crate::env::session_env::env_for_conversation(conversation_id)
-        .unwrap_or_else(crate::env::effective_env);
+        .unwrap_or_else(|| crate::env::host_env_at(workspace_root));
     let root = if env.kind() == crate::env::EnvKind::Local {
         workspace_root
             .canonicalize()

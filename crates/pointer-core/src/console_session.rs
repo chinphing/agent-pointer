@@ -117,9 +117,10 @@ impl ConsoleSessionManager {
             request_is_admin,
         )?;
         // 执行环境按**请求身份**解析：沙箱用户开沙箱终端，admin 开宿主终端。
-        // 注意不能只查缓存——应用刚重启、或这个会话还没跑过对话时缓存是空的，
-        // 那时 `effective_env()` 会返回「拒绝执行」环境，终端就会误报"不支持交互式终端"。
-        let env = console_env(conversation_id, Path::new(workspace_root), &user_id);
+        // 注意不能只查缓存——应用刚重启、或这个会话还没跑过对话时缓存是空的。
+        // 档位解析不出来时明确报错，不按部署档位兜底（那会把终端静默开到宿主上，
+        // 或者给沙箱用户一个 `DeniedEnv` 让它误报"不支持交互式终端"）。
+        let env = console_env(conversation_id, Path::new(workspace_root), &user_id)?;
         self.open_session(env, workspace_root, conversation_id, cwd, cols, rows)
     }
 
@@ -265,15 +266,16 @@ fn console_env(
     conversation_id: &str,
     workspace_root: &Path,
     user_id: &str,
-) -> Arc<dyn crate::env::Environment> {
+) -> Result<Arc<dyn crate::env::Environment>> {
     match crate::env::provider::ProviderConfig::from_env() {
         Ok(cfg) => console_env_with(&cfg, conversation_id, workspace_root, user_id),
         Err(error) => {
-            // 读不出配置就不猜：先沿用已建好的环境，没有就交给 `effective_env()`
-            //（沙箱部署下是 `DeniedEnv`，宁可不执行也不静默落到宿主）。
-            log::warn!("console: 读取执行环境配置失败，终端按未绑定环境处理: {error:#}");
-            crate::env::session_env::env_for_conversation(conversation_id)
-                .unwrap_or_else(crate::env::effective_env)
+            // 读不出配置就不猜：先沿用该会话已建好的环境；没有就**明确拒绝**，
+            // 不按部署档位兜底——local 部署下兜底等于把终端静默开到宿主上。
+            log::warn!("console: 读取执行环境配置失败: {error:#}");
+            crate::env::session_env::env_for_conversation(conversation_id).ok_or_else(|| {
+                anyhow!("无法解析终端执行环境档位，已拒绝创建终端会话：{error:#}")
+            })
         }
     }
 }
@@ -297,19 +299,22 @@ fn console_env_with(
     conversation_id: &str,
     workspace_root: &Path,
     user_id: &str,
-) -> Arc<dyn crate::env::Environment> {
+) -> Result<Arc<dyn crate::env::Environment>> {
     let plan = console_env_plan(cfg, conversation_id, user_id);
     if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
         if cached_env_matches_plan(plan, env.kind()) {
-            return env;
+            return Ok(env);
         }
         log::warn!(
             "console: 会话 {conversation_id} 已缓存的环境与当前用户档位不符，按当前档位重开"
         );
     }
     match plan {
-        ConsoleEnvPlan::Host => crate::env::host_env_at(workspace_root),
-        ConsoleEnvPlan::Fallback => crate::env::effective_env(),
+        ConsoleEnvPlan::Host => Ok(crate::env::host_env_at(workspace_root)),
+        // 档位解析失败：不猜，也不按部署档位兜底（见 [`console_env_plan`] 的日志）。
+        ConsoleEnvPlan::Fallback => Err(anyhow!(
+            "无法解析会话 {conversation_id} 的执行环境档位，已拒绝创建终端会话"
+        )),
         ConsoleEnvPlan::Sandbox => {
             match crate::env::session_env::resolve_session_env(
                 cfg,
@@ -317,16 +322,18 @@ fn console_env_with(
                 user_id,
                 Some(workspace_root),
             ) {
-                Ok(Some(env)) => env,
+                Ok(Some(env)) => Ok(env),
                 // 判定说沙箱、解析却是 local 档位：按 local 处理。
-                Ok(None) => crate::env::host_env_at(workspace_root),
+                Ok(None) => Ok(crate::env::host_env_at(workspace_root)),
                 Err(error) => {
-                    // 沙箱建不出来也不能静默跑宿主：`effective_env()` 在沙箱部署下
-                    // 是 `DeniedEnv`，终端会明确报「环境未绑定」。
+                    // 沙箱建不出来也不能静默跑宿主：明确报错，别让用户看到
+                    // 一个 `DeniedEnv` 吐出来的「工作区目录无效」。
                     log::warn!(
-                        "console: 会话 {conversation_id} 的沙箱不可用，终端按未绑定环境处理: {error:#}"
+                        "console: 会话 {conversation_id} 的沙箱不可用: {error:#}"
                     );
-                    crate::env::effective_env()
+                    Err(anyhow!(
+                        "会话 {conversation_id} 的沙箱不可用，已拒绝创建终端会话：{error:#}"
+                    ))
                 }
             }
         }
@@ -361,7 +368,7 @@ enum ConsoleEnvPlan {
     Host,
     /// 非 local 档位：按会话建 / 复用沙箱。
     Sandbox,
-    /// 档位解析失败：交给 `effective_env()`（沙箱部署下是 `DeniedEnv`）。
+    /// 档位解析失败：由调用方明确拒绝开终端（不按部署档位兜底）。
     Fallback,
 }
 
@@ -750,7 +757,8 @@ mod tests {
             console_env_plan(&cfg, &conversation, "admin"),
             ConsoleEnvPlan::Host
         );
-        let env = console_env_with(&cfg, &conversation, dir.path(), "admin");
+        let env = console_env_with(&cfg, &conversation, dir.path(), "admin")
+            .expect("local 档位必须给宿主环境");
         assert_eq!(
             env.kind(),
             crate::env::EnvKind::Local,

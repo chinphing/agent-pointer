@@ -254,8 +254,14 @@ fn env_exists(path: &Path) -> bool {
 }
 
 fn env_canonicalize(path: &Path) -> PathBuf {
-    let env = crate::env::effective_env();
-    if env.kind() == crate::env::EnvKind::Local {
+    // 与 `env_is_dir` / `env_exists` / `effective_write_scope` 同一套约定：
+    // `current_env()` 为 `None` 就是 local 直跑（按宿主 canonicalize）。
+    // 不能用 `effective_env()`：它按**部署档位**兜底，沙箱部署下会给出 `DeniedEnv`，
+    // 把宿主路径一律当成「不需要规范化」，报错方向完全错。
+    let is_local = crate::env::current_env()
+        .map(|env| env.kind() == crate::env::EnvKind::Local)
+        .unwrap_or(true);
+    if is_local {
         path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
     } else {
         path.to_path_buf()
@@ -704,7 +710,11 @@ fn collect_path_hints(workspace_root: &Path, user_path: &str) -> Vec<String> {
     let Some((list_base, want)) = listing_base_for_missing_path(workspace_root, user_path) else {
         return Vec::new();
     };
-    let env = current_env_for_hints();
+    // 提示只需要一个能列目录的句柄：有会话环境就用它，没绑定（测试 / 工具自检）
+    // 就显式按宿主处理。不能用 `effective_env()`——沙箱部署下那是 `DeniedEnv`，
+    // 连提示都列不出来，用户只看到一句干巴巴的「路径不存在」。
+    let env = crate::env::current_env()
+        .unwrap_or_else(|| crate::env::host_env_at(workspace_root));
     let Ok(entries) = env.list_dir(&list_base) else {
         return Vec::new();
     };
@@ -754,11 +764,7 @@ fn collect_path_hints(workspace_root: &Path, user_path: &str) -> Vec<String> {
     scored.into_iter().map(|(_, p)| p).collect()
 }
 
-/// 路径提示只需要一个能列目录的环境句柄（未绑定会话环境时用进程级 local）。
-fn current_env_for_hints() -> std::sync::Arc<dyn crate::env::Environment> {
-    crate::env::effective_env()
-}
-
+/// 路径提示只需要一个能列目录的环境句柄（见 [`collect_path_hints`]）。
 pub(crate) fn path_error_with_hints(
     workspace_root: &Path,
     user_path: &str,
@@ -818,8 +824,8 @@ pub fn resolve_accessible_path(workspace_root: &Path, user_path: &str) -> Result
     }
     let path = Path::new(user_path.as_str());
     if path.is_absolute() {
-        let env = crate::env::effective_env();
-        if !env.exists(path) {
+        // 存在性按本线程绑定的环境判断；未绑定 = local 直跑（与 `env_exists` 同约定）。
+        if !env_exists(path) {
             return Err(anyhow!("路径无效或不存在: {}", path.display()));
         }
         let resolved = env_canonicalize(path);
@@ -851,8 +857,8 @@ pub fn resolve_accessible_path_at(
     }
     let path = Path::new(user_path.as_str());
     if path.is_absolute() {
-        let env = crate::env::effective_env();
-        if !env.exists(path) {
+        // 同上：未绑定环境 = local 直跑，按宿主判断存在性。
+        if !env_exists(path) {
             return Err(anyhow!("路径无效或不存在: {}", path.display()));
         }
         let resolved = env_canonicalize(path);

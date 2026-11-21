@@ -689,8 +689,8 @@ impl ToolRegistry {
         name: &str,
         args: serde_json::Value,
     ) -> Result<String> {
-        // 上下文 + 执行环境在**本次调用期间**挂到当前线程，工具体内部照旧用
-        // `env::effective_env()` 即可拿到会话环境；返回即恢复，不残留到线程复用。
+        // 上下文 + 执行环境在**本次调用期间**挂到当前线程，工具体内部用
+        // `env::require_env()` 即可拿到会话环境；返回即恢复，不残留到线程复用。
         let _ctx_guard = crate::tools::context::ToolContextGuard::enter(ctx.clone());
         let g = self.inner.read();
         let entry = g

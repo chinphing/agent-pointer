@@ -1,6 +1,6 @@
 use super::path::{path_display_abs, path_display_for_read_request, resolve_accessible_path};
+use super::tool_env;
 use super::{json_u64_opt_keys, FileToolLimits};
-use crate::env::effective_env;
 use crate::text_util::truncate_bytes;
 use anyhow::{anyhow, Result};
 use log::{info, warn};
@@ -79,7 +79,7 @@ fn file_read_one_json(
         }
     };
     let full_display = path_display_abs(&full);
-    let env = effective_env();
+    let env = tool_env(root);
     match env.metadata(&full) {
         Ok(meta) if meta.is_file => {}
         Ok(_) => {

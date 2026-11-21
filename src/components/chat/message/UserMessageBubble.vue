@@ -67,7 +67,7 @@ const {
   onDownloadAttachment,
   copyFilePath,
   onRevealInFinder
-} = useChatAttachmentDisplay(attachments)
+} = useChatAttachmentDisplay(attachments, () => chat.currentId)
 
 useMarkdownCodeCopy(bodyRef, () => html.value)
 useMarkdownCharts(bodyRef, () => html.value)
@@ -77,7 +77,7 @@ useMarkdownExternalLinks(bodyRef, () => html.value)
 
 async function onOpenAttachment(att: RenderableAttachment) {
   try {
-    await openAttachmentWithSystemDefault(att, mediaSrc(att))
+    await openAttachmentWithSystemDefault(att, mediaSrc(att), chat.currentId)
   } catch (e) {
     console.warn('open attachment failed', e)
   }

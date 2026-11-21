@@ -151,10 +151,12 @@ fn run_elevated_platform(
     let work_dir = cwd
         .map(|p| p.to_path_buf())
         .ok_or_else(|| anyhow!("无法确定工作目录"))?;
+    // 提权只在宿主档位可达（`terminal` 已拒绝 headless/desktop），环境由分发点绑定。
+    let host = crate::env::require_env()?;
 
     let temp_dir =
         std::env::temp_dir().join(format!("pointer-elev-{}", uuid::Uuid::new_v4().simple()));
-    crate::env::effective_env().create_dir_all(&temp_dir)?;
+    host.create_dir_all(&temp_dir)?;
     let out_path = temp_dir.join("stdout.txt");
     let err_path = temp_dir.join("stderr.txt");
     let exit_path = temp_dir.join("exit.txt");
@@ -163,7 +165,7 @@ fn run_elevated_platform(
     let launcher_path = temp_dir.join("launcher.ps1");
 
     let env_json = serde_json::to_string(env)?;
-    crate::env::effective_env().write_file(&env_path, env_json.as_bytes())?;
+    host.write_file(&env_path, env_json.as_bytes())?;
 
     let command = strip_redundant_windows_elevation(command);
     let command = crate::windows_shell_encoding::prefix_cmd_utf8_codepage(&command);
@@ -219,7 +221,7 @@ Set-Content -LiteralPath {exit_ps} -Value $code -NoNewline -Encoding ascii
 "#,
         utf8_setup = crate::windows_shell_encoding::POWERSHELL_UTF8_SETUP_BLOCK,
     );
-    crate::env::effective_env().write_file(&job_path, job_script.as_bytes())?;
+    host.write_file(&job_path, job_script.as_bytes())?;
 
     let job_path_ps = escape_powershell_single_quoted(&job_path.display().to_string());
     let launcher_script = format!(
@@ -229,7 +231,7 @@ exit $p.ExitCode
 "#,
         cancelled = WINDOWS_ELEVATION_CANCELLED
     );
-    crate::env::effective_env().write_file(&launcher_path, launcher_script.as_bytes())?;
+    host.write_file(&launcher_path, launcher_script.as_bytes())?;
 
     on_output("[elevated] 等待 Windows UAC 确认…\n");
 
@@ -250,7 +252,7 @@ exit $p.ExitCode
     .map_err(|_| anyhow!("提权启动线程异常"))??;
 
     if output.status.code() == Some(WINDOWS_ELEVATION_CANCELLED) {
-        let _ = crate::env::effective_env().remove_dir_all(&temp_dir);
+        let _ = host.remove_dir_all(&temp_dir);
         return Ok(ElevatedPlatformResult {
             exit_code: Some(WINDOWS_ELEVATION_CANCELLED),
             success: false,
@@ -261,14 +263,15 @@ exit $p.ExitCode
         });
     }
 
-    let stdout = read_text_file_best_effort(&out_path);
-    let stderr = read_text_file_best_effort(&err_path);
-    let exit_code = read_exit_code_file(&exit_path).or_else(|| output.status.code());
+    let stdout = read_text_file_best_effort(host.as_ref(), &out_path);
+    let stderr = read_text_file_best_effort(host.as_ref(), &err_path);
+    let exit_code =
+        read_exit_code_file(host.as_ref(), &exit_path).or_else(|| output.status.code());
 
     let elevation_denied = exit_code == Some(WINDOWS_ELEVATION_CANCELLED);
     let success = exit_code == Some(0) && !elevation_denied;
 
-    let _ = crate::env::effective_env().remove_dir_all(&temp_dir);
+    let _ = host.remove_dir_all(&temp_dir);
 
     Ok(ElevatedPlatformResult {
         exit_code,
@@ -289,9 +292,11 @@ fn run_elevated_platform(
     on_output: &impl Fn(&str),
 ) -> Result<ElevatedPlatformResult> {
     let command = strip_redundant_sudo(command);
+    // 提权只在宿主档位可达（`terminal` 已拒绝 headless/desktop），环境由分发点绑定。
+    let host = crate::env::require_env()?;
     let temp_dir =
         std::env::temp_dir().join(format!("pointer-elev-{}", uuid::Uuid::new_v4().simple()));
-    crate::env::effective_env().create_dir_all(&temp_dir)?;
+    host.create_dir_all(&temp_dir)?;
     let env_path = temp_dir.join("env.sh");
     write_unix_env_exports_file(&env_path, env)?;
     let script = build_unix_elevated_shell_script(cwd, Some(&env_path), &command);
@@ -304,7 +309,7 @@ fn run_elevated_platform(
         crate::env::process::command("osascript").arg("-e").arg(applescript),
         wall_cap_ms,
     );
-    let _ = crate::env::effective_env().remove_dir_all(&temp_dir);
+    let _ = host.remove_dir_all(&temp_dir);
     let output = output?;
 
     let combined_err = String::from_utf8_lossy(&output.stderr).to_string();
@@ -343,9 +348,11 @@ fn run_elevated_platform(
     on_output: &impl Fn(&str),
 ) -> Result<ElevatedPlatformResult> {
     let command = strip_redundant_sudo(command);
+    // 提权只在宿主档位可达（`terminal` 已拒绝 headless/desktop），环境由分发点绑定。
+    let host = crate::env::require_env()?;
     let temp_dir =
         std::env::temp_dir().join(format!("pointer-elev-{}", uuid::Uuid::new_v4().simple()));
-    crate::env::effective_env().create_dir_all(&temp_dir)?;
+    host.create_dir_all(&temp_dir)?;
     let env_path = temp_dir.join("env.sh");
     write_unix_env_exports_file(&env_path, env)?;
     let script = build_unix_elevated_shell_script(cwd, Some(&env_path), &command);
@@ -357,7 +364,7 @@ fn run_elevated_platform(
         wall_cap_ms,
     );
 
-    let _ = crate::env::effective_env().remove_dir_all(&temp_dir);
+    let _ = host.remove_dir_all(&temp_dir);
 
     let output = match output {
         Ok(o) => o,
@@ -491,7 +498,7 @@ fn write_unix_env_exports_file(path: &Path, env: &HashMap<String, String>) -> Re
             shell_escape_single_quote(value)
         ));
     }
-    crate::env::effective_env()
+    crate::env::require_env()?
         .write_file(path, content.as_bytes())
         .with_context(|| format!("write elevated env file {}", path.display()))
 }
@@ -517,8 +524,8 @@ fn escape_for_osascript_double_quoted(value: &str) -> String {
 }
 
 #[cfg(windows)]
-fn read_text_file_best_effort(path: &Path) -> String {
-    let bytes = crate::env::effective_env().read_file(path).unwrap_or_default();
+fn read_text_file_best_effort(env: &dyn crate::env::Environment, path: &Path) -> String {
+    let bytes = env.read_file(path).unwrap_or_default();
     if bytes.is_empty() {
         return String::new();
     }
@@ -537,8 +544,8 @@ fn read_text_file_best_effort(path: &Path) -> String {
 }
 
 #[cfg(windows)]
-fn read_exit_code_file(path: &Path) -> Option<i32> {
-    let raw = crate::env::effective_env().read_to_string(path).ok()?;
+fn read_exit_code_file(env: &dyn crate::env::Environment, path: &Path) -> Option<i32> {
+    let raw = env.read_to_string(path).ok()?;
     raw.trim().parse().ok()
 }
 

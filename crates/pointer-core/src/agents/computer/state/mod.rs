@@ -527,9 +527,10 @@ impl ComputerState {
         // 桌面"），但宿主桌面要走下面的 `screen::` 分支——SandboxControl 只会
         // xdotool / import，在宿主上跑不起来。
         let env = crate::env::session_env::env_for_conversation(conversation_id)
-            // 该会话还没有环境缓存（本机直跑 / 面板先于回合请求截图）：显式按宿主桌面处理。
+            // 没有环境缓存时先按宿主判断，真正是否允许宿主截屏由下方的准入判定决定
+            // （远程部署下无记录直接拒绝；standalone 才视为宿主桌面）。
             // 不能用 `effective_env()`：沙箱部署下未绑定会拿到 `DeniedEnv`，
-            // 把「没绑定」伪装成「没有桌面」，截图会静默落到宿主桌面。
+            // 把「没绑定」伪装成「没有桌面」。
             .unwrap_or_else(crate::env::host_env);
         if env.kind() != crate::env::EnvKind::Local && env.capabilities().desktop {
             use crate::agents::computer::control::{ComputerControl, SandboxControl};
@@ -563,6 +564,9 @@ impl ComputerState {
             return Ok((out, None));
         }
 
+        // 走到宿主截屏：只有 local 会话（或 standalone 无记录）才允许。
+        // headless 等沙箱会话没有桌面，截到的宿主屏幕不属于它，必须拒绝。
+        crate::env::ensure_host_execution_allowed(conversation_id, "屏幕截图")?;
         let t = Instant::now();
         let monitor_id = self.selected_monitor_id_for_conversation(conversation_id);
         log::info!(

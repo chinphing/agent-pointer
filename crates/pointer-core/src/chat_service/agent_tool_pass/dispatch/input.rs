@@ -56,7 +56,7 @@ pub(super) async fn dispatch_input_at(
     let control = crate::agents::computer::control::control_for_conversation(
         &state.computer_state.control,
         conversation_id,
-    );
+    )?;
     let tool = InputTool::new(control, vision);
     let out = tool.execute_with(InputBackend::At, &args)?;
     // Same envelope as the failure path, so the model reads one shape either way.

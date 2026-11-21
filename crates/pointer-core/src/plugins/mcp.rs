@@ -52,7 +52,9 @@ pub struct McpClient {
 enum Transport {
     /// stdio：本地子进程（插件自带 / 本机命令）。
     Stdio {
-        /// 子进程句柄（§3.3：进程由 `Environment::spawn` 起，headless 下会明确拒绝）。
+        /// 子进程句柄。当前由宿主 `host_env().spawn` 常驻；调用侧靠
+        /// `ensure_host_execution_allowed` 限制为 local 会话。目标是按会话经
+        /// `Environment::spawn` 起进程（设计文档 §3.3），尚未完成。
         child: Arc<Mutex<Box<dyn ChildHandle>>>,
         /// 存活标记：读线程在 stdout EOF（进程退出）时置 false。
         alive: Arc<AtomicBool>,
@@ -119,8 +121,9 @@ impl McpClient {
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
         };
-        // MCP server 是**插件加载期**起的宿主子进程（stdio 管道对端），
-        // 这里没有会话上下文，显式按宿主环境处理。
+        // MCP server 是**插件加载期**起的宿主子进程（stdio 管道对端），这里没有会话上下文，
+        // 所以显式按宿主起进程；**调用**侧（`register_mcp_tool`）已限制为 local 会话，
+        // 沙箱会话不能借它执行宿主命令。
         // 不能用 `effective_env()`：沙箱部署下它会按部署档位返回 `DeniedEnv`，
         // 把「插件加载没有会话」伪装成「启动 MCP server 失败」。
         let mut child = crate::env::host_env()
@@ -979,8 +982,15 @@ fn register_mcp_tool(
     } else {
         tool_name.clone()
     };
-    let handler: ToolHandler =
-        Arc::new(move |args: Value| -> Result<String> { client.call_tool(&tool_name, args) });
+    // MCP 子进程当前由宿主常驻（见 `connect_stdio`），调用即等于在宿主执行：
+    // 只允许 local 会话调用，沙箱会话在这里拒绝，不能借它触达宿主。
+    let handler: ToolHandler = Arc::new(move |args: Value| -> Result<String> {
+        let cid = crate::tools::context::current_tool_context()
+            .map(|ctx| ctx.conversation_id().to_string())
+            .unwrap_or_default();
+        crate::env::ensure_host_execution_allowed(&cid, "MCP 工具调用")?;
+        client.call_tool(&tool_name, args)
+    });
 
     let mut entry = ToolEntry::new(entry_name, doc_source, "low", false, description, handler)
         .with_plugin_id(plugin_id.to_string());

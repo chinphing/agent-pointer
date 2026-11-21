@@ -28,9 +28,19 @@ fn write_reply(text: &str) -> String {
 
 /// 容器会话的剪贴板是容器内的 X 选择区，和宿主 Mac 的粘贴板是两套东西。
 /// 走到宿主上读，读出来的是用户在 Mac 上复制的内容，写也只是写到 Mac。
-fn sandbox_control(args: &Value) -> Option<std::sync::Arc<dyn ComputerControl>> {
-    let id = args.get("_conversation_id")?.as_str()?;
-    crate::agents::computer::control::sandbox_desktop_for(id)
+///
+/// 返回 `Ok(None)` 才表示可以走宿主剪贴板；会话运行在无桌面的沙箱档位时直接报错，
+/// 不能把沙箱会话的剪贴板请求落到宿主（读出的会是 Mac 上用户复制的内容）。
+fn sandbox_control(args: &Value) -> Result<Option<std::sync::Arc<dyn ComputerControl>>> {
+    let id = args
+        .get("_conversation_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if let Some(control) = crate::agents::computer::control::sandbox_desktop_for(id) {
+        return Ok(Some(control));
+    }
+    crate::env::ensure_host_execution_allowed(id, "剪贴板操作")?;
+    Ok(None)
 }
 
 impl ClipboardTool {
@@ -52,7 +62,7 @@ impl ClipboardTool {
 
     fn read_clipboard(&self, args: &Value) -> Result<String> {
         let goal = args["goal"].as_str().unwrap_or("").trim();
-        let text = match sandbox_control(args) {
+        let text = match sandbox_control(args)? {
             Some(control) => control.get_clipboard_text()?.unwrap_or_default(),
             None => clipboard_read_text()?,
         };
@@ -84,7 +94,7 @@ impl ClipboardTool {
             .get("text")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'text' in tool_args for write_clipboard"))?;
-        match sandbox_control(args) {
+        match sandbox_control(args)? {
             Some(control) => control.set_clipboard_text(text)?,
             None => clipboard_write_text(text)?,
         }

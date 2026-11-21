@@ -28,7 +28,7 @@ pub mod session_env;
 pub use local::LocalEnv;
 pub use pathmap::{Mount, MountSpec, PathMap};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -597,6 +597,44 @@ fn deployment_is_remote() -> bool {
     })
 }
 
+/// 宿主侧执行准入的纯判定（便于单测，不读全局配置）。
+///
+/// `bound` 是该会话已记录的执行环境类型，`None` = 找不到该会话的环境记录。
+/// - 绑定为 `local`：允许，宿主本身就是它的执行环境。
+/// - 绑定为 `headless` / `desktop`：拒绝。沙箱会话的动作不得落到宿主。
+/// - 找不到记录：远程部署下拒绝（不知道会话属于哪个档位，宁可失败）；
+///   standalone 部署只有宿主一个环境，允许。
+pub(crate) fn decide_host_execution(
+    bound: Option<EnvKind>,
+    remote_deployment: bool,
+    what: &str,
+) -> Result<()> {
+    match bound {
+        Some(EnvKind::Local) => Ok(()),
+        Some(kind) => {
+            log::warn!("host execution refused: {what} bound_kind={}", kind.as_str());
+            bail!(
+                "{what}只能在宿主（local 档位）执行，当前会话运行在 {} 环境，已拒绝在宿主执行",
+                kind.as_str()
+            )
+        }
+        None if remote_deployment => {
+            log::warn!("host execution refused: {what} no bound environment (remote deployment)");
+            bail!("{what}需要会话的执行环境，但该会话没有环境记录，远程部署下已拒绝在宿主执行")
+        }
+        None => Ok(()),
+    }
+}
+
+/// 会话即将在**宿主**上执行某个动作时必须先过这一关（computer 桌面 / 剪贴板 / 截屏、
+/// MCP 子进程、插件 hook 脚本等）。
+///
+/// 没有这一关时，沙箱会话的请求会静默回落到宿主（见设计文档 §3.3「不存在宿主侧例外」）。
+pub fn ensure_host_execution_allowed(conversation_id: &str, what: &str) -> Result<()> {
+    let bound = session_env::env_for_conversation(conversation_id).map(|env| env.kind());
+    decide_host_execution(bound, deployment_is_remote(), what)
+}
+
 /// 指定工作区的宿主环境（面板在会话沙箱尚未创建时用）。
 ///
 /// Docker 后端下 `/workspace` 就是项目目录的 bind mount，宿主读到的字节与容器内一致，
@@ -857,6 +895,52 @@ mod tests {
         assert!(!Capabilities::headless().desktop);
         assert!(Capabilities::desktop().desktop);
         assert_eq!(EnvKind::Local.as_str(), "local");
+    }
+
+    /// 宿主准入判定的全部组合：沙箱会话绝不能放行到宿主。
+    #[test]
+    fn host_execution_decision_matrix() {
+        // local 会话：宿主就是它的环境，任何部署都放行。
+        assert!(decide_host_execution(Some(EnvKind::Local), true, "x").is_ok());
+        assert!(decide_host_execution(Some(EnvKind::Local), false, "x").is_ok());
+        // 沙箱会话：无论部署模式都拒绝（headless / desktop 都不允许落宿主）。
+        for kind in [EnvKind::Headless, EnvKind::Desktop] {
+            for remote in [true, false] {
+                let err = decide_host_execution(Some(kind), remote, "屏幕截图")
+                    .expect_err("沙箱会话不能落宿主")
+                    .to_string();
+                assert!(err.contains("已拒绝在宿主执行"), "{err}");
+                assert!(err.contains(kind.as_str()), "{err}");
+            }
+        }
+        // 找不到会话环境记录：远程部署拒绝，standalone 放行。
+        let err = decide_host_execution(None, true, "插件 hook 脚本")
+            .expect_err("远程部署下无记录必须拒绝")
+            .to_string();
+        assert!(err.contains("没有环境记录"), "{err}");
+        assert!(decide_host_execution(None, false, "插件 hook 脚本").is_ok());
+    }
+
+    /// 会话登记为 headless 时，宿主准入必须失败（模拟「沙箱会话请求宿主桌面」）。
+    #[test]
+    fn headless_conversation_cannot_reach_host_desktop() {
+        let cid = "env-mod-headless-host-guard";
+        session_env::remember_env_for_test(cid, test_light_env());
+        assert!(
+            ensure_host_execution_allowed(cid, "键盘操作").is_err(),
+            "headless 会话不能被放行到宿主"
+        );
+        session_env::release(cid);
+    }
+
+    /// 会话登记为 local 时，宿主准入放行（admin / standalone 的正常路径）。
+    #[test]
+    fn local_conversation_may_use_host() {
+        let dir = tempfile::tempdir().unwrap();
+        let cid = "env-mod-local-host-guard";
+        session_env::remember_local_for_test(cid, dir.path());
+        assert!(ensure_host_execution_allowed(cid, "键盘操作").is_ok());
+        session_env::release(cid);
     }
 
     #[test]

@@ -28,18 +28,22 @@ pub use sandbox::SandboxControl;
 pub use local::LocalControl;
 pub use remote::{RemoteControl, RemoteTransport};
 
-/// 按会话挑控制后端：desktop 档位走容器桌面，其余走宿主。
+/// 按会话挑控制后端：有桌面的执行环境走它自己的桌面，local 会话走宿主。
 ///
 /// 这一步必须按会话解析——同一个进程里可能一个会话在沙箱里跑、
 /// 另一个在宿主跑。`fallback` 是宿主后端（进程级构造的那份）。
+///
+/// 会话运行在 headless（没有桌面）等沙箱档位时**拒绝**，不回落宿主：
+/// 否则 agent 的键鼠输入会直接落到运行 app 的那台机器上。
 pub fn control_for_conversation(
     fallback: &std::sync::Arc<dyn ComputerControl>,
     conversation_id: &str,
-) -> std::sync::Arc<dyn ComputerControl> {
-    match sandbox_desktop_for(conversation_id) {
-        Some(control) => control,
-        None => fallback.clone(),
+) -> anyhow::Result<std::sync::Arc<dyn ComputerControl>> {
+    if let Some(control) = sandbox_desktop_for(conversation_id) {
+        return Ok(control);
     }
+    crate::env::ensure_host_execution_allowed(conversation_id, "键鼠桌面操作")?;
+    Ok(fallback.clone())
 }
 
 /// 会话的桌面如果由**执行环境自己**提供（容器、远程沙箱），返回驱动它的控制后端。
@@ -171,5 +175,95 @@ mod tests {
     #[test]
     fn unknown_conversation_has_no_sandbox_desktop() {
         assert!(sandbox_env_for("conv-never-bound").is_none());
+    }
+
+    /// 只用来做 fallback 身份比较的占位后端：本测试不会真的调用它。
+    struct NoopControl;
+
+    impl ComputerControl for NoopControl {
+        fn move_to(&self, _x: i32, _y: i32) -> Result<()> {
+            Ok(())
+        }
+        fn click(
+            &self,
+            _button: MouseButton,
+            _x: Option<i32>,
+            _y: Option<i32>,
+            _clicks: u32,
+        ) -> Result<()> {
+            Ok(())
+        }
+        fn mouse_down(&self, _button: MouseButton) -> Result<()> {
+            Ok(())
+        }
+        fn mouse_up(&self, _button: MouseButton) -> Result<()> {
+            Ok(())
+        }
+        fn release_stranded_input(&self) -> Result<()> {
+            Ok(())
+        }
+        fn right_click(&self, _x: i32, _y: i32) -> Result<()> {
+            Ok(())
+        }
+        fn double_click(&self, _x: i32, _y: i32) -> Result<()> {
+            Ok(())
+        }
+        fn drag_to(&self, _x: i32, _y: i32) -> Result<()> {
+            Ok(())
+        }
+        fn scroll(&self, _dx: i32, _dy: i32) -> Result<()> {
+            Ok(())
+        }
+        fn typing(&self, _text: &str) -> Result<()> {
+            Ok(())
+        }
+        fn press(&self, _key: &str) -> Result<()> {
+            Ok(())
+        }
+        fn key_down(&self, _key: &str) -> Result<()> {
+            Ok(())
+        }
+        fn key_up(&self, _key: &str) -> Result<()> {
+            Ok(())
+        }
+        fn hotkey(&self, _keys: &[String]) -> Result<()> {
+            Ok(())
+        }
+        fn wait(&self, _ms: u64) -> Result<()> {
+            Ok(())
+        }
+        fn screenshot(&self) -> Result<Vec<u8>> {
+            Ok(Vec::new())
+        }
+        fn screen_size(&self) -> Result<(u32, u32)> {
+            Ok((1, 1))
+        }
+        fn cursor_position(&self) -> Result<(i32, i32)> {
+            Ok((0, 0))
+        }
+    }
+
+    /// 负向：headless 会话（无桌面）请求键鼠时必须失败，绝不能回落到宿主 fallback。
+    #[test]
+    fn headless_session_refuses_host_control_fallback() {
+        let cid = "conv-headless-control-refused";
+        crate::env::session_env::remember_env_for_test(cid, crate::env::test_light_env());
+        let fallback: std::sync::Arc<dyn ComputerControl> = std::sync::Arc::new(NoopControl);
+        let result = control_for_conversation(&fallback, cid);
+        crate::env::session_env::release(cid);
+        assert!(result.is_err(), "headless 会话不能回落到宿主键鼠");
+    }
+
+    /// 正向：local 会话的宿主桌面就是 fallback，应当原样放行。
+    #[test]
+    fn local_session_uses_host_control_fallback() {
+        let cid = "conv-local-control-allowed";
+        let dir = tempfile::tempdir().unwrap();
+        crate::env::session_env::remember_local_for_test(cid, dir.path());
+        let fallback: std::sync::Arc<dyn ComputerControl> = std::sync::Arc::new(NoopControl);
+        let result = control_for_conversation(&fallback, cid);
+        crate::env::session_env::release(cid);
+        let picked = result.expect("local 会话应当放行到宿主 fallback");
+        assert!(std::sync::Arc::ptr_eq(&picked, &fallback));
     }
 }

@@ -108,6 +108,28 @@ pub(crate) fn remember_local_for_test(conversation_id: &str, workspace: &Path) {
     remember_local(conversation_id, local_env_for(workspace));
 }
 
+/// 测试用：直接登记一个会话的执行环境（任意档位，不起沙箱）。
+#[cfg(test)]
+pub(crate) fn remember_env_for_test(conversation_id: &str, env: Arc<dyn Environment>) {
+    if let Ok(mut map) = test_bound_cache().lock() {
+        map.insert(conversation_id.to_string(), env);
+    }
+}
+
+#[cfg(test)]
+fn test_bound_cache() -> &'static Mutex<HashMap<String, Arc<dyn Environment>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<dyn Environment>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+fn test_bound_for(conversation_id: &str) -> Option<Arc<dyn Environment>> {
+    test_bound_cache()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(conversation_id).cloned())
+}
+
 fn cached_local(conversation_id: &str) -> Option<Arc<LocalEnv>> {
     local_cache()
         .lock()
@@ -180,6 +202,10 @@ pub fn bind_if_absent(
 /// thread-local 绑定在那些位置读不到——凡是"当前线程上有没有环境"都可能错的
 /// 地方，改用这个按 conversation_id 查。
 pub fn env_for_conversation(conversation_id: &str) -> Option<Arc<dyn Environment>> {
+    #[cfg(test)]
+    if let Some(env) = test_bound_for(conversation_id) {
+        return Some(env);
+    }
     // local 档位（admin / standalone）也要能按会话重放：工具线程上没有 thread-local，
     // 查不到就会退到 `DeniedEnv`，宿主工具全线失效。
     if let Some(local) = cached_local(conversation_id) {

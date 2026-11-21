@@ -121,6 +121,8 @@ pub(super) async fn dispatch_modified_click(
         }
     }
 
+    // 上面的容器分支没有命中：这里要落到宿主 executor，沙箱会话必须拒绝。
+    crate::env::ensure_host_execution_allowed(conversation_id, "修饰键点击")?;
     let vision = state
         .computer_state
         .vision_state_for_conversation(conversation_id);

@@ -36,6 +36,12 @@ impl UseScreenTool {
                 }
             }
         }
+        // 走到这里就是宿主显示器：沙箱会话（无桌面）必须拒绝，不能枚举或切换 Mac 的屏。
+        let cid = args
+            .get("_conversation_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        crate::env::ensure_host_execution_allowed(cid, "屏幕切换")?;
         // 编号来自 `launch_app` 的返回（`display 3 …`），这里不再重新找应用：
         // 重新解析一遍既慢，又可能因为窗口刚移动而和刚才那块屏不一致。
         //

@@ -300,6 +300,27 @@ enum MountSpec {
 **网络：沙箱允许出网。** 联网搜索、包安装、API 调用都依赖它，默认 `NetworkPolicy::Allow`。
 隔离靠 **net namespace**——沙箱之间互不可见、互不可达，**不是断网**。需要禁网的场景（例如只跑纯离线批处理）由配置显式关闭。
 
+**宿主侧执行的准入（fail-closed）**：凡是必须落在宿主上的动作（键鼠、截屏、剪贴板、屏幕切换、修饰键点击、MCP 工具进程、插件 hook 脚本），统一经过 `env::ensure_host_execution_allowed(conversation_id, 动作描述)`：
+
+| 会话环境记录 | 部署 | 结果 |
+|---|---|---|
+| `local` | 任意 | 放行（宿主就是它的环境） |
+| `headless` / `desktop`（沙箱） | 任意 | 拒绝，报错并记 `warn` 日志 |
+| 无记录 | 远程（headless/desktop 部署） | 拒绝 |
+| 无记录 | standalone（本机 local 部署） | 放行 |
+
+约定：
+
+- 新增任何「在宿主执行」的分支，必须先过这个判定；不能用 `unwrap_or_else(host_env)` 或 `effective_env()` 静默兜底。
+- 桌面后端选择用 `control_for_conversation`：有桌面的环境（`capabilities().desktop`）走它自己的桌面，其余走宿主 fallback 前先过准入。
+- 拒绝是正常的安全行为，不是故障：沙箱会话里 agent 调到宿主动作会收到明确错误，而不是驱动运行 app 的那台机器。
+
+已知缺口（尚未完成，不代表已闭环）：
+
+- **MCP 子进程仍由宿主常驻**（`plugins/mcp.rs` 的 `connect_stdio` 在插件加载期用 `host_env().spawn`）。当前只限制调用侧：沙箱会话调用 MCP 工具会被拒绝。目标是按会话经 `Environment::spawn` 起进程。
+- 服务端 worktree / 项目路由、文件工具的部分宿主回落（`tools/file/path.rs` 等）尚未纳入上述准入，见后续计划。
+- headless 会话委派到 `computer` 时会收到拒绝错误；按 §6.3 在工具集层面不下发 computer 工具才是根治，尚未实现。
+
 **环境变量分两类，不要混**：
 
 | 类别 | 例子 | 由谁提供 |

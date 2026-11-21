@@ -220,6 +220,7 @@ impl PreToolCallHook for PluginPreToolCallHook {
             &self.command,
             &event,
             self.timeout_ms,
+            ctx.conversation_id,
         )
         .await
         {
@@ -314,8 +315,14 @@ impl PostToolCallHook for PluginPostToolCallHook {
             attrs.insert("command".into(), serde_json::json!(self.command));
             attrs.insert("tool_name".into(), serde_json::json!(ctx.tool_name));
         }
-        if let Err(e) =
-            run_hook_command(&self.plugin_dir, &self.command, &event, self.timeout_ms).await
+        if let Err(e) = run_hook_command(
+            &self.plugin_dir,
+            &self.command,
+            &event,
+            self.timeout_ms,
+            ctx.conversation_id,
+        )
+        .await
         {
             log::warn!(
                 "plugin {} PostToolUse hook 执行失败（忽略）: {e:#}",
@@ -371,8 +378,14 @@ impl OnRunStartedHook for PluginRunStartedHook {
             attrs.insert("plugin_id".into(), serde_json::json!(self.plugin_id));
             attrs.insert("command".into(), serde_json::json!(self.command));
         }
-        if let Err(e) =
-            run_hook_command(&self.plugin_dir, &self.command, &event, self.timeout_ms).await
+        if let Err(e) = run_hook_command(
+            &self.plugin_dir,
+            &self.command,
+            &event,
+            self.timeout_ms,
+            &ctx.conversation_id,
+        )
+        .await
         {
             log::warn!(
                 "plugin {} SessionStart hook 执行失败（忽略）: {e:#}",
@@ -528,7 +541,9 @@ async fn run_session_end_hook(
         attrs.insert("command".into(), serde_json::json!(command));
         attrs.insert("status".into(), serde_json::json!(status));
     }
-    if let Err(e) = run_hook_command(plugin_dir, command, &event, timeout_ms).await {
+    if let Err(e) =
+        run_hook_command(plugin_dir, command, &event, timeout_ms, conversation_id).await
+    {
         log::warn!("plugin {plugin_id} SessionEnd hook 执行失败（忽略）: {e:#}");
         span.set_error("hook_failed", format!("{e:#}"));
     }
@@ -566,16 +581,24 @@ async fn run_hook_command(
     command: &str,
     event: &serde_json::Value,
     timeout_ms: u64,
+    conversation_id: &str,
 ) -> Result<HookDecision> {
     let command_path = resolve_hook_command(plugin_dir, command)?;
     // §3.3：hook 是 agent 可触发的进程，必须经 `Environment::spawn` 在环境内跑。
     // 环境是**线程局部**绑定的，所以要在进阻塞线程之前取出来。
     //
-    // hook 由会话回合触发，但 async 任务换线程后 thread-local 绑定会丢；拿不到绑定
-    // 就显式按宿主处理（插件脚本本身装在宿主上）。不能用 `effective_env()`：它在
-    // 未绑定时按部署档位兜底，沙箱部署下给 `DeniedEnv`，把「线程局部丢了」伪装成
-    // 「插件脚本不在环境可见范围内」。
-    let env = crate::env::current_env().unwrap_or_else(crate::env::host_env);
+    // async 任务换线程后 thread-local 绑定会丢，因此先按会话重放（`env_for_conversation`）。
+    // 两者都拿不到时，只有 standalone 部署才允许按宿主执行；远程部署直接拒绝，
+    // 不能把「线程局部丢了」当成「在宿主跑」。
+    let env = match crate::env::current_env()
+        .or_else(|| crate::env::session_env::env_for_conversation(conversation_id))
+    {
+        Some(env) => env,
+        None => {
+            crate::env::ensure_host_execution_allowed(conversation_id, "插件 hook 脚本")?;
+            crate::env::host_env()
+        }
+    };
     // 非 Host 档位：插件目录是宿主路径，要换成沙箱里的挂载点（`/plugins/...`
     // 或工作区内的 `.pointer/plugins/...`）。映射不到就明确报错，不猜。
     let command_path = if env.kind() == crate::env::EnvKind::Local {
@@ -889,7 +912,7 @@ path = "hooks/"
         // 300ms 超时；若超时分支不 kill 子进程，此调用会在 sleep 30 结束后才返回（测试超时失败）
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            run_hook_command(&dir, "bin/hang.sh", &serde_json::json!({}), 300),
+            run_hook_command(&dir, "bin/hang.sh", &serde_json::json!({}), 300, "hook-timeout-test"),
         )
         .await;
         assert!(

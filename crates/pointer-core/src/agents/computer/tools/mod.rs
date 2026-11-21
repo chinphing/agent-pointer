@@ -184,7 +184,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     // `notches_y` — wheel notches, not pixel deltas.
                     let control = crate::agents::computer::control::control_for_conversation(
                         &ms.control, &cid,
-                    );
+                    )?;
                     run_synthetic_computer_tool(move || {
                         tool_mouse::scroll_current(&control, &args)
                     })
@@ -227,7 +227,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                             crate::agents::computer::control::control_for_conversation(
                                 &hotkey_state.control,
                                 &cid,
-                            );
+                            )?;
                         let tool = tool_hotkey::HotkeyTool::new(control);
                         tool.execute("hotkey", &args)
                     })
@@ -282,7 +282,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                         let vision = st.vision_state_for_conversation(&cid);
                         let control = crate::agents::computer::control::control_for_conversation(
                             &st.control, &cid,
-                        );
+                        )?;
                         let tool = InputTool::new(control, vision);
                         run_synthetic_computer_tool(move || tool.execute_with(backend, &args))
                     }
@@ -328,7 +328,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     .unwrap_or_default();
                 let control = crate::agents::computer::control::control_for_conversation(
                     &st.control, &cid,
-                );
+                )?;
                 let tool = tool_keyboard::KeyboardTool::new(control);
                 let method = method.clone();
                 run_synthetic_computer_tool(move || tool.execute(&method, &args))

@@ -113,10 +113,7 @@ pub(crate) fn expand_user_path_for_file(user_path: &str) -> Result<String> {
 }
 
 /// Same as [`expand_user_path_for_file`], with an explicit home for `~`.
-pub(crate) fn expand_user_path_for_file_at(
-    user_path: &str,
-    home: Option<&Path>,
-) -> Result<String> {
+pub(crate) fn expand_user_path_for_file_at(user_path: &str, home: Option<&Path>) -> Result<String> {
     let s = normalize_user_fspath(user_path);
     if s.is_empty() {
         return Ok(String::new());
@@ -227,7 +224,6 @@ impl Drop for AgentWorkspaceGuard {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // 环境感知的路径判定
 //
@@ -239,17 +235,34 @@ impl Drop for AgentWorkspaceGuard {
 /// 本机路径在没绑环境时返回 `Ok(None)`（调用方按宿主读）。
 /// `/data/...` 在没绑环境时改用会话环境；会话环境也不在就报错。
 pub(super) fn runtime_env_for(path: &Path) -> Result<Option<Arc<dyn crate::env::Environment>>> {
-    if let Some(env) = current_env() {
+    let tool_ctx = crate::tools::context::current_tool_context();
+    let session_user_id = tool_ctx
+        .as_ref()
+        .map(|ctx| ctx.session_user_id().to_string())
+        .unwrap_or_default();
+    let suits = |env: &Arc<dyn crate::env::Environment>| {
+        session_user_id.is_empty()
+            || crate::env::session_env::env_matches_session_user(env.as_ref(), &session_user_id)
+    };
+    if let Some(env) = current_env().filter(&suits) {
         return Ok(Some(env));
+    }
+    if current_env().is_some() {
+        log::info!(
+            "file tool: thread-local env does not match user={session_user_id}, ignoring it"
+        );
     }
     let text = path.to_string_lossy();
     if !crate::workspace_resolve::looks_like_sandbox_guest_path(&text) {
         return Ok(None);
     }
-    let conversation_id = crate::tools::context::current_tool_context()
+    let conversation_id = tool_ctx
+        .as_ref()
         .map(|ctx| ctx.conversation_id().to_string())
         .unwrap_or_default();
-    if let Some(env) = crate::env::session_env::env_for_conversation(&conversation_id) {
+    if let Some(env) =
+        crate::env::session_env::env_for_conversation(&conversation_id).filter(&suits)
+    {
         log::info!(
             "file tool: using session environment conversation={conversation_id} path={}",
             path.display()
@@ -260,10 +273,7 @@ pub(super) fn runtime_env_for(path: &Path) -> Result<Option<Arc<dyn crate::env::
         "file tool: sandbox path has no session environment conversation={conversation_id} path={}",
         path.display()
     );
-    anyhow::bail!(
-        "工作区在沙箱内（{}），但当前没有会话环境",
-        path.display()
-    )
+    anyhow::bail!("工作区在沙箱内（{}），但当前没有会话环境", path.display())
 }
 
 fn env_is_dir(path: &Path) -> bool {
@@ -272,7 +282,10 @@ fn env_is_dir(path: &Path) -> bool {
         Ok(Some(env)) if env.kind() == crate::env::EnvKind::Local => path.is_dir(),
         Ok(Some(env)) => env.metadata(path).map(|m| m.is_dir).unwrap_or(false),
         Err(error) => {
-            log::warn!("file tool: is_dir refused for {}: {error:#}", path.display());
+            log::warn!(
+                "file tool: is_dir refused for {}: {error:#}",
+                path.display()
+            );
             false
         }
     }
@@ -284,7 +297,10 @@ fn env_exists(path: &Path) -> bool {
         Ok(Some(env)) if env.kind() == crate::env::EnvKind::Local => path.exists(),
         Ok(Some(env)) => env.exists(path),
         Err(error) => {
-            log::warn!("file tool: exists refused for {}: {error:#}", path.display());
+            log::warn!(
+                "file tool: exists refused for {}: {error:#}",
+                path.display()
+            );
             false
         }
     }
@@ -314,8 +330,7 @@ pub fn workspace_root_from_override_or_settings() -> String {
         .with(|c| c.borrow().clone())
         .or_else(|| {
             // 会话绑定环境时以环境的工作区为准（沙箱内路径）。
-            crate::env::current_env()
-                .map(|env| env.workspace_root().display().to_string())
+            crate::env::current_env().map(|env| env.workspace_root().display().to_string())
         })
         .unwrap_or_default()
 }
@@ -399,10 +414,7 @@ pub fn writable_path_roots(workspace_root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// Same as [`writable_path_roots`], with an explicit home entry (no env read).
-pub fn writable_path_roots_at(
-    workspace_root: &Path,
-    home: Option<&Path>,
-) -> Result<Vec<PathBuf>> {
+pub fn writable_path_roots_at(workspace_root: &Path, home: Option<&Path>) -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
     let ws = env_canonicalize(workspace_root);
     // 环境收口：非 Host 档位只放开工作区（及用户目录），不再列出 temp / desktop 等宿主目录。
@@ -604,10 +616,7 @@ pub fn resolve_writable_path_at(
 /// Resolve an **absolute** path for `file:write` / `file:edit`: must stay under canonical `root`.
 /// The target file (or missing parent dirs) may not exist yet; resolution walks up to an
 fn resolve_absolute_under_workspace(root: &Path, abs: &Path) -> Result<PathBuf> {
-    resolve_absolute_under_roots(
-        &[env_canonicalize(root)],
-        abs,
-    )
+    resolve_absolute_under_roots(&[env_canonicalize(root)], abs)
 }
 
 /// Resolve `user_path` (relative to root, or absolute but must stay under canonical `root`).
@@ -1014,9 +1023,7 @@ mod resolve_root_tests {
         // 工作区外的绝对路径不再可写。
         let outside = tempfile::tempdir().unwrap();
         let outside_file = outside.path().join("x.txt");
-        assert!(
-            resolve_writable_path(ws.path(), outside_file.to_str().unwrap()).is_err()
-        );
+        assert!(resolve_writable_path(ws.path(), outside_file.to_str().unwrap()).is_err());
     }
 
     #[test]
@@ -1050,6 +1057,9 @@ mod workspace_context_tests {
         let err = resolve_tool_workspace_root().expect_err("must fail without context");
         let msg = format!("{err:#}");
         assert!(msg.contains("未设置工作区"), "unexpected message: {msg}");
-        assert!(!msg.contains("settings.workspaceRoot"), "不应再提示用户设置字段");
+        assert!(
+            !msg.contains("settings.workspaceRoot"),
+            "不应再提示用户设置字段"
+        );
     }
 }

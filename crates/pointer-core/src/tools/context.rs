@@ -56,13 +56,11 @@ impl ToolContext {
         }
     }
 
-    /// 按会话解析上下文：本线程已绑定的环境优先，其次是该会话建过的环境
-    /// （子线程 / 阻塞线程上 thread-local 丢了，只能按会话重放）。
+    /// 按会话解析上下文：先用档位相符的线程绑定，其次用该会话已建好的环境。
     ///
-    /// 两条都拿不到就是**漏绑定**：调用方必须先
-    /// `env::session_env::bind_and_resolve_workspace` / `bind_cached`，这里不再按
-    /// 部署档位兜底——沙箱部署下那会给出 `DeniedEnv`（把漏绑定伪装成「路径不存在」），
-    /// local 部署下会给出与会话无关的 `LocalEnv`（工具可能落到宿主）。
+    /// 两边都不符（例如线程上还留着上一个用户的沙箱）就按当前用户重新绑定。
+    /// 不按部署档位兜底：沙箱部署下那会给出 `DeniedEnv`，local 部署下会给出与
+    /// 会话无关的 `LocalEnv`。
     ///
     /// `fallback_workspace` 只在 local 档位生效——headless 档位的工作区一律是
     /// `env.workspace_root()`（沙箱内的 guest 路径），宿主路径在沙箱里不存在。
@@ -71,18 +69,42 @@ impl ToolContext {
         session_user_id: &str,
         fallback_workspace: impl Into<PathBuf>,
     ) -> Result<Self> {
-        let env = match crate::env::current_env()
-            .or_else(|| crate::env::session_env::env_for_conversation(conversation_id))
-        {
-            Some(env) => env,
-            None => crate::env::require_env()?,
+        let fallback_workspace = fallback_workspace.into();
+        let suits = |env: &Arc<dyn Environment>| {
+            crate::env::session_env::env_matches_session_user(env.as_ref(), session_user_id)
+        };
+        let env = if let Some(env) = crate::env::current_env().filter(&suits).or_else(|| {
+            crate::env::session_env::env_for_conversation(conversation_id).filter(&suits)
+        }) {
+            env
+        } else {
+            log::info!(
+                "tool context: conversation={conversation_id} user={session_user_id} env does not match tier, rebinding"
+            );
+            let (guard, _) = crate::env::session_env::bind_and_resolve_workspace(
+                conversation_id,
+                session_user_id,
+                fallback_workspace.clone(),
+            )?;
+            let env = crate::env::current_env().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "执行环境未绑定，且调用方要求显式绑定：该入口不会按部署档位回落到默认环境"
+                )
+            })?;
+            drop(guard);
+            env
         };
         let workspace_root = if env.kind() == EnvKind::Local {
-            fallback_workspace.into()
+            fallback_workspace
         } else {
             env.workspace_root().to_path_buf()
         };
-        Ok(Self::new(conversation_id, session_user_id, env, workspace_root))
+        Ok(Self::new(
+            conversation_id,
+            session_user_id,
+            env,
+            workspace_root,
+        ))
     }
 
     /// 无会话场景（单元测试、工具自检）：显式按宿主处理。
@@ -156,13 +178,21 @@ mod tests {
     fn guard_exposes_context_and_clears_on_drop() {
         assert!(current_tool_context().is_none());
         {
-            let ctx = ToolContext::new("conv-1", "user-1", crate::env::test_light_env(), "/workspace");
+            let ctx = ToolContext::new(
+                "conv-1",
+                "user-1",
+                crate::env::test_light_env(),
+                "/workspace",
+            );
             let _g = ToolContextGuard::enter(ctx);
             let seen = current_tool_context().expect("上下文应可见");
             assert_eq!(seen.conversation_id(), "conv-1");
             // 同一作用域内工具体读到的环境必须是会话环境，不是宿主
             assert_eq!(crate::env::effective_env().kind(), EnvKind::Headless);
-            assert_eq!(crate::env::effective_env().workspace_root(), Path::new("/workspace"));
+            assert_eq!(
+                crate::env::effective_env().workspace_root(),
+                Path::new("/data/workspaces")
+            );
         }
         assert!(current_tool_context().is_none());
         // 退出后环境绑定也恢复：不会把上一个会话的环境留给线程复用的下一轮

@@ -17,9 +17,9 @@ use parking_lot::{Mutex, RwLock};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
 #[cfg(test)]
 use std::io::Write;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -118,18 +118,17 @@ impl McpClient {
             ));
         }
         let command_path = Self::resolve_command(plugin_dir, &decl.command)?;
-        let command_path = if env.kind() == crate::env::EnvKind::Local
-            || env.path_map().is_host_passthrough()
-        {
-            command_path
-        } else {
-            env.path_map().to_agent(&command_path).map_err(|error| {
-                anyhow!(
-                    "MCP 命令不在会话环境可见范围内（{}）：{error:#}",
-                    command_path.display()
-                )
-            })?
-        };
+        let command_path =
+            if env.kind() == crate::env::EnvKind::Local || env.path_map().is_host_passthrough() {
+                command_path
+            } else {
+                env.path_map().to_agent(&command_path).map_err(|error| {
+                    anyhow!(
+                        "MCP 命令不在会话环境可见范围内（{}）：{error:#}",
+                        command_path.display()
+                    )
+                })?
+            };
         let mut argv = vec![command_path.to_string_lossy().into_owned()];
         argv.extend(decl.args.iter().cloned());
         let uid = crate::session_user_env::current_session_user_id().unwrap_or_default();
@@ -590,8 +589,8 @@ impl McpClient {
         match &self.transport {
             Transport::Stdio { child, .. } => {
                 let mut handle = child.lock();
-                let mut frame = serde_json::to_vec(&payload)
-                    .map_err(|e| anyhow!("写入 MCP 通知失败: {e}"))?;
+                let mut frame =
+                    serde_json::to_vec(&payload).map_err(|e| anyhow!("写入 MCP 通知失败: {e}"))?;
                 frame.push(b'\n');
                 handle
                     .write_all(&frame)
@@ -1039,11 +1038,21 @@ fn register_mcp_tool(
     // 宿主上的 stdio 进程只给本地档位用。沙箱会话在自己的环境里另起一份，
     // 不能借宿主进程执行命令。HTTP MCP 连的是远端服务，不经过宿主进程。
     let handler: ToolHandler = Arc::new(move |args: Value| -> Result<String> {
-        let cid = crate::tools::context::current_tool_context()
+        let tool_ctx = crate::tools::context::current_tool_context();
+        let cid = tool_ctx
+            .as_ref()
             .map(|ctx| ctx.conversation_id().to_string())
             .unwrap_or_default();
+        let session_user_id = tool_ctx
+            .as_ref()
+            .map(|ctx| ctx.session_user_id().to_string())
+            .unwrap_or_default();
+        let suits = |env: &std::sync::Arc<dyn crate::env::Environment>| {
+            crate::env::session_env::env_matches_session_user(env.as_ref(), &session_user_id)
+        };
         let env = crate::env::current_env()
-            .or_else(|| crate::env::session_env::env_for_conversation(&cid));
+            .filter(&suits)
+            .or_else(|| crate::env::session_env::env_for_conversation(&cid).filter(&suits));
         let sandbox = env.as_ref().is_some_and(|env| {
             !env.is_denied()
                 && env.kind() != crate::env::EnvKind::Local
@@ -1055,7 +1064,8 @@ fn register_mcp_tool(
                 "mcp: stdio call in session environment conversation={cid} server={} tool={tool_name}",
                 session_decl.name
             );
-            let session = McpClient::connect_stdio_in(&plugin_id_owned, &plugin_dir, &session_decl, &env)?;
+            let session =
+                McpClient::connect_stdio_in(&plugin_id_owned, &plugin_dir, &session_decl, &env)?;
             return session.call_tool(&tool_name, args);
         }
         if stdio {
@@ -1567,7 +1577,13 @@ done
         );
 
         // 通过注册名调用 → 底层应调用原始工具名 query-docs
-        tools.invoke(&crate::tools::context::ToolContext::local_default(),name, json!({ "q": "tokio" })).expect("invoke");
+        tools
+            .invoke(
+                &crate::tools::context::ToolContext::local_default(),
+                name,
+                json!({ "q": "tokio" }),
+            )
+            .expect("invoke");
         std::thread::sleep(Duration::from_millis(300));
         let seen = seen.lock();
         let call = seen

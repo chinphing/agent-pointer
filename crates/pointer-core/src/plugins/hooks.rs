@@ -541,8 +541,7 @@ async fn run_session_end_hook(
         attrs.insert("command".into(), serde_json::json!(command));
         attrs.insert("status".into(), serde_json::json!(status));
     }
-    if let Err(e) =
-        run_hook_command(plugin_dir, command, &event, timeout_ms, conversation_id).await
+    if let Err(e) = run_hook_command(plugin_dir, command, &event, timeout_ms, conversation_id).await
     {
         log::warn!("plugin {plugin_id} SessionEnd hook 执行失败（忽略）: {e:#}");
         span.set_error("hook_failed", format!("{e:#}"));
@@ -590,8 +589,16 @@ async fn run_hook_command(
     // async 任务换线程后 thread-local 绑定会丢，因此先按会话重放（`env_for_conversation`）。
     // 两者都拿不到时，只有 standalone 部署才允许按宿主执行；远程部署直接拒绝，
     // 不能把「线程局部丢了」当成「在宿主跑」。
+    let session_user_id = crate::conversation_store::global_store()
+        .ok()
+        .and_then(|store| store.session_user_id(conversation_id).ok())
+        .unwrap_or_default();
+    let suits = |env: &std::sync::Arc<dyn crate::env::Environment>| {
+        crate::env::session_env::env_matches_session_user(env.as_ref(), &session_user_id)
+    };
     let env = match crate::env::current_env()
-        .or_else(|| crate::env::session_env::env_for_conversation(conversation_id))
+        .filter(&suits)
+        .or_else(|| crate::env::session_env::env_for_conversation(conversation_id).filter(&suits))
     {
         Some(env) => env,
         None => {
@@ -619,8 +626,8 @@ async fn run_hook_command(
     let out = tokio::task::spawn_blocking(move || {
         run_hook_blocking(env, &path, &event_json, timeout, &plugin_dir_owned)
     })
-        .await
-        .map_err(|e| anyhow!("插件 hook 任务失败: {e}"))??;
+    .await
+    .map_err(|e| anyhow!("插件 hook 任务失败: {e}"))??;
     parse_hook_decision(&out.stdout, out.code)
 }
 
@@ -696,14 +703,10 @@ fn run_hook_blocking(
             );
             // 杀掉后管道关闭，读线程自然结束（不 join，避免二次阻塞）。
             let _ = child.lock().unwrap().kill();
-            Err(anyhow!(
-                "插件 hook 执行超时（>{}ms）",
-                timeout.as_millis()
-            ))
+            Err(anyhow!("插件 hook 执行超时（>{}ms）", timeout.as_millis()))
         }
     }
 }
-
 
 fn parse_hook_decision(stdout: &str, exit_code: i32) -> Result<HookDecision> {
     let trimmed = stdout.trim();
@@ -926,7 +929,13 @@ path = "hooks/"
         // 300ms 超时；若超时分支不 kill 子进程，此调用会在 sleep 30 结束后才返回（测试超时失败）
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            run_hook_command(&dir, "bin/hang.sh", &serde_json::json!({}), 300, "hook-timeout-test"),
+            run_hook_command(
+                &dir,
+                "bin/hang.sh",
+                &serde_json::json!({}),
+                300,
+                "hook-timeout-test",
+            ),
         )
         .await;
         assert!(

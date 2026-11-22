@@ -1,10 +1,10 @@
 //! Route tool invocations to specialized handlers or the default registry.
 
 mod ask_user;
-mod job;
-mod locate;
 mod grounding;
 mod input;
+mod job;
+mod locate;
 mod media;
 mod modified_click;
 mod mouse;
@@ -25,6 +25,36 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::app_state::AppState;
 use super::super::app_state::ToolExecutionScope;
+
+fn bind_dispatch_env(
+    state: &AppState,
+    conversation_id: &str,
+    workspace_fallback: &str,
+) -> anyhow::Result<Option<crate::env::EnvironmentGuard>> {
+    let session_user_id = state
+        .session_index
+        .session_user_id(conversation_id)
+        .unwrap_or_default();
+    let stored = state
+        .session_index
+        .workspace_root(conversation_id)
+        .unwrap_or_else(|error| {
+            log::warn!(
+                "bind_env: workspace lookup failed conversation={conversation_id}: {error:#}"
+            );
+            String::new()
+        });
+    let workspace = if stored.trim().is_empty() {
+        workspace_fallback.to_string()
+    } else {
+        stored
+    };
+    crate::env::session_env::bind_cached_or_resolve(
+        conversation_id,
+        &session_user_id,
+        std::path::PathBuf::from(workspace),
+    )
+}
 use super::super::StreamTx;
 use super::types::{LeadToolPassConfig, SubToolPassConfig, ToolExecResult, ToolInvocationStats};
 
@@ -50,9 +80,9 @@ pub(super) async fn execute_tool_invocation(
     state_arc: std::sync::Arc<AppState>,
 ) -> ToolExecResult {
     let _ = ask_user_deferred;
-    // 执行环境：tokio 换线程后 thread-local 绑定不会跟随，这里按会话缓存重放。
-    // 不重放的话 terminal/file 会静默落回宿主（headless 档位等于失效）。
-    let _env_guard = crate::env::session_env::bind_cached(conversation_id);
+    // 执行环境：tokio 换线程后 thread-local 绑定不会跟随。按当前用户重放；
+    // 线程上残留的是另一个档位时，在这里切换，而不是留给后面的工具各自猜。
+    let _env_guard = bind_dispatch_env(state, conversation_id, &provider.settings.workspace_root)?;
     let execution_scope = ToolExecutionScope::from_agent_contexts(
         conversation_id,
         lead.as_ref()
@@ -139,8 +169,13 @@ pub(super) async fn execute_tool_invocation(
         // `target_desc` is optional, and when present it must ground the panel
         // before the pointer moves. Without it the arm passes the args through
         // unchanged, so the at-current-pointer behaviour survives.
-        "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
-        | "move_to" | "mouse_drag_from_to_at" | "mouse_down" | "mouse_up"
+        "mouse_click_at"
+        | "mouse_double_click_at"
+        | "mouse_right_click_at"
+        | "move_to"
+        | "mouse_drag_from_to_at"
+        | "mouse_down"
+        | "mouse_up"
         | "mouse_scroll_current" => {
             mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
         }
@@ -216,9 +251,9 @@ pub(super) async fn execute_tool_invocation(
         ),
         "job" => {
             let caller = match sub.as_ref() {
-                Some(config) => JobCaller::Instance(
-                    config.instance_scope.agent_instance_id.as_str(),
-                ),
+                Some(config) => {
+                    JobCaller::Instance(config.instance_scope.agent_instance_id.as_str())
+                }
                 None => JobCaller::Lead,
             };
             job::dispatch_job(state, conversation_id, args_value, cancel, caller).await
@@ -266,8 +301,8 @@ pub(super) async fn invoke_prepared_parallel(
     tool_span_id: Option<String>,
     state_arc: std::sync::Arc<AppState>,
 ) -> ToolExecResult {
-    // 并行波也跑在独立任务里：同样要按会话缓存重放环境绑定。
-    let _env_guard = crate::env::session_env::bind_cached(conversation_id);
+    // 并行波也跑在独立任务里：按当前用户重放，档位不符就切换。
+    let _env_guard = bind_dispatch_env(state, conversation_id, workspace_root)?;
     let execution_scope =
         ToolExecutionScope::new(conversation_id, agent_instance_id, tc.id.as_str());
     match tool_id {
@@ -348,8 +383,13 @@ pub(super) async fn invoke_prepared_parallel(
         // `mouse_scroll_current` is here because its `target_desc` is optional:
         // without one the arm just falls through to the tool unchanged, with one
         // it grounds the panel and moves the pointer before scrolling.
-        "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
-        | "move_to" | "mouse_drag_from_to_at" | "mouse_down" | "mouse_up"
+        "mouse_click_at"
+        | "mouse_double_click_at"
+        | "mouse_right_click_at"
+        | "move_to"
+        | "mouse_drag_from_to_at"
+        | "mouse_down"
+        | "mouse_up"
         | "mouse_scroll_current" => {
             mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
         }

@@ -306,8 +306,15 @@ async fn run_terminal_foreground(
     let join = tokio::task::spawn_blocking(move || {
         let state = unsafe { &*(state_ptr as *const AppState) };
         let stream = unsafe { &*(stream_ptr as *const StreamTx) };
-        // 阻塞线程上没有 tokio 的线程局部：按会话缓存重放环境绑定。
-        let _env_guard = crate::env::session_env::bind_cached(&conversation_id_for_blocking);
+        // 阻塞线程上没有 tokio 的线程局部：按会话缓存重放；没有缓存就按当前用户解析。
+        let _env_guard = match crate::env::session_env::bind_cached_or_resolve(
+            &conversation_id_for_blocking,
+            &session_user_id_for_blocking,
+            std::path::PathBuf::from(&session_work_dir_for_blocking),
+        ) {
+            Ok(guard) => guard,
+            Err(error) => return Err(error),
+        };
 
         let (prompt_tx, prompt_rx) = std::sync::mpsc::channel::<TerminalNeedsInputPrompt>();
         let (res_tx, res_rx) = std::sync::mpsc::channel::<TerminalInputResolution>();
@@ -435,9 +442,10 @@ async fn run_terminal_background(
     };
     let access_host = crate::access_host_scope::current();
     let job_id_for_task = job_id.clone();
-    tokio::spawn(crate::access_host_scope::run_scoped(access_host, move || {
-        run_background_terminal(job_id_for_task, spawn)
-    }));
+    tokio::spawn(crate::access_host_scope::run_scoped(
+        access_host,
+        move || run_background_terminal(job_id_for_task, spawn),
+    ));
 
     let handle = background_job_handle_json(&job_id, JobStatus::Running, "terminal", None, None);
     // A large `blockUntilMs` must never park the parent turn: the job keeps
@@ -615,12 +623,19 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
     let scoped_message_id_for_terminal = trace_id_opt(spawn.host_scoped_message_id.as_deref());
     let session_work_dir_for_blocking = session_workspace.clone();
     let access_host_for_blocking = crate::access_host_scope::current();
-    // 阻塞线程上没有 tokio 线程局部：与前台一致，按会话缓存重放环境绑定。
+    // 阻塞线程上没有 tokio 线程局部：与前台一致，按会话缓存重放；没有缓存就按当前用户解析。
     // 不重放的话 `env::require_env()` 在这里必然失败（后台 terminal 全线报未绑定）。
     let conversation_id_for_blocking = spawn.conversation_id.clone();
 
     let join = tokio::task::spawn_blocking(move || {
-        let _env_guard = crate::env::session_env::bind_cached(&conversation_id_for_blocking);
+        let _env_guard = match crate::env::session_env::bind_cached_or_resolve(
+            &conversation_id_for_blocking,
+            &session_user_id,
+            std::path::PathBuf::from(&session_work_dir_for_blocking),
+        ) {
+            Ok(guard) => guard,
+            Err(error) => return Err(error),
+        };
         let _workspace_guard = ConversationWorkspaceGuard::enter(session_workspace.clone());
         let _work_dir_guard =
             crate::session_work_dir_env::SessionWorkDirGuard::enter(session_work_dir_for_blocking);
@@ -726,8 +741,8 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
 #[cfg(test)]
 mod tests {
     use super::{
-        job_status_from_terminal, terminal_job_title, terminal_self_caller, InputClass,
-        JobStatus, TerminalStreamingResult,
+        job_status_from_terminal, terminal_job_title, terminal_self_caller, InputClass, JobStatus,
+        TerminalStreamingResult,
     };
     use crate::chat_service::job_supervisor::JobCaller;
     use serde_json::json;

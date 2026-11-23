@@ -178,22 +178,16 @@ mod tests {
     #[test]
     fn trusted_proxy_skips_its_own_hops() {
         let headers = headers_with_xff("203.0.113.7, 10.0.0.2, 10.0.0.3");
-        let resolved = resolve_client_ip(
-            Some(ip("10.0.0.1")),
-            &headers,
-            &["10.0.0.0/8".to_string()],
-        );
+        let resolved =
+            resolve_client_ip(Some(ip("10.0.0.1")), &headers, &["10.0.0.0/8".to_string()]);
         assert_eq!(resolved, Some(ip("203.0.113.7")));
     }
 
     #[test]
     fn all_hops_trusted_falls_back_to_the_origin() {
         let headers = headers_with_xff("10.0.0.5, 10.0.0.6");
-        let resolved = resolve_client_ip(
-            Some(ip("10.0.0.1")),
-            &headers,
-            &["10.0.0.0/8".to_string()],
-        );
+        let resolved =
+            resolve_client_ip(Some(ip("10.0.0.1")), &headers, &["10.0.0.0/8".to_string()]);
         assert_eq!(resolved, Some(ip("10.0.0.5")));
     }
 

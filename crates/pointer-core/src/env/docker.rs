@@ -125,7 +125,6 @@ impl DockerSpec {
         let key = crate::user_key::user_key(session_user_id);
         format!("pointer-sbx-u-{key}")
     }
-
 }
 
 /// 容器规格版本。**改动容器契约就 +1**：入口脚本、注入的环境变量、挂载语义。
@@ -215,7 +214,7 @@ pub struct DockerEnv {
     vnc_password: Option<String>,
     map: PathMap,
     /// 文件 IO 直接走宿主（bind 挂载 = 同一份文件）。
-    host_fs: super::local::LocalEnv,
+    host_fs: super::volume_io::VolumeIo,
 }
 
 impl std::fmt::Debug for DockerEnv {
@@ -288,7 +287,7 @@ impl DockerEnv {
             tier: super::provider::Tier::Desktop,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
-            host_fs: super::local::LocalEnv::new("/tmp"),
+            host_fs: super::volume_io::VolumeIo,
         }
     }
 
@@ -315,6 +314,11 @@ impl DockerEnv {
             .find(|m| m.guest == Path::new(crate::env::mounts::GUEST_DATA))
             .map(|m| m.host.clone())
             .ok_or_else(|| anyhow!("docker: 挂载计划里没有 /data 对应的宿主目录"))?;
+        log::info!(
+            "docker: attach container={} host data={}",
+            container,
+            workspace_host.display()
+        );
         let map = PathMap::new(spec.mounts.clone());
         Ok(Some(Self {
             vnc_password: Self::container_vnc_password(&container),
@@ -322,7 +326,7 @@ impl DockerEnv {
             workdir: spec.workdir,
             tier: spec.tier,
             map,
-            host_fs: super::local::LocalEnv::new(&workspace_host),
+            host_fs: super::volume_io::VolumeIo,
         }))
     }
 
@@ -335,10 +339,16 @@ impl DockerEnv {
             .find(|m| m.guest == Path::new(crate::env::mounts::GUEST_DATA))
             .map(|m| m.host.clone())
             .ok_or_else(|| anyhow!("docker: 挂载计划里没有 /data 对应的宿主目录"))?;
+        log::info!(
+            "docker: create container={} host data={}",
+            spec.container,
+            workspace_host.display()
+        );
 
         let fingerprint = spec.fingerprint();
         let reusable = Self::container_running(&spec.container)
-            && Self::container_fingerprint(&spec.container).as_deref() == Some(fingerprint.as_str());
+            && Self::container_fingerprint(&spec.container).as_deref()
+                == Some(fingerprint.as_str());
 
         // 容器档位：每会话随机 VNC 密码（空字符串 = 显式要求无密码）。
         // 复用已有容器时密码已经在容器里定死了，必须读回来；这里再随机一个就会对不上。
@@ -404,7 +414,7 @@ impl DockerEnv {
             tier: spec.tier,
             vnc_password,
             map,
-            host_fs: super::local::LocalEnv::new(&workspace_host),
+            host_fs: super::volume_io::VolumeIo,
         };
         // 容器档位：Xvfb 是异步起的，立刻 exec 会拿到 "cannot open display"。
         // 这里等桌面真正可用再返回，避免调用方第一次执行就失败。
@@ -585,8 +595,12 @@ impl DockerEnv {
     }
 
     /// 容器档位默认带 `DISPLAY=:99`（镜像入口起的 Xvfb），调用方显式给了就不覆盖。
-    fn effective_env(&self, env: &std::collections::BTreeMap<String, String>) -> Vec<(String, String)> {
-        let mut out: Vec<(String, String)> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    fn effective_env(
+        &self,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> =
+            env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         if self.tier == super::provider::Tier::Desktop
             && !env.contains_key("DISPLAY")
             && !out.iter().any(|(k, _)| k == "DISPLAY")
@@ -656,7 +670,7 @@ impl Environment for DockerEnv {
         &self.workdir
     }
     fn skills_root(&self) -> &Path {
-        Path::new("/skills")
+        Path::new("/home/pointer/.pointer/skills")
     }
     fn home_root(&self) -> &Path {
         Path::new(crate::env::mounts::GUEST_HOME)
@@ -748,11 +762,7 @@ impl Environment for DockerEnv {
                 .unwrap_or(0)
         );
         let pts_file = format!("/tmp/.pointer-pty-{token}");
-        let mut argv = vec![
-            "docker".to_string(),
-            "exec".to_string(),
-            "-it".to_string(),
-        ];
+        let mut argv = vec!["docker".to_string(), "exec".to_string(), "-it".to_string()];
         if let Some(cwd) = &spec.cwd {
             argv.push("-w".to_string());
             argv.push(cwd.display().to_string());
@@ -774,7 +784,8 @@ impl Environment for DockerEnv {
         spec.argv = argv;
         spec.cwd = None;
         spec.env.clear();
-        let inner = super::local::LocalEnv::new(self.workdir.clone()).pty_open(spec)?;
+        // 容器客户端跑在进程上，不进入会话环境。
+        let inner = super::process_io_at(&self.workdir).pty_open(spec)?;
         Ok(Box::new(DockerPty {
             inner,
             container: self.container.clone(),
@@ -855,8 +866,6 @@ impl Environment for DockerEnv {
         let host = self.host_path(path)?;
         self.host_fs.set_executable(&host)
     }
-
-
 }
 
 /// `docker exec` 起的常驻进程。
@@ -871,10 +880,7 @@ impl ChildHandle for DockerChild {
         self.child.id()
     }
     fn write_all(&mut self, data: &[u8]) -> Result<()> {
-        let stdin = self
-            .stdin
-            .as_mut()
-            .ok_or_else(|| anyhow!("stdin 已关闭"))?;
+        let stdin = self.stdin.as_mut().ok_or_else(|| anyhow!("stdin 已关闭"))?;
         stdin.write_all(data)?;
         stdin.flush()?;
         Ok(())
@@ -958,7 +964,7 @@ mod tests {
             tier: super::super::provider::Tier::Headless,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
-            host_fs: super::super::local::LocalEnv::new("/tmp"),
+            host_fs: super::super::volume_io::VolumeIo,
         };
         assert_eq!(headless.kind(), EnvKind::Headless);
         assert!(!headless.capabilities().desktop, "headless 档不应有桌面");
@@ -970,7 +976,7 @@ mod tests {
             tier: super::super::provider::Tier::Desktop,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
-            host_fs: super::super::local::LocalEnv::new("/tmp"),
+            host_fs: super::super::volume_io::VolumeIo,
         };
         assert_eq!(container.kind(), EnvKind::Desktop);
         assert!(container.capabilities().desktop, "container 档必须有桌面");
@@ -984,7 +990,10 @@ mod tests {
             DockerSpec::default().tier,
             super::super::provider::Tier::Headless
         );
-        assert_eq!(spec_with_tier(super::super::provider::Tier::Desktop).tier, super::super::provider::Tier::Desktop);
+        assert_eq!(
+            spec_with_tier(super::super::provider::Tier::Desktop).tier,
+            super::super::provider::Tier::Desktop
+        );
     }
 
     #[test]
@@ -994,7 +1003,10 @@ mod tests {
         assert_eq!(a.len(), 8);
         assert_ne!(a, b, "两次生成不应相同");
         for ch in a.chars() {
-            assert!(!matches!(ch, '0' | 'O' | '1' | 'l' | 'i'), "不该出现易混字符: {ch}");
+            assert!(
+                !matches!(ch, '0' | 'O' | '1' | 'l' | 'i'),
+                "不该出现易混字符: {ch}"
+            );
             assert!(ch.is_ascii_alphanumeric(), "只允许字母数字: {ch}");
         }
     }
@@ -1003,7 +1015,11 @@ mod tests {
         DockerSpec {
             container: "pointer-args".into(),
             image: "pointer-sandbox-headless:latest".into(),
-            mounts: vec![super::super::pathmap::Mount::new("/host/data", crate::env::mounts::GUEST_DATA, false)],
+            mounts: vec![super::super::pathmap::Mount::new(
+                "/host/data",
+                crate::env::mounts::GUEST_DATA,
+                false,
+            )],
             workdir: crate::env::mounts::GUEST_WORKSPACES_ROOT.into(),
             tier: super::super::provider::Tier::Headless,
             cpus: Some(2.0),
@@ -1030,7 +1046,10 @@ mod tests {
         let spec = spec_for_args();
         let args = run_args(&spec, "abc123", None, false).join(" ");
         assert!(!args.contains("--storage-opt"), "{args}");
-        assert!(args.contains("--memory 2048m"), "其他限制不该被连带丢掉：{args}");
+        assert!(
+            args.contains("--memory 2048m"),
+            "其他限制不该被连带丢掉：{args}"
+        );
     }
 
     #[test]
@@ -1052,7 +1071,7 @@ mod tests {
             tier: super::super::provider::Tier::Headless,
             vnc_password: Some("abcd2345".into()),
             map: PathMap::new(Vec::new()),
-            host_fs: super::super::local::LocalEnv::new("/tmp"),
+            host_fs: super::super::volume_io::VolumeIo,
         };
         assert!(
             headless.desktop_endpoint().is_none(),

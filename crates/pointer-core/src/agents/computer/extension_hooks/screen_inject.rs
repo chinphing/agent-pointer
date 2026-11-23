@@ -7,9 +7,7 @@
 
 use crate::agents::computer::capture_debug;
 use crate::agents::computer::screen;
-use crate::agents::computer::screen_overlay::{
-    SLOT_SCREEN_CURRENT,
-};
+use crate::agents::computer::screen_overlay::SLOT_SCREEN_CURRENT;
 use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::AgentProfile;
 use crate::extensions::{
@@ -36,8 +34,7 @@ const CUR_SCREEN_CACHE_MAX_AGE: std::time::Duration = std::time::Duration::from_
 const DESKTOP_NOTICE_PROCESSING: &str = "【桌面】截图中";
 const DESKTOP_NOTICE_READY: &str = "【桌面】已更新当前画面。";
 /// User-facing failure copy — do not echo internal errors.
-const DESKTOP_NOTICE_FAILED: &str =
-    "【桌面】截图失败，请检查屏幕录制权限后重试。";
+const DESKTOP_NOTICE_FAILED: &str = "【桌面】截图失败，请检查屏幕录制权限后重试。";
 
 fn cur_screen_failure_model_message() -> String {
     format!(
@@ -136,10 +133,7 @@ fn display_summary(current_id: &str, monitors: &[crate::models::ComputerMonitor]
     }
 }
 
-pub fn build_cur_screen_preamble(
-    cap: &ScreenCaptureResult,
-    pointer: Option<(i32, i32)>,
-) -> String {
+pub fn build_cur_screen_preamble(cap: &ScreenCaptureResult, pointer: Option<(i32, i32)>) -> String {
     let cite = "Each screenshot below is preceded by its slot label on its own line. Do not invent UI from task text or prior turns. Do not write internal checklists, prompt block labels (`[Recent desktop tool calls]`, `[Current screen]`, `[Environment]`, …), or tool-call transcripts in assistant message text — those blocks are context addressed to you, not output for the user. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
     // 图上那个红十字星就是指针。不说清楚的话模型只能猜「这个标记是什么」，
     // 于是每次滚动都保守地要求重新定位 —— 明明指针已经在面板里。
@@ -189,10 +183,7 @@ fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
 /// production attaches, so `image_slot_labels` stays consistent.
 #[doc(hidden)]
 pub fn assemble_cur_screen_payload(cap: &ScreenCaptureResult) -> (Vec<String>, Vec<String>) {
-    let labels: Vec<String> = slot_labels()
-        .into_iter()
-        .map(str::to_string)
-        .collect();
+    let labels: Vec<String> = slot_labels().into_iter().map(str::to_string).collect();
     let images = assemble_cur_screen_base64(cap);
     debug_assert_eq!(
         labels.len(),
@@ -260,16 +251,12 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
             DESKTOP_NOTICE_PROCESSING.to_string(),
         );
 
-        let capture = match ctx.computer_state.fresh_pipeline_capture(
-            ctx.conversation_id,
-            CUR_SCREEN_CACHE_MAX_AGE,
-        ) {
+        let capture = match ctx
+            .computer_state
+            .fresh_pipeline_capture(ctx.conversation_id, CUR_SCREEN_CACHE_MAX_AGE)
+        {
             Some(cap) => Ok((cap, None)),
-            None => {
-                ctx.computer_state
-                    .capture_screen(ctx.conversation_id)
-                    .await
-            }
+            None => ctx.computer_state.capture_screen(ctx.conversation_id).await,
         };
 
         match capture {
@@ -409,7 +396,13 @@ mod tests {
     use crate::agents::computer::ScreenCaptureResult;
     use crate::models::ChatMessage;
 
-    fn monitor(id: &str, left: i32, top: i32, width: i32, height: i32) -> crate::models::ComputerMonitor {
+    fn monitor(
+        id: &str,
+        left: i32,
+        top: i32,
+        width: i32,
+        height: i32,
+    ) -> crate::models::ComputerMonitor {
         crate::models::ComputerMonitor {
             id: id.to_string(),
             left,
@@ -431,10 +424,22 @@ mod tests {
         ];
         let text = super::display_summary("1", &monitors);
         assert!(text.contains("one of 2 displays"), "got: {text}");
-        assert!(text.contains("This frame is display 1"), "当前屏要出现: {text}");
-        assert!(text.contains("Other displays: 3."), "另一块屏要出现: {text}");
-        assert!(text.contains("use_screen"), "要告诉模型下一步怎么做: {text}");
-        assert!(!text.contains('×'), "尺寸统一由像素换算那句报，这里不重复: {text}");
+        assert!(
+            text.contains("This frame is display 1"),
+            "当前屏要出现: {text}"
+        );
+        assert!(
+            text.contains("Other displays: 3."),
+            "另一块屏要出现: {text}"
+        );
+        assert!(
+            text.contains("use_screen"),
+            "要告诉模型下一步怎么做: {text}"
+        );
+        assert!(
+            !text.contains('×'),
+            "尺寸统一由像素换算那句报，这里不重复: {text}"
+        );
         assert!(!text.contains("-1440"), "不能出现绝对坐标: {text}");
     }
 
@@ -473,7 +478,10 @@ mod tests {
     fn display_summary_keeps_the_id_without_monitors() {
         let text = super::display_summary("1", &[]);
         assert!(text.contains("display 1"), "got: {text}");
-        assert!(!text.contains("only display"), "不知道有几块时别下结论: {text}");
+        assert!(
+            !text.contains("only display"),
+            "不知道有几块时别下结论: {text}"
+        );
     }
 
     /// 编号缺失（旧缓存 / 测试构造）时保持沉默，不退回坐标猜测。

@@ -76,13 +76,7 @@ pub struct NormBox {
 impl NormBox {
     /// Clamp to `[0, 1000]` and normalize corner order (B5 `_clamp_box`).
     pub fn new(x1: f64, y1: f64, x2: f64, y2: f64) -> Self {
-        Self {
-            x1,
-            y1,
-            x2,
-            y2,
-        }
-        .normalized()
+        Self { x1, y1, x2, y2 }.normalized()
     }
 
     /// Clamp every coordinate into `[0, 1000]`, then order corners.
@@ -353,7 +347,15 @@ mod tests {
             y2: 200.0,
         };
         let b = CropBounds::around(target, 300.0);
-        assert_eq!(b, CropBounds { x0: 0.0, y0: 0.0, x1: 300.0, y1: 300.0 });
+        assert_eq!(
+            b,
+            CropBounds {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 300.0,
+                y1: 300.0
+            }
+        );
     }
 
     #[test]

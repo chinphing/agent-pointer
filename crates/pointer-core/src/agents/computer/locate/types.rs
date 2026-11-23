@@ -47,7 +47,8 @@ impl LocateRequest {
     /// rule. Same-named elements on different rows are common, and a full-screen
     /// re-locate otherwise has no reason to stay near where the caller pointed.
     pub fn hint_center(&self) -> Option<(f64, f64)> {
-        self.hint_px.map(|b| ((b.x1 + b.x2) / 2.0, (b.y1 + b.y2) / 2.0))
+        self.hint_px
+            .map(|b| ((b.x1 + b.x2) / 2.0, (b.y1 + b.y2) / 2.0))
     }
 
     /// Normalized hint, or `None` when absent / zero-area (§6.3.1).
@@ -131,7 +132,6 @@ impl VerifyVerdict {
         // 模型把「框」和「目标」当成同一个东西，size 从来没判对过。
         self.is_same == MatchVerdict::Yes
     }
-
 }
 
 impl Default for VerifyVerdict {
@@ -281,7 +281,12 @@ pub struct LocateOutcome {
 }
 
 impl LocateOutcome {
-    pub fn failure(target_desc: impl Into<String>, reason: FailureReason, what_i_saw: String, rounds: usize) -> Self {
+    pub fn failure(
+        target_desc: impl Into<String>,
+        reason: FailureReason,
+        what_i_saw: String,
+        rounds: usize,
+    ) -> Self {
         Self {
             target_desc: target_desc.into(),
             ok: false,

@@ -252,10 +252,7 @@ mod tests {
         ] {
             for tool in position_submit_tools(family) {
                 let name = tool["function"]["name"].as_str().unwrap_or_default();
-                assert!(
-                    !name.contains("index"),
-                    "{family:?} still offers {name}"
-                );
+                assert!(!name.contains("index"), "{family:?} still offers {name}");
             }
         }
     }

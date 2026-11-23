@@ -4,8 +4,8 @@
 //! 直接 `Command::new`，换后端（Cube / 远端 envd）时只改环境实现。
 //! 超时与输出上限由 `ExecOptions` 表达，`ExecOutput` 回传 `timed_out` / `*_truncated`。
 
-use anyhow::{anyhow, Result};
 use crate::env::ExecOptions;
+use anyhow::{anyhow, Result};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::time::Duration;

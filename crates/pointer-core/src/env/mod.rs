@@ -23,10 +23,13 @@ pub mod process;
 pub mod provider;
 pub mod remote;
 pub mod sandbox_registry;
+pub mod session;
 pub mod session_env;
+mod volume_io;
 
 pub use local::LocalEnv;
 pub use pathmap::{Mount, MountSpec, PathMap};
+pub use session::{SessionEnv, SessionScope};
 
 use anyhow::{bail, Result};
 use std::cell::RefCell;
@@ -624,7 +627,10 @@ pub(crate) fn decide_host_execution(
     match bound {
         Some(EnvKind::Local) => Ok(()),
         Some(kind) => {
-            log::warn!("host execution refused: {what} bound_kind={}", kind.as_str());
+            log::warn!(
+                "host execution refused: {what} bound_kind={}",
+                kind.as_str()
+            );
             bail!(
                 "{what}只能在宿主（local 档位）执行，当前会话运行在 {} 环境，已拒绝在宿主执行",
                 kind.as_str()
@@ -665,6 +671,16 @@ pub fn host_env() -> Arc<dyn Environment> {
         .clone()
 }
 
+/// 进程自己的命令和临时文件。不进入会话槽，也不能当作某个用户的文件视图。
+pub fn process_io() -> Arc<dyn Environment> {
+    host_env()
+}
+
+/// 进程在宿主上打开伪终端时用的工作目录。不进入会话槽。
+pub fn process_io_at(root: &std::path::Path) -> Arc<dyn Environment> {
+    host_env_at(root)
+}
+
 /// 当前生效的环境：本线程绑过就用绑定的，否则**按部署档位兜底**。
 ///
 /// 兜底出来的实例可能与会话无关（local 部署 → 与当前会话无关的 `LocalEnv`；
@@ -677,16 +693,14 @@ pub fn effective_env() -> Arc<dyn Environment> {
     if let Some(env) = current_env() {
         return env;
     }
-    // headless/desktop 档位绝不能静默回落宿主：返回拒绝执行的环境，把漏绑定变成显式错误。
-    if deployment_is_remote() {
-        static DENIED: OnceLock<Arc<dyn Environment>> = OnceLock::new();
-        return DENIED
-            .get_or_init(|| Arc::new(DeniedEnv::new()) as Arc<dyn Environment>)
-            .clone();
-    }
-    static DEFAULT_LOCAL: OnceLock<Arc<dyn Environment>> = OnceLock::new();
-    DEFAULT_LOCAL
-        .get_or_init(|| Arc::new(LocalEnv::from_settings()) as Arc<dyn Environment>)
+    // 未绑定一律拒绝，本地部署也不再回落到整机文件视图。
+    denied_placeholder()
+}
+
+fn denied_placeholder() -> Arc<dyn Environment> {
+    static DENIED: OnceLock<Arc<dyn Environment>> = OnceLock::new();
+    DENIED
+        .get_or_init(|| Arc::new(DeniedEnv::new()) as Arc<dyn Environment>)
         .clone()
 }
 
@@ -700,9 +714,14 @@ pub fn effective_env() -> Arc<dyn Environment> {
 /// 错误文案刻意**不复用**工作区那套（[`WorkspaceDirState::Unbound`]）：那是
 /// 「工作区不可用」的措辞，这里是「调用方要求显式绑定」的契约问题，指向不同。
 pub fn require_env() -> Result<Arc<dyn Environment>> {
-    current_env().ok_or_else(|| {
+    require_session().map(|session| session.environment())
+}
+
+/// 当前线程上的会话环境。没绑定就返回错误，不回落到整机。
+pub fn require_session() -> Result<SessionEnv> {
+    current_session().ok_or_else(|| {
         anyhow::anyhow!(
-            "执行环境未绑定，且调用方要求显式绑定：该入口不会按部署档位回落到默认环境\
+            "执行环境未绑定，且调用方要求显式绑定：缺少当前用户的执行环境，该入口不会回落到整机文件视图\
              （请先在该线程上绑定会话环境，见 env::session_env::bind_cached / bind_and_resolve_workspace）"
         )
     })
@@ -780,17 +799,18 @@ pub fn workspace_dir_error(env: Option<&dyn Environment>, path: &Path) -> Option
 }
 
 thread_local! {
-    static CURRENT_ENV: RefCell<Option<Arc<dyn Environment>>> = const { RefCell::new(None) };
+    static CURRENT_ENV: RefCell<Option<SessionEnv>> = const { RefCell::new(None) };
 }
 
-/// 会话级 `Environment` 绑定。与 `ConversationWorkspaceGuard` 同一套语义：
-/// tokio 任务换线程后 thread-local 不会跟随，**每个重新进入的分发点都要重放**。
+/// 会话级环境绑定。tokio 任务换线程后 thread-local 不会跟随，每个重新进入的分发点都要重放。
+///
+/// 槽里只能是 [`SessionEnv`]。整机文件视图放不进来。
 pub struct EnvironmentGuard {
-    previous: Option<Arc<dyn Environment>>,
+    previous: Option<SessionEnv>,
 }
 
 impl EnvironmentGuard {
-    pub fn enter(env: Arc<dyn Environment>) -> Self {
+    pub fn enter(env: SessionEnv) -> Self {
         let previous = CURRENT_ENV.with(|slot| slot.borrow_mut().replace(env));
         Self { previous }
     }
@@ -811,9 +831,16 @@ impl Drop for EnvironmentGuard {
     }
 }
 
-/// 当前线程绑定的环境；未绑定时返回 `None`（local 直跑）。
-pub fn current_env() -> Option<Arc<dyn Environment>> {
+/// 当前线程绑定的会话环境。
+pub fn current_session() -> Option<SessionEnv> {
     CURRENT_ENV.with(|slot| slot.borrow().clone())
+}
+
+/// 当前线程绑定的环境；未绑定时返回 `None`。
+///
+/// 返回值来自会话环境，不会是整机恒等映射。
+pub fn current_env() -> Option<Arc<dyn Environment>> {
+    current_session().map(|session| session.environment())
 }
 
 /// 是否已绑定非默认环境。
@@ -823,36 +850,76 @@ pub fn is_bound() -> bool {
 
 /// 提示词 `{{workspace_root}}` 的取值来源。
 ///
-/// 已绑定环境时用 `env.workspace_root()`；否则退回调用方给的 settings 值（当前行为）。
-pub fn prompt_workspace_root(fallback: &str) -> String {
-    match current_env() {
-        Some(env) => env.workspace_root().display().to_string(),
-        None => fallback.trim().to_string(),
+/// 优先当前线程上的会话环境，其次该会话缓存里的环境。
+/// 这两处都是会话内路径（容器里是 `/data/workspaces`）。
+/// 只有完全没有会话环境时才退回调用方给的值。
+pub fn prompt_workspace_root(conversation_id: &str, fallback: &str) -> String {
+    if let Some(env) = current_env() {
+        let path = env.workspace_root().display().to_string();
+        if !path.trim().is_empty() {
+            return path;
+        }
     }
+    let conversation_id = conversation_id.trim();
+    if !conversation_id.is_empty() {
+        if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
+            let path = env.workspace_root().display().to_string();
+            if !path.trim().is_empty() {
+                log::info!(
+                    "prompt workspace: session cache conversation={conversation_id} path={path}"
+                );
+                return path;
+            }
+        }
+    }
+    fallback.trim().to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn temp_env(dir: &Path) -> Arc<dyn Environment> {
-        Arc::new(LocalEnv::new(dir))
+    fn temp_env(dir: &Path) -> SessionEnv {
+        SessionEnv::open_roots("test", dir, dir, dir).expect("session")
     }
 
     #[test]
     fn prompt_workspace_root_falls_back_without_binding() {
         assert!(!is_bound());
-        assert_eq!(prompt_workspace_root("  /tmp/ws  "), "/tmp/ws");
+        assert_eq!(prompt_workspace_root("", "  /tmp/ws  "), "/tmp/ws");
+    }
+
+    #[test]
+    fn prompt_workspace_root_uses_cached_session_when_unbound() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = format!("prompt-ws-{}", uuid::Uuid::new_v4());
+        crate::env::session_env::remember_local_for_test(&id, dir.path());
+        assert!(!is_bound());
+        let host = "/tmp/pointer-chat-verify/docker-data/session-sandboxes/local-admin";
+        let got = prompt_workspace_root(&id, host);
+        let expected = dir.path().canonicalize().expect("canonical workspace");
+        assert_eq!(std::path::Path::new(&got), expected.as_path());
+        assert!(!got.contains("pointer-chat-verify"), "{got}");
+    }
+
+    #[test]
+    fn prompt_workspace_root_uses_cached_container_workspace() {
+        let id = format!("prompt-docker-{}", uuid::Uuid::new_v4());
+        let inner = std::sync::Arc::new(crate::env::docker::DockerEnv::fake_for_tests(
+            "prompt-docker",
+        ));
+        crate::env::session_env::remember_env_for_test(&id, inner);
+        let host = "/tmp/pointer-chat-verify/docker-data/session-sandboxes/local-admin";
+        let got = prompt_workspace_root(&id, host);
+        assert_eq!(got, "/data/workspaces");
+        assert!(!got.contains("pointer-chat-verify"), "{got}");
     }
 
     #[test]
     fn require_env_refuses_to_fall_back_when_unbound() {
         // 严格入口：没绑定就报错，绝不按部署档位兜底。
         assert!(!is_bound());
-        let err = require_env()
-            .map(|_| ())
-            .unwrap_err()
-            .to_string();
+        let err = require_env().map(|_| ()).unwrap_err().to_string();
         assert!(err.contains("执行环境未绑定"), "{err}");
         assert!(err.contains("要求显式绑定"), "{err}");
         // 不能复用工作区那套文案：那是「路径不可用」，会把人带偏。
@@ -877,12 +944,12 @@ mod tests {
             let _g = EnvironmentGuard::enter(env.clone());
             assert!(is_bound());
             assert_eq!(
-                prompt_workspace_root("/ignored"),
+                prompt_workspace_root("", "/ignored"),
                 dir.path().display().to_string()
             );
         }
         assert!(!is_bound());
-        assert_eq!(prompt_workspace_root("/fallback"), "/fallback");
+        assert_eq!(prompt_workspace_root("", "/fallback"), "/fallback");
     }
 
     #[test]
@@ -892,10 +959,7 @@ mod tests {
         let _outer = EnvironmentGuard::enter(temp_env(a.path()));
         {
             let _inner = EnvironmentGuard::enter(temp_env(b.path()));
-            assert_eq!(
-                current_env().unwrap().workspace_root(),
-                b.path()
-            );
+            assert_eq!(current_env().unwrap().workspace_root(), b.path());
         }
         assert_eq!(current_env().unwrap().workspace_root(), a.path());
     }
@@ -961,7 +1025,10 @@ mod tests {
         assert_eq!(env.kind(), EnvKind::Headless);
         assert_eq!(env.workspace_root(), Path::new("/data/workspaces"));
         let err = env
-            .exec(&["/bin/echo".to_string(), "hi".to_string()], ExecOptions::default())
+            .exec(
+                &["/bin/echo".to_string(), "hi".to_string()],
+                ExecOptions::default(),
+            )
             .unwrap_err()
             .to_string();
         assert!(err.contains("未绑定"), "错误应说明未绑定：{err}");
@@ -985,8 +1052,14 @@ mod tests {
         let missing = dir.path().join("nope");
 
         // 没绑定环境：按宿主判断（local 账号的老行为）。
-        assert_eq!(workspace_dir_state(None, present), WorkspaceDirState::Present);
-        assert_eq!(workspace_dir_state(None, &missing), WorkspaceDirState::Missing);
+        assert_eq!(
+            workspace_dir_state(None, present),
+            WorkspaceDirState::Present
+        );
+        assert_eq!(
+            workspace_dir_state(None, &missing),
+            WorkspaceDirState::Missing
+        );
 
         // 绑了 local 环境：宿主判断。
         let local = LocalEnv::new(dir.path());
@@ -1021,7 +1094,10 @@ mod tests {
             .error(EnvKind::Headless, ws)
             .unwrap()
             .to_string();
-        assert!(missing_sandbox.contains("沙箱内不存在工作区"), "{missing_sandbox}");
+        assert!(
+            missing_sandbox.contains("沙箱内不存在工作区"),
+            "{missing_sandbox}"
+        );
 
         let missing_host = WorkspaceDirState::Missing
             .error(EnvKind::Local, ws)
@@ -1032,7 +1108,9 @@ mod tests {
             "{missing_host}"
         );
 
-        assert!(WorkspaceDirState::Present.error(EnvKind::Local, ws).is_none());
+        assert!(WorkspaceDirState::Present
+            .error(EnvKind::Local, ws)
+            .is_none());
     }
 
     /// 递归收集被守卫文件里的宿主直连。
@@ -1103,7 +1181,10 @@ mod tests {
             ("media/image_dir.rs", "附件目录枚举（宿主路径）"),
             ("tools/terminal_elevated.rs", "提权是宿主专属能力"),
             ("tools/terminal_askpass.rs", "提权口令交互，宿主专属"),
-            ("media/ffmpeg.rs", "仅 local 档位走宿主 which；headless 已走 env.exec"),
+            (
+                "media/ffmpeg.rs",
+                "仅 local 档位走宿主 which；headless 已走 env.exec",
+            ),
         ];
         let patterns = [
             "std::fs::",
@@ -1241,5 +1322,177 @@ mod tests {
             violations.join("\n"),
             stale
         );
+    }
+
+    /// 会话层不得再构造整机环境。这些目录里的 `std::fs` 只留在白名单上，
+    /// 理由必须写明「不进入会话环境」。
+    #[test]
+    fn session_layers_do_not_open_the_host_environment() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let fs_allowed: &[(&str, &str)] = &[
+            (
+                "agents/computer/locate/engine.rs",
+                "定位调试写系统目录，不进入会话环境",
+            ),
+            (
+                "agents/computer/vision/screen.rs",
+                "桌面截屏是宿主能力，不进入会话环境",
+            ),
+            ("agents/mod.rs", "安装目录里的智能体定义，不进入会话环境"),
+            (
+                "agents/prompt_profile.rs",
+                "进程启动时读提示词文件，不进入会话环境",
+            ),
+            ("memory/store.rs", "用户树上的记忆文件，不进入会话环境"),
+            (
+                "plugins/activation.rs",
+                "安装目录里的插件清单，不进入会话环境",
+            ),
+            (
+                "plugins/agents_md.rs",
+                "工作区说明文件的前缀检查，不进入会话环境",
+            ),
+            (
+                "plugins/external_probe.rs",
+                "探测本机已安装的外部插件，不进入会话环境",
+            ),
+            ("plugins/hooks.rs", "安装目录里的钩子定义，不进入会话环境"),
+            ("plugins/importer.rs", "一次性安装拷贝，不进入会话环境"),
+            (
+                "plugins/registry.rs",
+                "用户树里的插件授权文件，不进入会话环境",
+            ),
+            (
+                "workspace_service.rs",
+                "用户数据目录下创建工作区，不进入会话环境",
+            ),
+            ("worktree/git.rs", "工作区 git 元数据，不进入会话环境"),
+            ("worktree/session.rs", "工作区目录创建，不进入会话环境"),
+        ];
+        let fs_patterns = [
+            "std::fs::",
+            "tokio::fs::",
+            "fs::read",
+            "fs::write",
+            "fs::metadata",
+            "fs::read_dir",
+            "Command::new",
+            "std::process::Command",
+        ];
+        let host_patterns = ["host_env(", "host_env_at(", "LocalEnv::new("];
+        let mut fs_hits: Vec<String> = Vec::new();
+        let mut host_hits: Vec<String> = Vec::new();
+        let mut seen_fs: Vec<String> = Vec::new();
+        for target in [
+            "agents",
+            "plugins",
+            "worktree",
+            "memory",
+            "workspace_service.rs",
+            "workspace_read.rs",
+            "console_session.rs",
+        ] {
+            scan_session_layer(
+                &root.join(target),
+                &root,
+                &mut fs_hits,
+                &mut host_hits,
+                &fs_patterns,
+                &host_patterns,
+                &mut seen_fs,
+            );
+        }
+        let mut violations = Vec::new();
+        for hit in &host_hits {
+            violations.push(format!("{hit} 构造了整机环境"));
+        }
+        for hit in &fs_hits {
+            let file = hit.split(':').next().unwrap_or(hit);
+            if fs_allowed.iter().any(|(allowed, _)| *allowed == file) {
+                continue;
+            }
+            violations.push(format!(
+                "{hit} 绕过 Environment（改走会话环境，或在白名单登记并写「不进入会话环境」）"
+            ));
+        }
+        let mut stale = Vec::new();
+        for (file, _) in fs_allowed {
+            if !seen_fs.iter().any(|seen| seen == file) {
+                stale.push(*file);
+            }
+        }
+        violations.sort();
+        violations.dedup();
+        assert!(
+            violations.is_empty() && stale.is_empty(),
+            "会话层不得打开整机环境\n违规：\n{}\n白名单里已不存在（请删除该条）：{:?}",
+            violations.join("\n"),
+            stale
+        );
+    }
+
+    fn scan_session_layer(
+        target: &Path,
+        root: &Path,
+        fs_hits: &mut Vec<String>,
+        host_hits: &mut Vec<String>,
+        fs_patterns: &[&str],
+        host_patterns: &[&str],
+        seen_fs: &mut Vec<String>,
+    ) {
+        if target.is_dir() {
+            let Ok(entries) = std::fs::read_dir(target) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                scan_session_layer(
+                    &entry.path(),
+                    root,
+                    fs_hits,
+                    host_hits,
+                    fs_patterns,
+                    host_patterns,
+                    seen_fs,
+                );
+            }
+            return;
+        }
+        if target.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            return;
+        }
+        let name = target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        if name == "e2e_tests.rs" || name == "test_support.rs" {
+            return;
+        }
+        let Ok(text) = std::fs::read_to_string(target) else {
+            return;
+        };
+        let rel = target
+            .strip_prefix(root)
+            .unwrap_or(target)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let prod = match text.find("#[cfg(test)]") {
+            Some(index) => &text[..index],
+            None => &text[..],
+        };
+        for (idx, line) in prod.lines().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            if fs_patterns.iter().any(|pat| line.contains(pat)) {
+                fs_hits.push(format!("{rel}:{}", idx + 1));
+                if !seen_fs.iter().any(|seen| seen == &rel) {
+                    seen_fs.push(rel.clone());
+                }
+            }
+            if host_patterns.iter().any(|pat| line.contains(pat)) {
+                host_hits.push(format!("{rel}:{} 含宿主环境构造", idx + 1));
+            }
+        }
     }
 }

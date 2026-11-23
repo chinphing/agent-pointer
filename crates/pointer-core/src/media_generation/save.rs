@@ -6,13 +6,20 @@ use std::path::{Path, PathBuf};
 
 use crate::media::store::{media_abs_path, save_attachment_bytes};
 
+pub struct SavedGeneratedFile {
+    pub rel: String,
+    pub path: PathBuf,
+}
+
 pub fn save_generated_bytes(
     conversation_id: &str,
     bytes: &[u8],
     file_name: &str,
-) -> Result<PathBuf> {
+) -> Result<SavedGeneratedFile> {
     let rel = save_attachment_bytes(conversation_id, "generated", bytes, file_name)?;
-    media_abs_path(&rel)
+    let path = media_abs_path(&rel)?;
+    log::info!("generated media saved conversation={conversation_id} rel={rel}");
+    Ok(SavedGeneratedFile { rel, path })
 }
 
 pub async fn download_url_to_file(client: &reqwest::Client, url: &str, dest: &Path) -> Result<()> {

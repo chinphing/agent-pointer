@@ -33,8 +33,8 @@ fn file_and_terminal_tools_work_through_the_registry() {
     let _workspace = AgentWorkspaceGuard::enter(&ws);
     let _work_dir = SessionWorkDirGuard::enter(ws.clone());
     // env 抽象接入后，工具调用需要显式的 ToolContext（会话 + 环境 + 工作区）。
-    let env: std::sync::Arc<dyn pointer_core::env::Environment> =
-        std::sync::Arc::new(pointer_core::env::LocalEnv::new(ws.clone()));
+    let env = pointer_core::env::SessionEnv::open_roots("smoke", dir.path(), dir.path(), dir.path())
+        .expect("session");
     let ctx = pointer_core::tools::context::ToolContext::new("smoke", "tester", env, ws.clone());
     let _ctx_guard = pointer_core::tools::context::ToolContextGuard::enter(ctx.clone());
     let reg = registry();
@@ -161,8 +161,8 @@ fn read_lints_runs_through_the_registry() {
     let _workspace = AgentWorkspaceGuard::enter(&ws);
     let _work_dir = SessionWorkDirGuard::enter(ws.clone());
     // env 抽象接入后，工具调用需要显式的 ToolContext（会话 + 环境 + 工作区）。
-    let env: std::sync::Arc<dyn pointer_core::env::Environment> =
-        std::sync::Arc::new(pointer_core::env::LocalEnv::new(ws.clone()));
+    let env = pointer_core::env::SessionEnv::open_roots("smoke", dir.path(), dir.path(), dir.path())
+        .expect("session");
     let ctx = pointer_core::tools::context::ToolContext::new("smoke", "tester", env, ws.clone());
     let _ctx_guard = pointer_core::tools::context::ToolContextGuard::enter(ctx.clone());
 

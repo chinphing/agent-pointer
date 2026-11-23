@@ -77,12 +77,7 @@ pub fn move_to_script(x: i32, y: i32) -> String {
 }
 
 /// `CLICK`. `x`/`y` are omitted when the click targets the current pointer.
-pub fn click_script(
-    button: MouseButton,
-    x: Option<i32>,
-    y: Option<i32>,
-    clicks: u32,
-) -> String {
+pub fn click_script(button: MouseButton, x: Option<i32>, y: Option<i32>, clicks: u32) -> String {
     let mut args = format!("button='{}'", button_name(button));
     if let (Some(x), Some(y)) = (x, y) {
         args.push_str(&format!(", x={x}, y={y}"));
@@ -135,11 +130,17 @@ impl ComputerControl for RemoteControl {
     }
 
     fn mouse_down(&self, button: MouseButton) -> Result<()> {
-        self.run(format!("pyautogui.mouseDown(button='{}')", button_name(button)))
+        self.run(format!(
+            "pyautogui.mouseDown(button='{}')",
+            button_name(button)
+        ))
     }
 
     fn mouse_up(&self, button: MouseButton) -> Result<()> {
-        self.run(format!("pyautogui.mouseUp(button='{}')", button_name(button)))
+        self.run(format!(
+            "pyautogui.mouseUp(button='{}')",
+            button_name(button)
+        ))
     }
 
     fn right_click(&self, x: i32, y: i32) -> Result<()> {
@@ -266,10 +267,7 @@ mod tests {
     fn click_covers_positioned_and_bare_forms() {
         let (c, s) = control();
         c.click(MouseButton::Left, Some(1), Some(2), 1).unwrap();
-        assert_eq!(
-            only_script(&s),
-            "pyautogui.click(button='left', x=1, y=2)"
-        );
+        assert_eq!(only_script(&s), "pyautogui.click(button='left', x=1, y=2)");
 
         let (c, s) = control();
         c.click(MouseButton::Left, Some(1), Some(2), 2).unwrap();
@@ -429,7 +427,8 @@ mod tests {
             },
             Row {
                 action: "DRAG_TO",
-                expected: "pyautogui.dragTo(120, 240, duration=1.0, button='left', mouseDownUp=True)",
+                expected:
+                    "pyautogui.dragTo(120, 240, duration=1.0, button='left', mouseDownUp=True)",
                 call: |c| c.drag_to(120, 240).unwrap(),
             },
             Row {
@@ -482,11 +481,17 @@ mod tests {
         ] {
             let (c, s) = control();
             c.mouse_down(button).unwrap();
-            assert_eq!(only_script(&s), format!("pyautogui.mouseDown(button='{name}')"));
+            assert_eq!(
+                only_script(&s),
+                format!("pyautogui.mouseDown(button='{name}')")
+            );
 
             let (c, s) = control();
             c.mouse_up(button).unwrap();
-            assert_eq!(only_script(&s), format!("pyautogui.mouseUp(button='{name}')"));
+            assert_eq!(
+                only_script(&s),
+                format!("pyautogui.mouseUp(button='{name}')")
+            );
 
             let (c, s) = control();
             c.click(button, Some(3), Some(4), 1).unwrap();

@@ -23,7 +23,7 @@ use anyhow::{Context, Result};
 use super::mounts::{MountPlan, SkillRoot};
 use super::provider::{Backend, ProviderConfig, ResolvedEnv, Tier};
 use super::remote::{RemoteEnv, RemoteSpec};
-use super::{current_env, Environment, EnvironmentGuard, LocalEnv};
+use super::{current_env, current_session, Environment, EnvironmentGuard, SessionEnv};
 
 /// 沙箱空闲多久后回收（下次同会话再来会重建）。
 const IDLE_TTL: Duration = Duration::from_secs(30 * 60);
@@ -142,20 +142,12 @@ fn cache() -> &'static Mutex<HashMap<String, Cached>> {
 ///
 /// 不需要空闲淘汰：`LocalEnv` 只有几个路径，没有可回收的资源；会话删除时由
 /// [`release`] 摘掉。
-fn local_cache() -> &'static Mutex<HashMap<String, Arc<LocalEnv>>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Arc<LocalEnv>>>> = OnceLock::new();
+fn local_cache() -> &'static Mutex<HashMap<String, SessionEnv>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, SessionEnv>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// local 档位的环境：工作区**原样**使用会话工作区。
-///
-/// 空工作区不换成设置值 / home：那会让"没有工作区"的工具悄悄写进 `$HOME`。
-/// 保持空串，下游照旧报「未设置工作区」。
-fn local_env_for(workspace: &Path) -> Arc<LocalEnv> {
-    Arc::new(LocalEnv::new(workspace.to_path_buf()))
-}
-
-fn remember_local(conversation_id: &str, env: Arc<LocalEnv>) {
+fn remember_local(conversation_id: &str, env: SessionEnv) {
     if let Ok(mut map) = local_cache().lock() {
         map.insert(conversation_id.to_string(), env);
     }
@@ -164,7 +156,14 @@ fn remember_local(conversation_id: &str, env: Arc<LocalEnv>) {
 /// 测试用：等价于跑过一次 local 档位的 [`bind_and_resolve_workspace`]。
 #[cfg(test)]
 pub(crate) fn remember_local_for_test(conversation_id: &str, workspace: &Path) {
-    remember_local(conversation_id, local_env_for(workspace));
+    let session = SessionEnv::open_roots(
+        &format!("c:{conversation_id}"),
+        workspace,
+        workspace,
+        workspace,
+    )
+    .expect("test session");
+    remember_local(conversation_id, session);
 }
 
 /// 测试用：直接登记一个会话的执行环境（任意档位，不起沙箱）。
@@ -189,7 +188,11 @@ fn test_bound_for(conversation_id: &str) -> Option<Arc<dyn Environment>> {
         .and_then(|map| map.get(conversation_id).cloned())
 }
 
-fn cached_local(conversation_id: &str) -> Option<Arc<LocalEnv>> {
+pub fn bound_session(conversation_id: &str) -> Option<SessionEnv> {
+    cached_local(conversation_id)
+}
+
+fn cached_local(conversation_id: &str) -> Option<SessionEnv> {
     local_cache()
         .lock()
         .ok()
@@ -261,8 +264,7 @@ pub fn env_for_conversation(conversation_id: &str) -> Option<Arc<dyn Environment
     // local 档位（admin / standalone）也要能按会话重放：工具线程上没有 thread-local，
     // 查不到就会退到 `DeniedEnv`，宿主工具全线失效。
     if let Some(local) = cached_local(conversation_id) {
-        let env: Arc<dyn Environment> = local;
-        return Some(env);
+        return Some(local.environment());
     }
     let cache_id = binding_for(conversation_id).unwrap_or_else(|| conversation_id.to_string());
     // 两条后端各有一份缓存；工具层不关心后端，这里统一查。
@@ -290,8 +292,7 @@ pub fn env_for_conversation_peek(conversation_id: &str) -> Option<Arc<dyn Enviro
     // local 档位（admin / standalone）也要能查到：否则面板对「宿主环境」的会话
     // 永远答「没有环境」。local 缓存里没有活跃时间，天然满足「只读不刷」。
     if let Some(local) = cached_local(conversation_id) {
-        let env: Arc<dyn Environment> = local;
-        return Some(env);
+        return Some(local.environment());
     }
     let cache_id = binding_for(conversation_id).unwrap_or_else(|| conversation_id.to_string());
     if let Ok(map) = cache().lock() {
@@ -342,15 +343,16 @@ fn is_pinned(conversation_id: &str) -> bool {
 /// 沙箱（envd / docker）或 local 档位的 `LocalEnv` 都算。
 /// 都没有（会话还没跑过对话）→ 返回 `None`。
 pub fn bind_cached(conversation_id: &str) -> Option<EnvironmentGuard> {
-    if current_env().is_some() {
+    if current_session().is_some() {
         return None;
     }
-    let env = env_for_conversation(conversation_id)?;
+    let session = cached_local(conversation_id)?;
     log::debug!(
-        "bind_env: replay cached conversation={conversation_id} kind={:?}",
-        env.kind()
+        "bind_env: replay cached conversation={conversation_id} kind={:?} scope={}",
+        session.kind(),
+        session.scope().id
     );
-    Some(EnvironmentGuard::enter(env))
+    Some(EnvironmentGuard::enter(session))
 }
 
 /// 绑定本会话环境，并给出工具层应当使用的工作区根。
@@ -381,27 +383,28 @@ fn bind_and_resolve_workspace_with(
     let desired = cfg.resolve(Some(session_user_id)).with_context(|| {
         format!("解析会话执行档位失败（conversation={conversation_id} user={session_user_id}）")
     })?;
-    let already = current_env();
+    let already = current_session();
     log::debug!(
         "bind_env: conversation={conversation_id} user={session_user_id} already_bound={:?} tier={} fallback={}",
         already.as_ref().map(|env| env.kind()),
         desired.tier.as_str(),
         fallback.display()
     );
-    if let Some(env) = already.as_ref() {
-        if thread_env_reusable(env.as_ref(), desired.tier, conversation_id) {
-            let workspace = if env.kind() == super::EnvKind::Local {
-                fallback.to_string_lossy().into_owned()
-            } else {
-                sandbox_active_cwd(&fallback, env.as_ref())
-            };
-            remember_execution_context(conversation_id, session_user_id, &workspace, env.as_ref());
+    if let Some(session) = already.as_ref() {
+        if thread_env_reusable(session, desired.tier, conversation_id) {
+            let workspace = session.workspace_root().to_string_lossy().into_owned();
+            remember_execution_context(
+                conversation_id,
+                session_user_id,
+                &workspace,
+                session.environment().as_ref(),
+            );
             return Ok((None, workspace));
         }
         log::info!(
-            "bind_env: conversation={conversation_id} user={session_user_id} thread-local kind={:?} denied={} does not match tier={}, rebinding",
-            env.kind(),
-            env.is_denied(),
+            "bind_env: conversation={conversation_id} user={session_user_id} thread-local kind={:?} scope={} does not match tier={}, rebinding",
+            session.kind(),
+            session.scope().id,
             desired.tier.as_str()
         );
     }
@@ -415,12 +418,7 @@ fn bind_and_resolve_workspace_with(
         "bind_env: conversation={conversation_id} resolved={:?}",
         resolved.as_ref().map(|env| env.kind())
     );
-    Ok(bind_resolved_env(
-        conversation_id,
-        resolved,
-        fallback,
-        session_user_id,
-    ))
+    bind_resolved_env(conversation_id, resolved, fallback, session_user_id)
 }
 
 /// 工具线程上的环境绑定。缓存命中就重放；没有缓存时按当前用户重新解析。
@@ -452,12 +450,21 @@ pub fn bind_cached_or_resolve(
 /// 身份为空时无法核对档位，只拒绝「未绑定」占位。配置读不出来或档位解析失败时
 /// 也不把残留环境当成匹配。
 pub fn env_matches_session_user(env: &dyn Environment, session_user_id: &str) -> bool {
-    if env.is_denied() {
+    if env.is_denied() || env.path_map().is_host_passthrough() {
         return false;
     }
     let uid = session_user_id.trim();
     if uid.is_empty() {
-        return true;
+        return false;
+    }
+    let Ok(expected) = super::SessionScope::id_for(uid, "") else {
+        return false;
+    };
+    let Some(session) = current_session() else {
+        return false;
+    };
+    if session.scope().id != expected || session.kind() != env.kind() {
+        return false;
     }
     let cfg = match ProviderConfig::from_env() {
         Ok(cfg) => cfg,
@@ -489,12 +496,12 @@ fn env_kind_matches_tier(kind: super::EnvKind, tier: Tier) -> bool {
 ///
 /// 档位要对上，而且这个会话已经有一份可重放的环境。线程上残留的
 /// `DeniedEnv` 或另一个档位的环境不能算。
-fn thread_env_reusable(env: &dyn Environment, tier: Tier, conversation_id: &str) -> bool {
-    if env.is_denied() || !env_kind_matches_tier(env.kind(), tier) {
+fn thread_env_reusable(session: &SessionEnv, tier: Tier, conversation_id: &str) -> bool {
+    if session.is_denied() || !env_kind_matches_tier(session.kind(), tier) {
         return false;
     }
-    match env_for_conversation(conversation_id) {
-        Some(cached) => !cached.is_denied() && env_kind_matches_tier(cached.kind(), tier),
+    match cached_local(conversation_id) {
+        Some(cached) => session.same_scope(&cached) && env_kind_matches_tier(cached.kind(), tier),
         None => false,
     }
 }
@@ -508,13 +515,15 @@ fn bind_resolved_env(
     resolved: Option<Arc<dyn Environment>>,
     fallback: PathBuf,
     session_user_id: &str,
-) -> (Option<EnvironmentGuard>, String) {
-    let env = materialize_env(conversation_id, resolved, fallback.as_path());
-    let workspace = if env.kind() == crate::env::EnvKind::Local {
-        fallback.to_string_lossy().into_owned()
-    } else {
-        sandbox_active_cwd(&fallback, env.as_ref())
-    };
+) -> Result<(Option<EnvironmentGuard>, String)> {
+    let session = materialize_env(
+        conversation_id,
+        session_user_id,
+        resolved,
+        fallback.as_path(),
+    )?;
+    let workspace = session.workspace_root().to_string_lossy().into_owned();
+    let env = session.environment();
     let owner = if !session_user_id.trim().is_empty() {
         session_user_id.to_string()
     } else {
@@ -524,7 +533,7 @@ fn bind_resolved_env(
             .unwrap_or_default()
     };
     remember_execution_context(conversation_id, &owner, &workspace, env.as_ref());
-    (Some(EnvironmentGuard::enter(env)), workspace)
+    Ok((Some(EnvironmentGuard::enter(session)), workspace))
 }
 
 fn remember_execution_context(
@@ -535,12 +544,17 @@ fn remember_execution_context(
 ) {
     let owner = crate::user_key::user_key(session_user_id);
     let root = std::path::PathBuf::from(workspace);
-    let data_root = if env.kind() == crate::env::EnvKind::Local {
-        None
+    let reported = env.data_root();
+    let data_root = if reported.as_os_str().is_empty() {
+        if env.kind() == crate::env::EnvKind::Local {
+            None
+        } else {
+            Some(std::path::PathBuf::from(
+                crate::workspace_resolve::SANDBOX_DATA_ROOT,
+            ))
+        }
     } else {
-        Some(std::path::PathBuf::from(
-            crate::workspace_resolve::SANDBOX_DATA_ROOT,
-        ))
+        Some(reported.to_path_buf())
     };
     let worktree_root = if workspace.starts_with("/data/worktrees/") {
         Some(root.clone())
@@ -567,23 +581,49 @@ fn remember_execution_context(
 /// 的 `LocalEnv` 并记进 [`local_cache`]，这样工具线程（`bind_cached`）能重放。
 fn materialize_env(
     conversation_id: &str,
+    session_user_id: &str,
     resolved: Option<Arc<dyn Environment>>,
     fallback: &Path,
-) -> Arc<dyn Environment> {
-    match resolved {
-        Some(env) => {
-            // 同一会话以前若以 local 记过，会挡在沙箱缓存前面。换回沙箱时摘掉它。
-            if let Ok(mut map) = local_cache().lock() {
-                map.remove(conversation_id);
-            }
-            env
-        }
+) -> Result<SessionEnv> {
+    let session = match resolved {
+        Some(env) => SessionEnv::wrap(session_user_id, conversation_id, env)?,
         None => {
-            let local = local_env_for(fallback);
-            remember_local(conversation_id, local.clone());
-            local
+            let layout =
+                crate::user_data_paths::ensure_user_layout(session_user_id, conversation_id)?;
+            let workspace = local_workspace(&layout, fallback);
+            SessionEnv::open_local_layout(session_user_id, conversation_id, &layout, &workspace)?
         }
+    };
+    remember_local(conversation_id, session.clone());
+    Ok(session)
+}
+
+/// 本地档位的会话。工作区落在该用户的 data 里，并记进会话缓存。
+pub fn ensure_local_session(
+    conversation_id: &str,
+    session_user_id: &str,
+    workspace: &Path,
+) -> Result<Arc<dyn Environment>> {
+    let id = conversation_id.trim();
+    if id.is_empty() {
+        anyhow::bail!("工作区请求缺少会话标识（conversationId），无法绑定用户环境");
     }
+    Ok(materialize_env(id, session_user_id, None, workspace)?.environment())
+}
+
+fn local_workspace(layout: &crate::user_data_paths::UserLayout, fallback: &Path) -> PathBuf {
+    let inside = !fallback.as_os_str().is_empty()
+        && (fallback.starts_with(&layout.home) || fallback.starts_with(&layout.data));
+    if inside {
+        return fallback.to_path_buf();
+    }
+    if !fallback.as_os_str().is_empty() {
+        log::info!(
+            "bind_env: host workspace {} is outside the user tree; using data/workspaces",
+            fallback.display()
+        );
+    }
+    layout.data.join("workspaces")
 }
 
 /// 工作区 / Git 面板这类 **UI 请求**的执行环境绑定。
@@ -595,25 +635,25 @@ fn materialize_env(
 ///
 /// guard 跟着结构体走：`drop` 时恢复原来的线程绑定。
 pub struct WorkspaceRequestEnv {
-    env: Arc<dyn Environment>,
+    env: SessionEnv,
     _guard: EnvironmentGuard,
 }
 
 impl WorkspaceRequestEnv {
-    /// 直接用给定环境绑定（调用方已经解析好了）。
-    pub fn enter(env: Arc<dyn Environment>) -> Self {
+    /// 直接用给定会话环境绑定。整机文件视图不能放进来。
+    pub fn enter(env: SessionEnv) -> Self {
         let guard = EnvironmentGuard::enter(env.clone());
         Self { env, _guard: guard }
     }
 
     /// 面板函数一律用它，不再走 `effective_env()`。
     pub fn env(&self) -> &dyn Environment {
-        self.env.as_ref()
+        &*self.env
     }
 
     /// 共享所有权（`spawn_blocking` 里继续用同一份环境）。
     pub fn env_arc(&self) -> Arc<dyn Environment> {
-        self.env.clone()
+        self.env.environment()
     }
 }
 
@@ -683,15 +723,24 @@ fn bind_workspace_request_inner(
         .resolve(user)
         .map_err(|err| anyhow::anyhow!("工作区请求解析执行档位失败：{err:#}"))?;
 
-    // 线程上残留的环境只有档位相符才沿用。从非 admin 切到 admin 时，这里经常还是上一份沙箱。
-    if let Some(env) = current_env() {
-        if !env.is_denied() && env_kind_matches_tier(env.kind(), desired.tier) {
-            return Ok(WorkspaceRequestEnv::enter(env));
+    // 线程上残留的环境要档位和用户范围都相符才沿用。
+    if let Some(session) = current_session() {
+        let user_ok = match user {
+            Some(uid) => {
+                super::SessionScope::id_for(uid, conv.unwrap_or(""))
+                    .ok()
+                    .as_deref()
+                    == Some(session.scope().id.as_str())
+            }
+            None => false,
+        };
+        if user_ok && !session.is_denied() && env_kind_matches_tier(session.kind(), desired.tier) {
+            return Ok(WorkspaceRequestEnv::enter(session));
         }
         log::info!(
-            "workspace_request_env: thread-local kind={:?} denied={} does not match user={:?} tier={}, rebinding",
-            env.kind(),
-            env.is_denied(),
+            "workspace_request_env: thread-local kind={:?} scope={} does not match user={:?} tier={}, rebinding",
+            session.kind(),
+            session.scope().id,
             user,
             desired.tier.as_str()
         );
@@ -699,14 +748,14 @@ fn bind_workspace_request_inner(
 
     if let Some(conv) = conv {
         // 该会话已经建好、且档位相符的环境直接复用，不重复解析 / 不抢建沙箱。
-        if let Some(env) = env_for_conversation(conv) {
-            if !env.is_denied() && env_kind_matches_tier(env.kind(), desired.tier) {
-                return Ok(WorkspaceRequestEnv::enter(env));
+        if let Some(session) = cached_local(conv) {
+            if !session.is_denied() && env_kind_matches_tier(session.kind(), desired.tier) {
+                return Ok(WorkspaceRequestEnv::enter(session));
             }
             log::info!(
-                "workspace_request_env: conversation={conv} cached kind={:?} denied={} does not match user={:?} tier={}, rebinding",
-                env.kind(),
-                env.is_denied(),
+                "workspace_request_env: conversation={conv} cached kind={:?} scope={} does not match user={:?} tier={}, rebinding",
+                session.kind(),
+                session.scope().id,
                 user,
                 desired.tier.as_str()
             );
@@ -720,9 +769,10 @@ fn bind_workspace_request_inner(
         );
         return Ok(WorkspaceRequestEnv::enter(materialize_env(
             conv,
+            user.unwrap_or(""),
             resolved,
             workspace_root,
-        )));
+        )?));
     }
 
     // 没有会话 id：按身份 + 部署档位解析。
@@ -735,11 +785,13 @@ fn bind_workspace_request_inner(
             "工作区请求缺少会话标识（conversationId）：{who}，无法定位沙箱工作区（已拒绝，未在宿主执行）"
         ));
     }
-    log::debug!(
-        "workspace_request_env: no conversation, user={user:?} → local host workspace={}",
+    log::warn!(
+        "workspace_request_env: missing conversation id user={user:?} workspace={}",
         workspace_root.display()
     );
-    Ok(WorkspaceRequestEnv::enter(local_env_for(workspace_root)))
+    Err(anyhow::anyhow!(
+        "工作区请求缺少会话标识（conversationId），无法绑定用户环境"
+    ))
 }
 
 /// 技能根挂载前的凭证检查（§5.5）：技能目录里不允许出现裸凭证文件。
@@ -900,6 +952,18 @@ fn docker_cache() -> &'static Mutex<HashMap<String, (Arc<crate::env::docker::Doc
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn users_root_for_cfg(cfg: &ProviderConfig) -> Result<PathBuf> {
+    match cfg
+        .volume_host_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(dir) => Ok(crate::user_data_paths::users_root_under(Path::new(dir))),
+        None => crate::user_data_paths::users_root(),
+    }
+}
+
 /// 会话的容器规格（挂载计划、镜像、配额）。创建与收养共用，保证两边指纹一致。
 fn docker_spec_for(
     cfg: &ProviderConfig,
@@ -908,26 +972,16 @@ fn docker_spec_for(
     workspace_root: Option<&Path>,
     tier: Tier,
 ) -> Result<crate::env::docker::DockerSpec> {
-    let sandboxes_base = match cfg
-        .volume_host_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        Some(dir) => PathBuf::from(dir),
-        None => crate::session_sandbox::SessionSandbox::sandboxes_base()?,
-    };
-    let skill_roots = skill_roots_for_mounts()?;
-    verify_skill_roots(&skill_roots)?;
-    let plugin_root = crate::plugins::user_plugins_dir().ok();
+    let users_root = users_root_for_cfg(cfg)?;
+    crate::user_data_paths::ensure_user_layout_at(&users_root, session_user_id, conversation_id)?;
     let mounts = MountPlan::for_session_with_plugins(
-        &sandboxes_base,
+        &users_root,
         session_user_id,
         conversation_id,
-        &skill_roots,
-        plugin_root.as_deref(),
+        &[],
+        None,
         workspace_root,
-    );
+    )?;
 
     let (cpus, memory_mb, disk_mb) = sandbox_resource_limits();
     Ok(crate::env::docker::DockerSpec {
@@ -1157,23 +1211,19 @@ fn acquire_remote(
         .map(PathBuf::from);
     // e2b-local：卷根就是沙箱根（目录名即卷名，必须是卷根下的真实目录）；
     // 否则用 app data 下的会话沙箱目录（Cube 走 metadata host-mount）。
-    let sandboxes_base = match &volume_host_path {
-        Some(dir) => dir.clone(),
-        None => crate::session_sandbox::SessionSandbox::sandboxes_base()?,
+    let users_root = match &volume_host_path {
+        Some(dir) => crate::user_data_paths::users_root_under(dir),
+        None => crate::user_data_paths::users_root()?,
     };
-    let skill_roots = skill_roots_for_mounts()?;
-    // 挂载前先扫凭证：命中直接失败，不静默剔除（§5.5）。
-    verify_skill_roots(&skill_roots)?;
-    // 用户插件根只读挂到 `/plugins`：hooks 脚本要能在沙箱里执行。
-    let plugin_root = crate::plugins::user_plugins_dir().ok();
+    crate::user_data_paths::ensure_user_layout_at(&users_root, session_user_id, conversation_id)?;
     let mounts = MountPlan::for_session_with_plugins(
-        &sandboxes_base,
+        &users_root,
         session_user_id,
         conversation_id,
-        &skill_roots,
-        plugin_root.as_deref(),
+        &[],
+        None,
         workspace_root,
-    );
+    )?;
     // Cube 走 metadata host-mount，宿主目录必须先存在；
     // e2b-local 走卷注册，目录由网关创建（预建会被判成 unmanaged）。
     if volume_host_path.is_none() {
@@ -1305,20 +1355,6 @@ fn should_evict(last_used: Instant, now: Instant) -> bool {
     now.saturating_duration_since(last_used) >= IDLE_TTL
 }
 
-/// 技能根 → 挂载点名字。顺序与 `skills::external::skill_roots` 一致。
-fn skill_roots_for_mounts() -> Result<Vec<SkillRoot>> {
-    const NAMES: [&str; 4] = ["user", "org", "agents", "bundled"];
-    let roots = crate::skills::external::skill_roots()?;
-    Ok(roots
-        .into_iter()
-        .enumerate()
-        .map(|(i, path)| {
-            let name = NAMES.get(i).copied().unwrap_or("skills");
-            SkillRoot::new(name, path)
-        })
-        .collect())
-}
-
 /// headless 模式下工具层应当使用的工作区根（guest 路径）。
 pub fn guest_workspace_root(env: &Arc<dyn Environment>) -> PathBuf {
     env.workspace_root().to_path_buf()
@@ -1368,8 +1404,20 @@ mod tests {
             accounts: BTreeMap::new(),
             platform: true,
         };
-        let leaked = crate::env::EnvironmentGuard::enter(crate::env::test_light_env());
-        assert!(current_env().unwrap().is_denied());
+        let leak_dir = tempfile::tempdir().expect("leaked session");
+        let leaked = crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots(
+                "leaked-other",
+                leak_dir.path(),
+                leak_dir.path(),
+                leak_dir.path(),
+            )
+            .expect("leaked session"),
+        );
+        assert!(!current_env().unwrap().path_map().is_host_passthrough());
+        let _app_lock = crate::storage::test_app_data_dir_lock();
+        let app = tempfile::tempdir().expect("app data");
+        crate::storage::set_test_app_data_dir(app.path().to_path_buf());
         let dir = tempfile::tempdir().expect("tempdir");
         let conv = format!(
             "conv-admin-rebind-{}-{}",
@@ -1386,7 +1434,11 @@ mod tests {
         let bound = current_env().expect("admin 绑定后线程上有环境");
         assert_eq!(bound.kind(), super::super::EnvKind::Local);
         assert!(!bound.is_denied());
-        assert_eq!(workspace, dir.path().display().to_string());
+        assert!(
+            workspace.contains("workspaces"),
+            "宿主目录不进入用户环境: {workspace}"
+        );
+        assert!(!bound.path_map().is_host_passthrough());
         drop(guard);
         drop(leaked);
         let replay_conv = conv.clone();
@@ -1492,32 +1544,11 @@ mod tests {
 
     #[test]
     fn skill_roots_map_to_named_read_only_mounts() {
-        let roots = skill_roots_for_mounts().expect("skill roots");
-        assert!(
-            (3..=4).contains(&roots.len()),
-            "技能根应为 3~4 个: {roots:?}"
-        );
-        let names: Vec<&str> = roots.iter().map(|r| r.name.as_str()).collect();
-        let expected = ["user", "org", "agents", "bundled"];
-        for (i, name) in names.iter().enumerate() {
-            assert_eq!(*name, expected[i], "技能根名字顺序必须固定: {names:?}");
-        }
-
-        let mounts = MountPlan::for_session(
-            std::path::Path::new("/data/session-sandboxes"),
-            "alice",
-            "c-1",
-            &roots,
-        );
-        let skill_mounts: Vec<_> = mounts.iter().filter(|m| m.read_only).collect();
-        assert_eq!(skill_mounts.len(), roots.len());
-        for m in skill_mounts {
-            assert!(
-                m.guest.starts_with("/skills/"),
-                "技能根必须挂在 /skills/ 下: {}",
-                m.guest.display()
-            );
-        }
+        let dir = tempfile::tempdir().unwrap();
+        let mounts = MountPlan::for_session(dir.path(), "alice", "c-1", &[]).unwrap();
+        assert_eq!(mounts.len(), 2);
+        assert!(mounts.iter().all(|m| !m.read_only));
+        assert!(mounts.iter().all(|m| !m.guest.starts_with("/skills")));
     }
 
     #[test]
@@ -1680,7 +1711,8 @@ mod tests {
 
         let env = env_for_conversation_peek("conv-local-peek").expect("local 会话必须 peek 得到");
         assert_eq!(env.kind(), crate::env::EnvKind::Local);
-        assert_eq!(env.workspace_root(), dir.path());
+        let expected = dir.path().canonicalize().expect("workspace");
+        assert_eq!(env.workspace_root(), expected.as_path());
 
         release("conv-local-peek");
         assert!(
@@ -1790,20 +1822,32 @@ mod tests {
             .expect("admin 解析不能报错");
         assert!(resolved.is_none(), "admin 是 local 档位，不该建沙箱");
 
-        let (guard, workspace) =
-            bind_resolved_env("conv-admin-bind", resolved, dir.path().to_path_buf(), "");
+        let _app_lock = crate::storage::test_app_data_dir_lock();
+        let app = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(app.path().to_path_buf());
+        let (guard, workspace) = bind_resolved_env(
+            "conv-admin-bind",
+            resolved,
+            dir.path().to_path_buf(),
+            "admin",
+        )
+        .expect("bind");
         let guard = guard.expect("local 档位也必须绑定 LocalEnv");
-        assert_eq!(workspace, dir.path().display().to_string());
+        assert!(
+            workspace.contains("workspaces"),
+            "用户会话的工作区在 data/workspaces 下: {workspace}"
+        );
 
         let env = current_env().expect("绑定后必须能读到环境");
         assert_eq!(env.kind(), crate::env::EnvKind::Local);
-        assert_eq!(env.workspace_root(), dir.path());
+        assert_eq!(env.workspace_root().to_string_lossy(), workspace);
         assert!(!env.is_denied(), "local 档位不是「未绑定」");
+        assert!(!env.path_map().is_host_passthrough());
 
         // 回归：以前工具线程拿到的是 DeniedEnv，这里报「工作区目录无效或不存在」。
         let cwd = crate::tools::terminal::effective_terminal_cwd(None, &workspace)
-            .expect("admin 的宿主工作区必须可用");
-        assert_eq!(cwd, dir.path().canonicalize().unwrap());
+            .expect("admin 的用户工作区必须可用");
+        assert_eq!(cwd, PathBuf::from(&workspace).canonicalize().unwrap());
 
         drop(guard);
         release("conv-admin-bind");
@@ -1827,14 +1871,18 @@ mod tests {
     fn local_env_is_replayable_on_tool_threads() {
         // 工具线程（`spawn_blocking`）上没有 thread-local，只能按会话缓存重放。
         // 查不到就会退到 DeniedEnv——这正是 admin 宿主工具全挂的原因。
+        let _app_lock = crate::storage::test_app_data_dir_lock();
+        let app = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(app.path().to_path_buf());
         let dir = tempfile::tempdir().unwrap();
-        let ws = dir.path().display().to_string();
         let (guard, workspace) =
-            bind_resolved_env("conv-local-replay", None, dir.path().to_path_buf(), "");
-        assert_eq!(workspace, ws);
+            bind_resolved_env("conv-local-replay", None, dir.path().to_path_buf(), "admin")
+                .expect("bind");
+        assert!(workspace.contains("workspaces"), "{workspace}");
         drop(guard);
 
-        let expected = dir.path().canonicalize().unwrap();
+        let expected = PathBuf::from(&workspace).canonicalize().unwrap();
+        let ws = workspace.clone();
         let cwd = std::thread::spawn(move || {
             assert!(current_env().is_none(), "新线程不该有 thread-local 绑定");
             let _g = bind_cached("conv-local-replay").expect("local 档位必须能按会话重放");
@@ -1854,9 +1902,17 @@ mod tests {
 
     #[test]
     fn release_drops_local_cache_entry() {
+        let _app_lock = crate::storage::test_app_data_dir_lock();
+        let app = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(app.path().to_path_buf());
         let dir = tempfile::tempdir().unwrap();
-        let (_guard, _ws) =
-            bind_resolved_env("conv-local-release", None, dir.path().to_path_buf(), "");
+        let (_guard, _ws) = bind_resolved_env(
+            "conv-local-release",
+            None,
+            dir.path().to_path_buf(),
+            "admin",
+        )
+        .expect("bind");
         assert!(cached_local("conv-local-release").is_some());
         release("conv-local-release");
         assert!(
@@ -1940,8 +1996,10 @@ mod tests {
         // provider = desktop（非 local 档位）+ admin 身份 + 工作区路径：
         // 面板必须拿到 LocalEnv，列目录与 git status 都要成功。
         let cfg = sandbox_deployment_cfg();
+        let _app_lock = crate::storage::test_app_data_dir_lock();
+        let app = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(app.path().to_path_buf());
         let dir = tempfile::tempdir().unwrap();
-        init_repo_with_untracked(dir.path());
         let conv = "conv-panel-admin";
 
         let acquire = |cfg: &ProviderConfig, conv: &str, user: &str, root: &Path| {
@@ -1953,15 +2011,17 @@ mod tests {
 
         assert_eq!(bound.env().kind(), crate::env::EnvKind::Local);
         assert!(!bound.env().is_denied(), "admin 不是「未绑定」");
+        let workspace = bound.env().workspace_root().to_path_buf();
+        init_repo_with_untracked(&workspace);
 
-        let entries = crate::workspace_read::list_directory(bound.env(), dir.path(), None)
+        let entries = crate::workspace_read::list_directory(bound.env(), &workspace, None)
             .expect("admin 的面板必须能列目录");
         assert!(
             entries.iter().any(|entry| entry.path == "a.txt"),
             "{entries:?}"
         );
 
-        let status = crate::workspace_read::git_status(bound.env(), dir.path())
+        let status = crate::workspace_read::git_status(bound.env(), &workspace)
             .expect("admin 的面板必须能跑 git status");
         assert_eq!(status.len(), 1, "{status:?}");
         assert_eq!(status[0].path, "a.txt");
@@ -2023,7 +2083,8 @@ mod tests {
             bind_workspace_request_inner(&cfg, Some(conv), Some("admin"), dir.path(), &acquire)
                 .expect("缓存命中");
         assert_eq!(bound.env().kind(), crate::env::EnvKind::Local);
-        assert_eq!(bound.env().workspace_root(), dir.path());
+        let expected = dir.path().canonicalize().expect("workspace");
+        assert_eq!(bound.env().workspace_root(), expected.as_path());
 
         drop(bound);
         release(conv);
@@ -2054,7 +2115,16 @@ mod tests {
         let cfg = sandbox_deployment_cfg();
         let dir = tempfile::tempdir().unwrap();
         let conv = format!("conv-panel-leak-{}", std::process::id());
-        let leaked = crate::env::EnvironmentGuard::enter(fake_sandbox_env());
+        let leak_dir = tempfile::tempdir().unwrap();
+        let leaked = crate::env::EnvironmentGuard::enter(
+            SessionEnv::open_roots(
+                "leaked-other",
+                leak_dir.path(),
+                leak_dir.path(),
+                leak_dir.path(),
+            )
+            .unwrap(),
+        );
         let acquire = |cfg: &ProviderConfig, conv: &str, user: &str, root: &Path| {
             resolve_session_env(cfg, conv, user, Some(root))
         };
@@ -2069,9 +2139,8 @@ mod tests {
     }
 
     #[test]
-    fn panel_request_without_conversation_resolves_by_identity() {
-        // 没有 conversationId：按当前身份 + 部署档位解析（这里 admin → local），
-        // 不能退到 `effective_env()` 的 `DeniedEnv`。
+    fn panel_request_without_conversation_fails_closed_for_admin() {
+        // 没有 conversationId：即使身份是 admin、档位是 local，也不再绑整机环境。
         let cfg = sandbox_deployment_cfg();
         let dir = tempfile::tempdir().unwrap();
 
@@ -2082,12 +2151,15 @@ mod tests {
          -> Result<Option<Arc<dyn Environment>>> {
             panic!("没有会话 id 时不该去建沙箱")
         };
-        let bound = bind_workspace_request_inner(&cfg, None, Some("admin"), dir.path(), &acquire)
-            .expect("admin 没有会话 id 也要能拿到宿主环境");
-        assert_eq!(bound.env().kind(), crate::env::EnvKind::Local);
-        assert!(!bound.env().is_denied());
-        crate::workspace_read::list_directory(bound.env(), dir.path(), None)
-            .expect("宿主环境必须可读");
+        let err = bind_workspace_request_inner(&cfg, None, Some("admin"), dir.path(), &acquire)
+            .expect_err("没有会话 id 不能绑定环境");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("缺少会话标识"), "{msg}");
+        assert!(
+            !msg.contains("执行环境未绑定"),
+            "不能笼统报「未绑定」：{msg}"
+        );
+        assert!(current_env().is_none(), "失败不能留下线程绑定");
     }
 
     #[test]

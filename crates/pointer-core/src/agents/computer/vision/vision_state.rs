@@ -378,5 +378,4 @@ mod tests {
         assert!(state.action_history().is_empty());
         assert_eq!(state.resolve_coordinate(500.0, 500.0), None);
     }
-
 }

@@ -162,10 +162,7 @@ impl LocateVision for ChatLocateVision<'_> {
                         attempt + 1
                     );
                 }
-                Err(e) => log::warn!(
-                    "locate_element: locate attempt {} failed: {e}",
-                    attempt + 1
-                ),
+                Err(e) => log::warn!("locate_element: locate attempt {} failed: {e}", attempt + 1),
             }
         }
 
@@ -229,17 +226,17 @@ impl LocateVision for ChatLocateVision<'_> {
                         attempt + 1,
                         out.tool_calls
                             .iter()
-                            .map(|tc| (tc.name.clone(), tc.arguments.chars().take(160).collect::<String>()))
+                            .map(|tc| (
+                                tc.name.clone(),
+                                tc.arguments.chars().take(160).collect::<String>()
+                            ))
                             .collect::<Vec<_>>(),
                         out.text.len(),
                         out.reasoning_content.as_deref().map(str::len).unwrap_or(0),
                         out.text.chars().take(300).collect::<String>(),
                     );
                 }
-                Err(e) => log::warn!(
-                    "locate_element: verify attempt {} failed: {e}",
-                    attempt + 1
-                ),
+                Err(e) => log::warn!("locate_element: verify attempt {} failed: {e}", attempt + 1),
             }
         }
         // Never silently pass, and never silently fail either. A verifier that

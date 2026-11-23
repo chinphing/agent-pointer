@@ -93,19 +93,30 @@ pub fn is_under(path: &Path, root: &Path) -> bool {
     canon.starts_with(&root)
 }
 
-/// Inject `SKILL_DIR` into a terminal child env map (user skill library root).
-/// Same directory as `~/.pointer/skills`; shared across app installs.
+/// Inject `SKILL_DIR` into a terminal child env map.
+///
+/// A bound user environment uses that user's `home_root/.pointer/skills`.
+/// Without a user environment the variable is left unset.
 pub fn apply_skill_dir_env(env: &mut HashMap<String, String>) {
-    match pointer_skills_dir() {
-        Ok(dir) => {
-            let path = dir.to_string_lossy();
-            if !path.is_empty() {
-                env.insert("SKILL_DIR".into(), path.into_owned());
-            }
-        }
-        Err(e) => {
-            log::warn!("SKILL_DIR: skills dir unavailable for terminal child: {e:#}");
-        }
+    let Some(dir) = session_skills_dir() else {
+        return;
+    };
+    let path = dir.to_string_lossy();
+    if !path.is_empty() {
+        env.insert("SKILL_DIR".into(), path.into_owned());
+    }
+}
+
+fn session_skills_dir() -> Option<PathBuf> {
+    let env = crate::env::current_env()?;
+    if env.path_map().is_host_passthrough() {
+        return None;
+    }
+    let dir = env.home_root().join(".pointer").join("skills");
+    if dir.as_os_str().is_empty() {
+        None
+    } else {
+        Some(dir)
     }
 }
 
@@ -403,7 +414,9 @@ pub fn import_skill_zip_to(root: &Path, bytes: &[u8]) -> Result<SkillImportResul
             continue;
         }
         // zip 9 起 name() 返回 Result<Cow<str>, ZipError>；名字读不出来的条目直接跳过
-        let Ok(entry_name) = file.name() else { continue };
+        let Ok(entry_name) = file.name() else {
+            continue;
+        };
         let name = normalize_zip_entry_path(&entry_name);
         if is_manifest_path(&name) {
             let mut raw = String::new();
@@ -484,7 +497,9 @@ pub fn import_skill_zip_into(root: &Path, bytes: &[u8]) -> Result<(String, PathB
             continue;
         }
         // zip 9 起 name() 返回 Result<Cow<str>, ZipError>；名字读不出来的条目直接跳过
-        let Ok(entry_name) = file.name() else { continue };
+        let Ok(entry_name) = file.name() else {
+            continue;
+        };
         let name = normalize_zip_entry_path(&entry_name);
         if is_manifest_path(&name) {
             let mut raw = String::new();
@@ -654,18 +669,25 @@ fn is_zip_file(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
 }
 
-/// Runtime discovery roots (first match wins per skill id).
+/// Runtime discovery roots for the bound user environment.
 ///
-/// Order: user library → org skills → `~/.agents/skills` → system bundled.
+/// Order: user-added skills, then org copies, then the install-tree copy.
+/// Process home, `POINTER_HOME`, and `POINTER_SKILLS_DIR` are not session roots.
 pub(crate) fn skill_roots() -> Result<Vec<PathBuf>> {
-    let mut roots = vec![pointer_skills_dir()?];
-    // 员工自建的同名技能优先于企业版：便于本地调试与科室特例，
-    // 也延续「本地改动不被覆盖」的语义。
-    roots.push(org_skills_dir()?);
-    if let Some(dir) = home_agents_skills_dir() {
-        roots.push(dir);
+    let Some(base) = session_skills_dir() else {
+        log::info!("skill_roots: no user environment, skipping process-home skill libraries");
+        return Ok(Vec::new());
+    };
+    let mut roots = Vec::new();
+    for name in ["user", "org", "system"] {
+        let dir = base.join(name);
+        if dir.is_dir() {
+            roots.push(dir);
+        }
     }
-    roots.push(system_skills_dir()?);
+    if roots.is_empty() && base.is_dir() {
+        roots.push(base);
+    }
     Ok(roots)
 }
 
@@ -1211,8 +1233,7 @@ mod tests {
         let (_tmp, root) = temp_library();
         let first_result = import_skill_zip_to(&root, &first).expect("first import");
         let second_result = import_skill_zip_to(&root, &second).expect("re-import");
-        let note =
-            fs::read_to_string(root.join("zip-pack/note.txt")).expect("replaced file");
+        let note = fs::read_to_string(root.join("zip-pack/note.txt")).expect("replaced file");
         assert_eq!(first_result.imported.len(), 1);
         assert!(first_result.skipped.is_empty());
         assert_eq!(second_result.imported.len(), 1);

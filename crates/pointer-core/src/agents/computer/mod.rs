@@ -19,11 +19,9 @@ pub use input::actions;
 #[cfg(feature = "computer")]
 pub use input::enigo as action_enigo;
 pub use input::{mouse_move, mouse_path, timing};
+pub use runtime::{ComputerModelConfig, ComputerRuntime};
 pub use state::{
     ComputerSession, ComputerState, DesktopToolEntry, ScreenCaptureResult, SessionStatus,
-};
-pub use runtime::{
-    ComputerModelConfig, ComputerRuntime,
 };
 pub use timing::{
     explicit_wait_delay_ms_from_tool_args, is_desktop_post_delay_tool, is_desktop_vision_log_tool,

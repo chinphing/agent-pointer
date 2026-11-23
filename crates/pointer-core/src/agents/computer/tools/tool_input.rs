@@ -1,6 +1,4 @@
-use super::args_util::{
-    json_bool_loose, require_non_empty_str, required_f32_arg, text_from_args,
-};
+use super::args_util::{json_bool_loose, require_non_empty_str, required_f32_arg, text_from_args};
 use super::method_route::InputBackend;
 use crate::agents::computer::control::ComputerControl;
 use crate::agents::computer::input::actions::MouseButton;

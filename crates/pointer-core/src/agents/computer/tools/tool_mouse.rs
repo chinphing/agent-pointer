@@ -348,8 +348,9 @@ mod tests {
         vision.set_coordinate_system(CoordinateSystem::Pixel);
         vision.set_screen_bbox(MonitorInfo::new(0, 0, 1280, 800));
         let vision = Arc::new(Mutex::new(vision));
-        let control: Arc<dyn ComputerControl> =
-            Arc::new(crate::agents::computer::control::LocalControl::new(executor.clone(), false));
+        let control: Arc<dyn ComputerControl> = Arc::new(
+            crate::agents::computer::control::LocalControl::new(executor.clone(), false),
+        );
         (MouseTool::new(control, vision), calls)
     }
 
@@ -489,8 +490,9 @@ mod tests {
         let executor = Arc::new(Mutex::new(
             ActionExecutor::new(Box::new(backend)).with_scroll_gap_ms(0),
         ));
-        let control: Arc<dyn ComputerControl> =
-            Arc::new(crate::agents::computer::control::LocalControl::new(executor, false));
+        let control: Arc<dyn ComputerControl> = Arc::new(
+            crate::agents::computer::control::LocalControl::new(executor, false),
+        );
         (control, calls)
     }
 

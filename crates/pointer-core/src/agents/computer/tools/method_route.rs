@@ -42,7 +42,6 @@ fn has_xy(args: &Value) -> bool {
     args.get("x").is_some() && args.get("y").is_some()
 }
 
-
 fn strip_suffix(name: &str, suffix: &str) -> String {
     name.strip_suffix(suffix).unwrap_or(name).to_string()
 }
@@ -274,8 +273,6 @@ mod tests {
         assert_eq!(r.method, "click");
     }
 
-
-
     #[test]
     fn display_infers_click_at_from_xy() {
         let args = json!({
@@ -289,7 +286,6 @@ mod tests {
             "click_at"
         );
     }
-
 
     #[test]
     fn display_infers_input_at_from_text_and_xy() {

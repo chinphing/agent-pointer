@@ -21,16 +21,16 @@ Use **`web_fetch`** when you already have a concrete public URL.
 
 **Primary edits** target the configured workspace; how relative paths map to disk is in **Session context (runtime)** and **Workspace paths and gathering (coder)** above.
 
-**Returned paths:** Successful **`file`** tool JSON that names a location on disk (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**) uses **absolute** paths (OS-canonical when available). Reuse them as **`path`** on later **`file`** calls — on Windows, convert canonical paths to forward-slash form first (e.g. `\\?\C:\project\src` → `C:/project/src`). **`file_write`** / **`file_edit`** accept workspace-relative paths or absolute / **`~`** paths under an allowed write root (workspace, home, temp, standard user data dirs, Pointer app data).
+**Returned paths:** Successful **`file`** tool JSON that names a location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**) uses a path inside this session. Reuse that path on later **`file`** calls. **`file_write`** / **`file_edit`** accept workspace-relative paths or paths under the session home and session data root. `~` is the session home.
 
 **Reading discipline:** locate with **`file_grep`** (always pass **`path`** — a file or directory under the workspace root; never **`pattern`** alone) / **`file_glob`** / **`file_list`** before wide **`file_read`**;
 use **`offset`** / **`limit`** and **one file per `file_read`**;
 treat reads as **evidence**, not bulk copy-paste; admit **partial** reads when caps apply.
 **Parallelize** independent **`file_*`** calls in one turn when the host allows.
 
-For **read-only** exploration (`file_read`, `file_glob`, `file_grep`, `file_list`), you may use **absolute paths** when the user explicitly asks to reference another project or tree outside the workspace—do not refuse solely because paths are outside the workspace.
+For **read-only** exploration (`file_read`, `file_glob`, `file_grep`, `file_list`), paths stay inside this session: the workspace, the session home, or the session data root.
 
-**`file_write`** and **`file_edit`** stay under **allowed write roots** (relative under the workspace, or absolute / **`~`** under those roots). These calls may require user approval—do not bypass controls.
+**`file_write`** and **`file_edit`** stay inside that same session. These calls may require user approval—do not bypass controls.
 
 ### `file_edit` and large diffs (success rate)
 

@@ -232,8 +232,9 @@ mod tests {
         let abs = media_abs_path(&saved.storage_rel_path).unwrap();
         assert!(abs.is_file());
         assert!(
-            saved.storage_rel_path.contains("/attachments/"),
-            "expected sandbox attachment storage rel path"
+            saved.storage_rel_path.starts_with("data:attachments/"),
+            "expected user data attachment rel, got {}",
+            saved.storage_rel_path
         );
 
         // Clear before the temp dir drops: a leftover path breaks unrelated tests.

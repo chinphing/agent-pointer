@@ -251,12 +251,35 @@ fn run_terminal_command(args: serde_json::Value) -> Result<String> {
     let (shell, _) = terminal_shell_command(&command);
     let env_files = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
 
-    let r = run_terminal_command_streaming(args, session_workspace, |_| {}, None, None, None, None)?;
+    let r =
+        run_terminal_command_streaming(args, session_workspace, |_| {}, None, None, None, None)?;
+
+    let conversation_id = crate::tools::context::current_tool_context()
+        .map(|ctx| ctx.conversation_id().to_string())
+        .unwrap_or_default();
+    let visible_cwd =
+        crate::media::store::model_visible_path(&conversation_id, &cwd.display().to_string())
+            .unwrap_or_else(|error| {
+                log::warn!("terminal: cwd not in session: {error:#}");
+                String::new()
+            });
+    let visible_env_files: Vec<String> = env_files
+        .iter()
+        .filter_map(
+            |path| match crate::media::store::model_visible_path(&conversation_id, path) {
+                Ok(visible) => Some(visible),
+                Err(error) => {
+                    log::warn!("terminal: env file not in session: {error:#}");
+                    None
+                }
+            },
+        )
+        .collect();
 
     Ok(serde_json::json!({
         "command": command.as_str(),
-        "cwd": cwd.display().to_string(),
-        "envFiles": env_files,
+        "cwd": visible_cwd,
+        "envFiles": visible_env_files,
         "shell": shell,
         "exitCode": r.exit_code,
         "success": r.success,
@@ -1390,7 +1413,10 @@ mod cwd_tests {
         assert_eq!(effective_block_until_ms(0), 0);
         assert_eq!(effective_block_until_ms(1), 1);
         assert_eq!(effective_block_until_ms(5_000), 5_000);
-        assert_eq!(effective_block_until_ms(MAX_BLOCK_UNTIL_MS), MAX_BLOCK_UNTIL_MS);
+        assert_eq!(
+            effective_block_until_ms(MAX_BLOCK_UNTIL_MS),
+            MAX_BLOCK_UNTIL_MS
+        );
         // 15 minutes must not park the parent turn for 15 minutes.
         assert_eq!(effective_block_until_ms(900_000), MAX_BLOCK_UNTIL_MS);
         assert_eq!(effective_block_until_ms(u64::MAX), MAX_BLOCK_UNTIL_MS);
@@ -1463,7 +1489,8 @@ mod cwd_tests {
         let ws = dir.path().display().to_string();
         // 执行路径上分发点已经绑过环境；严格入口要求显式绑定。
         let _g = crate::env::EnvironmentGuard::enter(
-            Arc::new(crate::env::LocalEnv::new(dir.path())) as Arc<dyn crate::env::Environment>,
+            crate::env::SessionEnv::open_roots("test", dir.path(), dir.path(), dir.path())
+                .expect("session"),
         );
         let cwd = effective_terminal_cwd(None, &ws).unwrap();
         assert_eq!(cwd, dir.path().canonicalize().unwrap());
@@ -1475,7 +1502,6 @@ mod cwd_tests {
         // 以前这里报「工作区目录无效或不存在」——把漏绑定藏成路径问题，排查方向全错。
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().display().to_string();
-        let _g = crate::env::EnvironmentGuard::enter(crate::env::test_light_env());
         let err = effective_terminal_cwd(None, &ws).unwrap_err().to_string();
         assert!(err.contains("执行环境未绑定"), "{err}");
         assert!(!err.contains("工作区目录无效"), "{err}");
@@ -1486,9 +1512,10 @@ mod cwd_tests {
         // admin（local 档位）在沙箱档位部署里：绑的是 LocalEnv，工作区是宿主路径。
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().display().to_string();
-        let env: Arc<dyn crate::env::Environment> =
-            Arc::new(crate::env::LocalEnv::new(dir.path()));
-        let _g = crate::env::EnvironmentGuard::enter(env);
+        let _g = crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots("test", dir.path(), dir.path(), dir.path())
+                .expect("session"),
+        );
         let cwd = effective_terminal_cwd(None, &ws).unwrap();
         assert_eq!(cwd, dir.path().canonicalize().unwrap());
     }
@@ -1514,8 +1541,8 @@ mod cwd_tests {
         let resolved = std::thread::spawn(move || {
             // 绑一个**工作区不同**的环境：cwd 必须来自入参，不能来自线程绑定。
             let _g = crate::env::EnvironmentGuard::enter(
-                Arc::new(crate::env::LocalEnv::new(other_root))
-                    as Arc<dyn crate::env::Environment>,
+                crate::env::SessionEnv::open_roots("other", &other_root, &other_root, &other_root)
+                    .expect("session"),
             );
             effective_terminal_cwd(None, &ws).unwrap()
         })
@@ -1568,7 +1595,8 @@ mod process_tree_tests {
         let dir = tempfile::tempdir().unwrap();
         // 执行路径上分发点已经绑过环境；严格入口要求显式绑定。
         let _env_guard = crate::env::EnvironmentGuard::enter(
-            Arc::new(crate::env::LocalEnv::new(dir.path())) as Arc<dyn crate::env::Environment>,
+            crate::env::SessionEnv::open_roots("test", dir.path(), dir.path(), dir.path())
+                .expect("session"),
         );
         let ws = dir.path().display().to_string();
         let pidfile = dir.path().join("grandchild.pid");

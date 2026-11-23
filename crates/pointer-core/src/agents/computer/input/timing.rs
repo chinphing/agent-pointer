@@ -235,10 +235,22 @@ mod tests {
     fn explicit_wait_is_distinguishable_from_the_default() {
         // No `wait` → `None`, so the caller folds in the round-level default instead of
         // sleeping here. This is what keeps one settle per pass.
-        assert_eq!(explicit_wait_delay_ms_from_tool_args(&json!({"action": "x"})), None);
-        assert_eq!(explicit_wait_delay_ms_from_tool_args(&json!({"wait": 0})), None);
-        assert_eq!(explicit_wait_delay_ms_from_tool_args(&json!({"wait": "abc"})), None);
-        assert_eq!(explicit_wait_delay_ms_from_tool_args(&json!(["not", "an", "object"])), None);
+        assert_eq!(
+            explicit_wait_delay_ms_from_tool_args(&json!({"action": "x"})),
+            None
+        );
+        assert_eq!(
+            explicit_wait_delay_ms_from_tool_args(&json!({"wait": 0})),
+            None
+        );
+        assert_eq!(
+            explicit_wait_delay_ms_from_tool_args(&json!({"wait": "abc"})),
+            None
+        );
+        assert_eq!(
+            explicit_wait_delay_ms_from_tool_args(&json!(["not", "an", "object"])),
+            None
+        );
         // Explicit `wait` → a per-step gap the caller must sleep immediately.
         assert_eq!(
             explicit_wait_delay_ms_from_tool_args(&json!({"wait": 2})),

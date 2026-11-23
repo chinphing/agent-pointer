@@ -1031,13 +1031,36 @@ impl AppState {
         Ok(())
     }
 
-    /// 从目录批量导入插件（写入 `~/.pointer/plugins/<id>/`），随后重新扫描并装配。
+    /// 把当前登录用户的 home/data 绑到本线程，供插件导入和扫描使用。
+    fn bind_settings_user_env(&self) -> anyhow::Result<crate::env::EnvironmentGuard> {
+        let uid = self
+            .active_platform_auth()
+            .platform_user_id()
+            .unwrap_or_default();
+        let uid = uid.trim();
+        if uid.is_empty() {
+            anyhow::bail!("请先登录后再管理插件");
+        }
+        let layout = crate::user_data_paths::ensure_user_layout(uid, "settings")?;
+        let workspace = layout.data.join("workspaces");
+        std::fs::create_dir_all(&workspace)?;
+        let session =
+            crate::env::SessionEnv::open_local_layout(uid, "settings", &layout, &workspace)?;
+        log::info!(
+            "plugins: bind settings user env scope={}",
+            session.scope().id
+        );
+        Ok(crate::env::EnvironmentGuard::enter(session))
+    }
+
+    /// 从目录批量导入插件（写入该用户 `home/.pointer/plugins/user/<id>/`），随后重新扫描并装配。
     /// 导入插件：目录 → 自动识别 Pointer / Codex / Claude 候选批量导入；
     /// `.zip` 文件 → 解压后同样自动识别导入。返回全部导入报告。
     pub fn plugin_import(
         &self,
         source: &std::path::Path,
     ) -> anyhow::Result<Vec<crate::plugins::importer::ImportReport>> {
+        let _user_env = self.bind_settings_user_env()?;
         let target_root = crate::plugins::user_plugins_dir()?;
         if source.is_file() {
             let bytes = std::fs::read(source)
@@ -1055,6 +1078,7 @@ impl AppState {
         &self,
         bytes: &[u8],
     ) -> anyhow::Result<Vec<crate::plugins::importer::ImportReport>> {
+        let _user_env = self.bind_settings_user_env()?;
         let target_root = crate::plugins::user_plugins_dir()?;
         let reports = crate::plugins::importer::import_plugin_zip(bytes, &target_root)?;
         self.plugins.scan()?;
@@ -1199,7 +1223,16 @@ impl AppState {
     }
 
     pub fn load_user_settings(&self) -> UserSettings {
-        storage::load_user_settings().unwrap_or_default()
+        let Some(uid) = self.runtime_settings_user_id() else {
+            log::info!("user-settings: no owner, using defaults");
+            return UserSettings::default();
+        };
+        let mut user = storage::load_user_settings_for(&uid).unwrap_or_else(|err| {
+            log::warn!("user-settings: load {uid} failed: {err:#}");
+            UserSettings::default()
+        });
+        storage::apply_user_runtime_overlay(&mut user, &uid);
+        user
     }
 
     /// 用户级运行时设置（终端环境 / 并行上限）的归属用户。
@@ -1262,7 +1295,10 @@ impl AppState {
     }
 
     pub fn save_user_settings(&self, user: &UserSettings) -> anyhow::Result<()> {
-        storage::save_user_settings(user)
+        let uid = self
+            .runtime_settings_user_id()
+            .ok_or_else(|| anyhow::anyhow!("用户设置缺少当前用户"))?;
+        storage::save_user_settings_for(&uid, user)
     }
 
     pub fn effective_settings(&self) -> crate::models::ModelSettings {
@@ -1485,9 +1521,8 @@ impl AppState {
         incoming
             .providers
             .retain(|p| p.source.as_deref() != Some("platform"));
-        // 运行时设置（终端环境、并行上限）按用户隔离：写进
-        // `user-settings/<uid>.json`，全局文件里那几项保持原值作为默认。
-        // 否则一个用户改了，所有人的终端/并行都跟着变。
+        // 运行时设置（终端环境、并行上限）写进该用户 home 的 runtime.json。
+        // settings.json 不保存这三项。
         let overlay = crate::models::UserRuntimeOverlay {
             terminal_env_overrides: Some(incoming.terminal_env_overrides.clone()),
             max_parallel_tool_calls: incoming.max_parallel_tool_calls,
@@ -2032,7 +2067,10 @@ mod active_main_task_board_tests {
         let tmp = tempfile::tempdir().expect("temp plugins home");
         // 注入 pointer home：不再改写进程级 POINTER_HOME。
         let home = crate::storage::TestPointerHome::set(tmp.path());
-        PluginsHomeGuard { _tmp: tmp, _home: home }
+        PluginsHomeGuard {
+            _tmp: tmp,
+            _home: home,
+        }
     }
 
     /// 插件启用后：其技能自动加入 general 的 agentSkillOverrides（落盘），
@@ -2426,7 +2464,9 @@ mod active_main_task_board_tests {
 
     fn with_admin_accounts(raw: &str) -> AdminAccountsEnvGuard {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let lock = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let lock = LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = std::env::var("POINTER_SERVER_ADMIN_ACCOUNTS").ok();
         std::env::set_var("POINTER_SERVER_ADMIN_ACCOUNTS", raw);
         AdminAccountsEnvGuard { prev, _lock: lock }
@@ -2529,11 +2569,13 @@ mod active_main_task_board_tests {
             .unwrap_or_default();
 
         // 1. 会话列表可见范围（server / 桌面端 `platform_list_scope` 的表达式）。
-        assert_eq!(state.is_admin_session(), expected, "is_admin_session: {ctx}");
-        let scope = crate::conversation_store::ListScope::from_viewer(
+        assert_eq!(
             state.is_admin_session(),
-            &uid,
+            expected,
+            "is_admin_session: {ctx}"
         );
+        let scope =
+            crate::conversation_store::ListScope::from_viewer(state.is_admin_session(), &uid);
         let want_scope = if expected {
             crate::conversation_store::ListScope::All
         } else {
@@ -2557,9 +2599,7 @@ mod active_main_task_board_tests {
 
         // 4. 调试设置写入。
         assert_eq!(
-            state
-                .update_debug_session_settings(payload.clone())
-                .is_ok(),
+            state.update_debug_session_settings(payload.clone()).is_ok(),
             expected,
             "调试设置写入: {ctx}"
         );
@@ -3085,16 +3125,20 @@ mod user_runtime_settings_tests {
         state
     }
 
-    fn global_user_settings_json(dir: &std::path::Path) -> serde_json::Value {
-        let raw = std::fs::read_to_string(dir.join("user_settings.json")).expect("global file");
-        serde_json::from_str(&raw).expect("global json")
+    fn user_settings_json(uid: &str) -> serde_json::Value {
+        let path = crate::user_tree::UserTree::open(uid, "")
+            .expect("user tree")
+            .path_in_home(std::path::Path::new(".pointer/settings.json"))
+            .expect("settings path");
+        let raw = std::fs::read_to_string(&path).expect("user settings");
+        serde_json::from_str(&raw).expect("user settings json")
     }
 
     /// 读取侧：桌面端（无线程内会话用户）也要读回自己那份覆盖，
     /// 而不是全局文件里被清空后的默认值。
     #[test]
     fn settings_view_reads_overlay_without_session_thread_local() {
-        let guard = isolate_app_data_dir();
+        let _guard = isolate_app_data_dir();
         let state = desktop_state("desk-user");
         crate::storage::save_user_runtime_overlay(
             "desk-user",
@@ -3120,10 +3164,14 @@ mod user_runtime_settings_tests {
         // 合并后的运行时设置同样带上覆盖值（终端/并行实际取这里）。
         assert_eq!(view.merged.max_parallel_tool_calls, Some(3));
         assert_eq!(view.merged.max_parallel_sub_agents, Some(2));
-        assert!(guard.dir.join("user-settings").join("desk-user.json").exists());
+        let overlay_path = crate::user_tree::UserTree::open("desk-user", "")
+            .expect("user tree")
+            .path_in_home(std::path::Path::new(".pointer/runtime.json"))
+            .expect("overlay path");
+        assert!(overlay_path.is_file(), "{}", overlay_path.display());
     }
 
-    /// 写入侧：桌面端保存落到 `user-settings/<uid>.json`，全局文件不再保存这三项，
+    /// 写入侧：桌面端保存落到该用户 `home/.pointer/runtime.json`，全局文件不再保存这三项，
     /// 并且立刻能读回（保存不再静默丢失）。
     #[test]
     fn desktop_save_writes_user_overlay_and_reads_back() {
@@ -3157,8 +3205,9 @@ mod user_runtime_settings_tests {
             Some(&"1".to_string())
         );
 
-        // 全局文件不含这三项
-        let doc = global_user_settings_json(&guard.dir);
+        // 该用户的 settings.json 不含这三项，系统目录也不再写这份文件
+        let doc = user_settings_json("desk-user");
+        assert!(!guard.dir.join("user_settings.json").exists());
         assert!(
             doc.get("maxParallelToolCalls").is_none(),
             "global file must not keep maxParallelToolCalls: {doc}"
@@ -3179,10 +3228,9 @@ mod user_runtime_settings_tests {
         assert_eq!(reread.user.max_parallel_tool_calls, Some(3));
     }
 
-    /// 迁移：全局文件里还有旧值、且该用户没有覆盖文件时，桌面端首次读取
-    /// 把它落成该用户自己的覆盖（不再人人共享一份默认值）。
+    /// 系统目录里的旧 `user_settings.json` 不再被读进来，也不会变成该用户的覆盖。
     #[test]
-    fn desktop_read_migrates_legacy_global_values_to_user_overlay() {
+    fn desktop_read_ignores_system_user_settings() {
         let guard = isolate_app_data_dir();
         let state = desktop_state("desk-user");
 
@@ -3195,19 +3243,23 @@ mod user_runtime_settings_tests {
             guard.dir.join("user_settings.json"),
             serde_json::to_vec_pretty(&legacy).expect("legacy json"),
         )
-        .expect("write legacy global settings");
+        .expect("write legacy system settings");
 
         let view = state.effective_settings_view();
-        assert_eq!(view.user.max_parallel_tool_calls, Some(5));
-        assert_eq!(
-            view.user.terminal_env_overrides.get("POINTER_TEST"),
-            Some(&"legacy".to_string())
-        );
+        assert_eq!(view.user.max_parallel_tool_calls, None);
+        assert!(view
+            .user
+            .terminal_env_overrides
+            .get("POINTER_TEST")
+            .is_none());
 
-        // 迁移落盘成该用户的覆盖
         let overlay = crate::storage::load_user_runtime_overlay("desk-user");
-        assert_eq!(overlay.max_parallel_tool_calls, Some(5));
-        assert!(guard.dir.join("user-settings").join("desk-user.json").exists());
+        assert_eq!(overlay.max_parallel_tool_calls, None);
+        let overlay_path = crate::user_tree::UserTree::open("desk-user", "")
+            .expect("user tree")
+            .path_in_home(std::path::Path::new(".pointer/runtime.json"))
+            .expect("overlay path");
+        assert!(!overlay_path.is_file(), "{}", overlay_path.display());
     }
 
     /// 消费侧：显式传 uid 时拿到该用户的运行时覆盖；不传时与 `effective_settings()`
@@ -3243,7 +3295,10 @@ mod user_runtime_settings_tests {
 
         // 别的用户拿不到
         let other = state.effective_settings_for(Some("someone-else"));
-        assert!(other.terminal_env_overrides.get("POINTER_CONV_USER").is_none());
+        assert!(other
+            .terminal_env_overrides
+            .get("POINTER_CONV_USER")
+            .is_none());
 
         // 无 uid：与 effective_settings() 逐字段一致（行为不变）
         let without = state.effective_settings_for(None);
@@ -3293,4 +3348,3 @@ impl Default for AppState {
         Self::new()
     }
 }
-

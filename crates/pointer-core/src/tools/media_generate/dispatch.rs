@@ -85,6 +85,6 @@ pub async fn dispatch_media_generate_async(
         other => return Err(anyhow!("unknown media tool {other}")),
     };
     let (artifact, kind) = result;
-    let text = format_generation_tool_result(&artifact, kind);
+    let text = format_generation_tool_result(&artifact, kind, ctx.conversation_id);
     Ok((text, true, None))
 }

@@ -364,9 +364,9 @@ pub async fn upload_composer_video_bytes(
         report_progress(&on_progress, progress_base, compress_end, 0, 1);
         // Composer 视频上传是服务端 / 宿主侧路径（调用方没有会话上下文），
         // 压缩只能用宿主 ffmpeg：这里显式构造宿主环境，不再走 `effective_env()` 兜底。
-        let host_env = crate::env::host_env();
+        let process = crate::env::process_io();
         let (out, report) =
-            shrink_video_to_max(&host_env, bytes, file_name, COMPOSER_VIDEO_ADVISORY_BYTES)
+            shrink_video_to_max(&process, bytes, file_name, COMPOSER_VIDEO_ADVISORY_BYTES)
                 .context("compress composer video before OSS upload")?;
         if report.changed() {
             log::info!(

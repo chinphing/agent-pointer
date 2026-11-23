@@ -13,8 +13,7 @@ pub const CONFIG_KEY_PIPELINE_MODEL_POSITION: &str = "computerPipelineModelPosit
 pub const CONFIG_KEY_PIPELINE_MODEL_VERIFY: &str = "computerPipelineModelVerify";
 pub const CONFIG_KEY_PIPELINE_MODEL_LOCATE: &str = "computerPipelineModelLocate";
 pub const CONFIG_KEY_PIPELINE_PROVIDER_LOCATE: &str = "computerPipelineProviderLocate";
-pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_LOCATE: &str =
-    "computerPipelineThinkingBudgetLocate";
+pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_LOCATE: &str = "computerPipelineThinkingBudgetLocate";
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION: &str =
     "computerPipelineThinkingBudgetPosition";
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY: &str = "computerPipelineThinkingBudgetVerify";
@@ -240,7 +239,10 @@ impl ComputerModelConfig {
             }
         };
         set(&mut self.pipeline_llm.model_locate, &t.locate);
-        set(&mut self.pipeline_llm.provider_locate, &t.locate_provider_id);
+        set(
+            &mut self.pipeline_llm.provider_locate,
+            &t.locate_provider_id,
+        );
         if t.locate_thinking_intensity.is_some() {
             self.pipeline_llm.thinking_intensity_locate = t.locate_thinking_intensity.clone();
         }
@@ -254,7 +256,10 @@ impl ComputerModelConfig {
                 t.locate_verify_thinking_intensity.clone();
         }
         set(&mut self.pipeline_llm.model_verify, &t.verify);
-        set(&mut self.pipeline_llm.provider_verify, &t.verify_provider_id);
+        set(
+            &mut self.pipeline_llm.provider_verify,
+            &t.verify_provider_id,
+        );
         if t.verify_thinking_intensity.is_some() {
             self.pipeline_llm.thinking_intensity_verify = t.verify_thinking_intensity.clone();
         }
@@ -1117,26 +1122,22 @@ mod tests {
     #[test]
     fn push_action_closes_open_rows_as_skipped() {
         let mut rt = ComputerRuntime::new();
-        rt.push_action(
-            ActionRecord {
-                tool_name: "a".into(),
-                goal: "g1".into(),
-                action: None,
-                coords: None,
-                verify_result: None,
-                extra_args_hint: None,
-            },
-        );
-        rt.push_action(
-            ActionRecord {
-                tool_name: "b".into(),
-                goal: "g2".into(),
-                action: None,
-                coords: None,
-                verify_result: None,
-                extra_args_hint: None,
-            },
-        );
+        rt.push_action(ActionRecord {
+            tool_name: "a".into(),
+            goal: "g1".into(),
+            action: None,
+            coords: None,
+            verify_result: None,
+            extra_args_hint: None,
+        });
+        rt.push_action(ActionRecord {
+            tool_name: "b".into(),
+            goal: "g2".into(),
+            action: None,
+            coords: None,
+            verify_result: None,
+            extra_args_hint: None,
+        });
         let records = rt.history();
         assert_eq!(records.len(), 2);
         assert_eq!(
@@ -1149,32 +1150,26 @@ mod tests {
     #[test]
     fn backfill_newest_open_targets_newest_not_oldest() {
         let mut rt = ComputerRuntime::new();
-        rt.test_push_open_row(
-            ActionRecord {
-                tool_name: "a".into(),
-                goal: "g".into(),
-                action: None,
-                coords: None,
-                verify_result: None,
-                extra_args_hint: None,
-            },
-        );
-        rt.test_push_open_row(
-            ActionRecord {
-                tool_name: "b".into(),
-                goal: "g".into(),
-                action: None,
-                coords: None,
-                verify_result: None,
-                extra_args_hint: None,
-            },
-        );
-        let applied = rt.backfill_newest_open_verify(
-            VerifyOutcome {
-                step_result: "pass".into(),
-                cause: None,
-            },
-        );
+        rt.test_push_open_row(ActionRecord {
+            tool_name: "a".into(),
+            goal: "g".into(),
+            action: None,
+            coords: None,
+            verify_result: None,
+            extra_args_hint: None,
+        });
+        rt.test_push_open_row(ActionRecord {
+            tool_name: "b".into(),
+            goal: "g".into(),
+            action: None,
+            coords: None,
+            verify_result: None,
+            extra_args_hint: None,
+        });
+        let applied = rt.backfill_newest_open_verify(VerifyOutcome {
+            step_result: "pass".into(),
+            cause: None,
+        });
         assert!(applied);
         let records = rt.history();
         assert!(records[0].verify_result.is_none());
@@ -1187,22 +1182,18 @@ mod tests {
     #[test]
     fn backfill_pending_does_not_close_row() {
         let mut rt = ComputerRuntime::new();
-        rt.push_action(
-            ActionRecord {
-                tool_name: "a".into(),
-                goal: "g".into(),
-                action: None,
-                coords: None,
-                verify_result: None,
-                extra_args_hint: None,
-            },
-        );
-        let applied = rt.backfill_newest_open_verify(
-            VerifyOutcome {
-                step_result: "pending".into(),
-                cause: None,
-            },
-        );
+        rt.push_action(ActionRecord {
+            tool_name: "a".into(),
+            goal: "g".into(),
+            action: None,
+            coords: None,
+            verify_result: None,
+            extra_args_hint: None,
+        });
+        let applied = rt.backfill_newest_open_verify(VerifyOutcome {
+            step_result: "pending".into(),
+            cause: None,
+        });
         assert!(!applied);
         assert!(rt.history()[0].verify_result.is_none());
     }
@@ -1398,19 +1389,17 @@ mod tests {
             fingerprint: "fp".into(),
             label: "Open app".into(),
         });
-        rt.push_action(
-            ActionRecord {
-                tool_name: "mouse_click_index".into(),
-                goal: "Open app".into(),
-                action: Some("click wrong icon".into()),
-                coords: None,
-                verify_result: Some(VerifyOutcome {
-                    step_result: "fail".into(),
-                    cause: Some("wrong_operation".into()),
-                }),
-                extra_args_hint: None,
-            },
-        );
+        rt.push_action(ActionRecord {
+            tool_name: "mouse_click_index".into(),
+            goal: "Open app".into(),
+            action: Some("click wrong icon".into()),
+            coords: None,
+            verify_result: Some(VerifyOutcome {
+                step_result: "fail".into(),
+                cause: Some("wrong_operation".into()),
+            }),
+            extra_args_hint: None,
+        });
         rt.reset_for_new_user_guidance();
         assert!(!rt.should_give_up);
         assert_eq!(rt.task_error_streak, 0);
@@ -1436,30 +1425,22 @@ mod tests {
         let config = ComputerModelConfig::default();
         let mut rt = ComputerRuntime::new();
         for _ in 0..5 {
-            rt.push_action(
-                ActionRecord {
-                    tool_name: "mouse_click_index".into(),
-                    goal: "same goal".into(),
-                    action: Some("click".into()),
-                    coords: None,
-                    verify_result: Some(VerifyOutcome {
-                        step_result: "fail".into(),
-                        cause: Some("wrong_operation".into()),
-                    }),
-                    extra_args_hint: None,
-                },
-            );
+            rt.push_action(ActionRecord {
+                tool_name: "mouse_click_index".into(),
+                goal: "same goal".into(),
+                action: Some("click".into()),
+                coords: None,
+                verify_result: Some(VerifyOutcome {
+                    step_result: "fail".into(),
+                    cause: Some("wrong_operation".into()),
+                }),
+                extra_args_hint: None,
+            });
         }
-        assert_eq!(
-            same_goal_repetition_count_in_history(rt.history()),
-            5
-        );
+        assert_eq!(same_goal_repetition_count_in_history(rt.history()), 5);
         rt.should_give_up = true;
         rt.reset_for_new_user_guidance();
-        assert_eq!(
-            same_goal_repetition_count_in_history(rt.history()),
-            0
-        );
+        assert_eq!(same_goal_repetition_count_in_history(rt.history()), 0);
         rt.on_round_complete(
             &config,
             Some(&ParsedVerify {
@@ -1593,5 +1574,4 @@ mod tests {
         assert!(block.contains("Open WeChat"));
         assert_ne!(rt.locked_goal_label(), block.lines().nth(3));
     }
-
 }

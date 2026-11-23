@@ -1,9 +1,8 @@
 //! Persist screen-capture bundles for the execution environment.
 //!
-//! Local sessions write `{app_data}/computer-captures/`. Sandbox sessions write
-//! `/data/captures/` through that session's environment. The relative path
-//! `{date}/{conversation}/{file}` is the same for both, so Web and the desktop
-//! client keep one preview call.
+//! New files are stored under the session data root as `captures/{date}/{conversation}/{file}`.
+//! The value handed to the client is `data:captures/...`. Older
+//! `{date}/{conversation}/{file}` keys still resolve. A host absolute path does not.
 //!
 //! Only writes assets the active tier uses — no extra JPEG/PNG generation on disk.
 
@@ -75,13 +74,45 @@ fn capture_parent(path: &Path) -> Option<PathBuf> {
     path.parent().map(Path::to_path_buf)
 }
 
-/// `{YYYY-MM-DD}/{conversation_id}/…` 里的会话段。`locate/` 和缺段的路径返回 `None`。
-fn capture_rel_conversation_id(rel: &str) -> Option<String> {
+/// 截图键里的会话段。新键是 `data:captures/{日期}/{会话}/{文件}`，
+/// 旧键是 `{日期}/{会话}/{文件}`。宿主绝对路径返回 `None`。
+pub fn capture_conversation_id(rel: &str) -> Option<String> {
     let normalized = rel.trim().replace('\\', "/");
-    let segments: Vec<&str> = normalized
+    if normalized.is_empty() {
+        return None;
+    }
+    if let Ok(stored) = crate::user_data_paths::UserRelPath::decode(&normalized) {
+        if stored.root != crate::user_data_paths::UserRootKind::Data {
+            log::warn!("computer capture: refuse non-data key {normalized}");
+            return None;
+        }
+        let text = stored.rel.to_string_lossy().replace('\\', "/");
+        return conversation_from_capture_segments(&text, true);
+    }
+    if crate::user_data_paths::is_host_absolute(&normalized) {
+        let stripped = normalized.trim_start_matches('/');
+        if conversation_from_capture_segments(stripped, false).is_some() {
+            return conversation_from_capture_segments(stripped, false);
+        }
+        log::warn!("computer capture: refuse host absolute path");
+        return None;
+    }
+    conversation_from_capture_segments(&normalized, false)
+}
+
+fn conversation_from_capture_segments(rel: &str, under_captures: bool) -> Option<String> {
+    let segments: Vec<&str> = rel
         .split('/')
         .filter(|segment| !segment.is_empty() && *segment != ".")
         .collect();
+    let segments = if under_captures {
+        if segments.first().copied() != Some("captures") {
+            return None;
+        }
+        &segments[1..]
+    } else {
+        segments.as_slice()
+    };
     if segments.len() < 3 || segments.iter().any(|segment| *segment == "..") {
         return None;
     }
@@ -98,6 +129,45 @@ fn capture_rel_conversation_id(rel: &str) -> Option<String> {
     }
     let conversation_id = segments[1].trim();
     (!conversation_id.is_empty()).then(|| conversation_id.to_string())
+}
+
+fn stored_capture_key(date: &str, conversation: &str, file: &str) -> Option<String> {
+    match crate::user_data_paths::UserRelPath::new(
+        crate::user_data_paths::UserRootKind::Data,
+        format!("captures/{date}/{conversation}/{file}"),
+    ) {
+        Ok(path) => {
+            let encoded = path.encode();
+            log::info!("computer capture: stored={encoded}");
+            Some(encoded)
+        }
+        Err(error) => {
+            log::warn!(
+                "computer capture: refuse key date={date} conversation={conversation} file={file}: {error:#}"
+            );
+            None
+        }
+    }
+}
+
+fn capture_data_rel(rel: &str) -> Result<(String, String)> {
+    if crate::user_data_paths::is_host_absolute(rel.trim())
+        && capture_conversation_id(rel).is_none()
+    {
+        log::warn!("computer capture: refuse host absolute path");
+        bail!("宿主绝对路径不能打开");
+    }
+    let normalized = rel.trim().replace('\\', "/");
+    if let Ok(stored) = crate::user_data_paths::UserRelPath::decode(&normalized) {
+        let conversation_id =
+            capture_conversation_id(&normalized).context("invalid or disallowed capture path")?;
+        let data_rel = stored.rel.to_string_lossy().replace('\\', "/");
+        return Ok((conversation_id, data_rel));
+    }
+    let conversation_id =
+        capture_conversation_id(&normalized).context("invalid or disallowed capture path")?;
+    let legacy = normalized.trim_start_matches('/');
+    Ok((conversation_id, format!("captures/{legacy}")))
 }
 
 fn checked_capture_rel(root: &Path, rel: &str) -> Option<PathBuf> {
@@ -117,7 +187,7 @@ fn checked_capture_rel(root: &Path, rel: &str) -> Option<PathBuf> {
 fn local_capture_store() -> Result<CaptureStore> {
     let root = crate::storage::app_data_dir()?.join("computer-captures");
     Ok(CaptureStore {
-        env: crate::env::host_env(),
+        env: crate::env::process_io(),
         root,
     })
 }
@@ -142,19 +212,19 @@ fn capture_store(conversation_id: &str) -> Result<CaptureStore> {
         if env.is_denied() {
             bail!("沙箱会话的执行环境不可用，无法保存电脑操控截图（conversation={id}）");
         }
-        if !env.path_map().is_host_passthrough() {
-            let data = path_text(env.data_root());
-            let data = data.trim_end_matches('/').to_string();
-            if data.is_empty() {
-                bail!("沙箱环境没有数据目录，无法保存电脑操控截图");
-            }
-            log::info!("computer capture: session environment conversation={id}");
-            return Ok(CaptureStore {
-                env,
-                root: PathBuf::from(format!("{data}/captures")),
-            });
+        if env.path_map().is_host_passthrough() || env.data_root().as_os_str().is_empty() {
+            bail!("电脑操控截图缺少当前用户的执行环境（conversation={id}）");
         }
-        return local_capture_store();
+        let data = path_text(env.data_root());
+        let data = data.trim_end_matches('/').to_string();
+        if data.is_empty() {
+            bail!("沙箱环境没有数据目录，无法保存电脑操控截图");
+        }
+        log::info!("computer capture: session environment conversation={id}");
+        return Ok(CaptureStore {
+            env,
+            root: PathBuf::from(format!("{data}/captures")),
+        });
     }
     match conversation_workspace_is_guest(id) {
         Ok(true) => {
@@ -163,7 +233,9 @@ fn capture_store(conversation_id: &str) -> Result<CaptureStore> {
             );
             bail!("工作区在沙箱内，但当前没有会话环境，无法保存电脑操控截图（conversation={id}）");
         }
-        Ok(false) => local_capture_store(),
+        Ok(false) => {
+            bail!("电脑操控截图缺少当前用户的执行环境（conversation={id}）")
+        }
         Err(error) => {
             log::warn!("computer capture: workspace lookup failed conversation={id}: {error:#}");
             bail!("无法确认会话工作区，已拒绝保存电脑操控截图（conversation={id}）");
@@ -205,11 +277,10 @@ pub fn capture_manual_desktop_snapshot_jpeg() -> Result<Vec<u8>> {
 /// The relative path selects the conversation. A sandbox session is read from
 /// `/data/captures` in that session's environment.
 pub fn read_computer_capture_preview(rel: &str) -> anyhow::Result<ComputerAnnotatedPreview> {
-    let conversation_id =
-        capture_rel_conversation_id(rel).context("invalid or disallowed capture path")?;
+    let (conversation_id, data_rel) = capture_data_rel(rel)?;
     let store = capture_store(&conversation_id)?;
-    let path =
-        checked_capture_rel(&store.root, rel).context("invalid or disallowed capture path")?;
+    let path = checked_capture_rel(store.env.data_root(), &data_rel)
+        .context("invalid or disallowed capture path")?;
     let bytes = store
         .env
         .read_file(&path)
@@ -399,7 +470,7 @@ pub fn save_pipeline_slot_image(
     let path = join_capture(&dir, &fname);
     store.env.write_file(&path, bytes).ok()?;
     let conv_seg = sanitize_path_segment(conversation_id);
-    let rel = format!("{date}/{conv_seg}/{fname}");
+    let rel = stored_capture_key(&date, &conv_seg, &fname)?;
     log::info!(
         "computer pipeline capture dump: slot={slot_label} rel={rel} ({} bytes)",
         bytes.len()
@@ -430,7 +501,7 @@ pub fn save_pipeline_phase_captures(
         let fname = format!("{pfx}_{ts}_{phase_label}_{stem}.{ext}");
         let path = join_capture(&dir, &fname);
         store.env.write_file(&path, bytes).ok()?;
-        last_rel = Some(format!("{date}/{conv_seg}/{fname}"));
+        last_rel = stored_capture_key(&date, &conv_seg, &fname);
         log::info!(
             "computer pipeline capture dump: slot={slot_label} rel={} ({} bytes)",
             last_rel.as_deref().unwrap_or(""),
@@ -458,7 +529,7 @@ pub fn sample_prefix(conversation_id: &str, round_seq: u32, msg_seq: u32) -> Str
 /// instead of piling up `_1729...` duplicates. That is the point: the directory
 /// is a dataset, not a log stream.
 ///
-/// Returns the path relative to `computer-captures/`.
+/// Returns `data:captures/{date}/{conversation}/{file}`.
 pub fn write_sample_file(
     conversation_id: &str,
     round_seq: u32,
@@ -482,7 +553,7 @@ pub fn write_sample_file(
         return None;
     }
     let conv_seg = sanitize_path_segment(conversation_id);
-    Some(format!("{date}/{conv_seg}/{fname}"))
+    stored_capture_key(&date, &conv_seg, &fname)
 }
 
 /// Write one collected sample sidecar: `{conv8}_{round}_{msg}_{stage}.json`.
@@ -512,7 +583,7 @@ pub fn write_sample_json(
 /// Local sessions use `{app_data}/computer-captures/{date}/{conversation}/`.
 /// Sandbox sessions use `/data/captures/{date}/{conversation}/` in that environment.
 ///
-/// Returns `{date}/{conversation}/{file}` for lazy UI load.
+/// Returns `data:captures/{date}/{conversation}/{file}` for lazy UI load.
 pub fn save_computer_capture_debug(
     conversation_id: &str,
     file_prefix: &str,
@@ -543,7 +614,7 @@ pub fn save_computer_capture_debug(
     );
 
     let annotated_name = format!("{pfx}_{ts}_screen.jpg");
-    let rel = format!("{date}/{conv_seg}/{annotated_name}");
+    let rel = stored_capture_key(&date, &conv_seg, &annotated_name)?;
     log::info!(
         "computer capture: id={rel} bytes={} dir={}",
         cap.screenshot_jpeg.len(),
@@ -611,10 +682,30 @@ mod tests {
         assert!(
             checked_capture_rel(Path::new("/data/captures"), "2026-01-02/conv/../../x").is_none()
         );
-        assert!(capture_rel_conversation_id("locate/a.jpg").is_none());
+        assert!(capture_conversation_id("locate/a.jpg").is_none());
         assert_eq!(
-            capture_rel_conversation_id("2026-01-02/conv-1/screen.jpg").as_deref(),
+            capture_conversation_id("2026-01-02/conv-1/screen.jpg").as_deref(),
             Some("conv-1")
         );
+        assert_eq!(
+            capture_conversation_id("data:captures/2026-01-02/conv-1/screen.jpg").as_deref(),
+            Some("conv-1")
+        );
+        assert!(capture_conversation_id("/Users/someone/secret.pdf").is_none());
+    }
+
+    #[test]
+    fn absolute_capture_key_is_not_opened() {
+        let secret =
+            std::env::temp_dir().join(format!("pointer-capture-secret-{}", std::process::id()));
+        std::fs::write(&secret, b"host-secret").unwrap();
+        let err = read_computer_capture_preview(&secret.to_string_lossy()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("宿主绝对路径") || msg.contains("invalid"),
+            "{msg}"
+        );
+        assert!(!msg.contains("host-secret"), "{msg}");
+        let _ = std::fs::remove_file(&secret);
     }
 }

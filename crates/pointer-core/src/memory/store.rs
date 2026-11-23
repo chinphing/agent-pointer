@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::user_storage::{memories_root_dir, user_storage_segment};
+use crate::user_storage::memories_root_dir;
 
 pub const ENTRY_DELIMITER: &str = "\n§\n";
 pub const DEFAULT_MEMORY_CHAR_LIMIT: usize = 2200;
@@ -58,23 +58,28 @@ type MemorySlot = Arc<RwLock<MemoryStoreInner>>;
 
 pub struct MemoryStore {
     slots: RwLock<HashMap<String, MemorySlot>>,
-    memories_root: PathBuf,
 }
 
 impl MemoryStore {
     pub fn open_default() -> Result<Self> {
-        let memories_root = memories_root_dir()?;
+        let marker = memories_root_dir()?;
+        log::info!(
+            "memory: store ready; files are written under each user data tree ({})",
+            marker.display()
+        );
         Ok(Self {
             slots: RwLock::new(HashMap::new()),
-            memories_root,
         })
     }
 
+    /// 调用方给出的目录不再作为记忆文件的位置。文件写到该用户的 data/memories。
     pub fn open_in_dir(memories_root: PathBuf) -> Self {
-        let _ = fs::create_dir_all(&memories_root);
+        log::warn!(
+            "memory: ignoring supplied root {}; files go to the user data tree",
+            memories_root.display()
+        );
         Self {
             slots: RwLock::new(HashMap::new()),
-            memories_root,
         }
     }
 
@@ -115,13 +120,17 @@ impl MemoryStore {
         self.reload_snapshot_for(&uid)
     }
 
-    pub fn memories_dir_for_user(&self, session_user_id: &str) -> PathBuf {
+    pub fn memories_dir_for_user(&self, session_user_id: &str) -> Result<PathBuf> {
         self.user_base_dir(session_user_id)
     }
 
-    fn user_base_dir(&self, session_user_id: &str) -> PathBuf {
-        self.memories_root
-            .join(user_storage_segment(session_user_id))
+    fn user_base_dir(&self, session_user_id: &str) -> Result<PathBuf> {
+        crate::user_data_paths::memories_host_dir(session_user_id, "").with_context(|| {
+            format!(
+                "memory: user data memories dir unavailable for {}",
+                session_user_id.trim()
+            )
+        })
     }
 
     pub fn reload_snapshot_for(&self, session_user_id: &str) -> Result<()> {
@@ -130,7 +139,7 @@ impl MemoryStore {
     }
 
     fn reload_into(&self, slot: &MemorySlot, session_user_id: &str) -> Result<()> {
-        let base_dir = self.user_base_dir(session_user_id);
+        let base_dir = self.user_base_dir(session_user_id)?;
         fs::create_dir_all(&base_dir)
             .with_context(|| format!("create memories dir {}", base_dir.display()))?;
         let memory_entries = Self::read_entries(&base_dir.join(MemoryTarget::Memory.file_name()))?;
@@ -422,8 +431,10 @@ impl MemoryStore {
         o
     }
 
-    fn path_for(&self, session_user_id: &str, target: MemoryTarget) -> PathBuf {
-        self.user_base_dir(session_user_id).join(target.file_name())
+    fn path_for(&self, session_user_id: &str, target: MemoryTarget) -> Result<PathBuf> {
+        Ok(self
+            .user_base_dir(session_user_id)?
+            .join(target.file_name()))
     }
 
     fn char_limit(&self, target: MemoryTarget, memory_limit: usize, user_limit: usize) -> usize {
@@ -450,7 +461,7 @@ impl MemoryStore {
         g: &mut MemoryStoreInner,
         target: MemoryTarget,
     ) -> Result<()> {
-        let path = self.path_for(session_user_id, target);
+        let path = self.path_for(session_user_id, target)?;
         if let Some(bak) = Self::detect_external_drift(
             &path,
             self.char_limit(target, DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT),
@@ -479,7 +490,7 @@ impl MemoryStore {
             MemoryTarget::Memory => &g.memory_entries,
             MemoryTarget::User => &g.user_entries,
         };
-        Self::write_entries(&self.path_for(session_user_id, target), entries)
+        Self::write_entries(&self.path_for(session_user_id, target)?, entries)
     }
 
     fn read_entries(path: &Path) -> Result<Vec<String>> {
@@ -621,22 +632,45 @@ mod tests {
     use super::*;
     use crate::models::{ChatMessage, Role};
 
+    struct AppDataGuard {
+        _dir: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for AppDataGuard {
+        fn drop(&mut self) {
+            crate::storage::clear_test_app_data_dir();
+        }
+    }
+
+    fn isolated_store() -> (AppDataGuard, MemoryStore) {
+        let lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        let store = MemoryStore::open_default().unwrap();
+        (
+            AppDataGuard {
+                _dir: dir,
+                _lock: lock,
+            },
+            store,
+        )
+    }
+
     #[test]
     fn add_replace_remove_roundtrip() {
-        let store = MemoryStore::open_in_dir(
-            std::env::temp_dir().join(format!("pointer_mem_test_{}", uuid::Uuid::new_v4())),
-        );
-        store.reload_snapshot_for("").unwrap();
+        let (_guard, store) = isolated_store();
+        store.reload_snapshot_for("user-a").unwrap();
         let add = store
             .dispatch_tool(
-                "",
+                "user-a",
                 &json!({"action": "add", "target": "memory", "content": "Prefers Rust"}),
             )
             .unwrap();
         assert!(add.contains("\"success\":true"));
         let rep = store
             .dispatch_tool(
-                "",
+                "user-a",
                 &json!({
                     "action": "replace",
                     "target": "memory",
@@ -648,7 +682,7 @@ mod tests {
         assert!(rep.contains("\"success\":true"));
         let rem = store
             .dispatch_tool(
-                "",
+                "user-a",
                 &json!({
                     "action": "remove",
                     "target": "memory",
@@ -657,15 +691,14 @@ mod tests {
             )
             .unwrap();
         assert!(rem.contains("\"success\":true"));
-        store.reload_snapshot_for("").unwrap();
-        let blocks = store.snapshot_blocks("", true, false);
+        store.reload_snapshot_for("user-a").unwrap();
+        let blocks = store.snapshot_blocks("user-a", true, false);
         assert!(blocks.is_empty());
     }
 
     #[test]
     fn per_user_memory_dirs_are_isolated() {
-        let root = std::env::temp_dir().join(format!("pointer_mem_users_{}", uuid::Uuid::new_v4()));
-        let store = MemoryStore::open_in_dir(root.clone());
+        let (_guard, store) = isolated_store();
         store
             .dispatch_tool(
                 "user-a",
@@ -687,21 +720,21 @@ mod tests {
         let blocks_b = store.snapshot_blocks("user-b", true, false);
         assert!(blocks_b[0].contains("B note"));
         assert!(!blocks_b[0].contains("A note"));
-        assert!(root
-            .join(user_storage_segment("user-a"))
-            .join("MEMORY.md")
-            .is_file());
-        assert!(root
-            .join(user_storage_segment("user-b"))
-            .join("MEMORY.md")
-            .is_file());
+        let dir_a = crate::user_data_paths::memories_host_dir("user-a", "").unwrap();
+        let dir_b = crate::user_data_paths::memories_host_dir("user-b", "").unwrap();
+        assert_ne!(dir_a, dir_b);
+        assert!(dir_a.join("MEMORY.md").is_file());
+        assert!(dir_b.join("MEMORY.md").is_file());
+        assert!(
+            !dir_a.starts_with(crate::user_storage::memories_root_dir().unwrap()),
+            "记忆不能写回系统目录的 memories/"
+        );
     }
 
     #[test]
     fn concurrent_users_do_not_share_snapshot_slot() {
-        let root =
-            std::env::temp_dir().join(format!("pointer_mem_concurrent_{}", uuid::Uuid::new_v4()));
-        let store = std::sync::Arc::new(MemoryStore::open_in_dir(root));
+        let (_guard, store) = isolated_store();
+        let store = std::sync::Arc::new(store);
         std::thread::scope(|scope| {
             let a = store.clone();
             scope.spawn(move || {

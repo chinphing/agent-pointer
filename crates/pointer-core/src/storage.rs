@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Once, OnceLock};
 
@@ -205,9 +205,25 @@ fn resolve_pointer_home_no_create(raw: Option<&str>) -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".pointer"))
 }
 
-/// Inject `DATA_DIR` into a terminal child env map (Pointer app data root).
-/// Same directory as conversations / sandboxes / skills under the host.
+/// Inject `DATA_DIR` into a terminal child env map.
+///
+/// A bound session gets that session's data root (container: `/data`).
+/// Without a session, the process app-data directory remains.
 pub fn apply_data_dir_env(env: &mut HashMap<String, String>) {
+    if let Some(session_env) = crate::env::current_env() {
+        if session_env.is_denied() || session_env.path_map().is_host_passthrough() {
+            log::warn!("DATA_DIR: refused passthrough session env");
+        } else {
+            let data = session_env.data_root();
+            if data.as_os_str().is_empty() {
+                log::warn!("DATA_DIR: session data root is empty");
+                return;
+            }
+            log::info!("DATA_DIR: session data root {}", data.display());
+            env.insert("DATA_DIR".into(), data.display().to_string());
+            return;
+        }
+    }
     match app_data_dir() {
         Ok(dir) => {
             let path = dir.to_string_lossy();
@@ -252,14 +268,54 @@ fn settings_path() -> Result<PathBuf> {
 fn settings_migrated_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("settings.json.migrated"))
 }
-fn user_settings_path() -> Result<PathBuf> {
-    Ok(data_dir()?.join("user_settings.json"))
+/// 当前这份设置属于谁：线程里的会话用户优先。
+/// 没有会话用户时，standalone 归本地操作者；平台部署不回落到共享文件。
+fn settings_owner_id() -> Option<String> {
+    if let Some(uid) = crate::session_user_env::current_session_user_id() {
+        let uid = uid.trim();
+        if !uid.is_empty() {
+            return Some(uid.to_string());
+        }
+    }
+    if crate::deployment_mode::is_standalone() {
+        return Some(crate::platform_auth::LOCAL_USER_ID.to_string());
+    }
+    None
 }
 
-/// 按用户隔离的运行时设置目录（`data/user-settings/<uid>.json`）。
+fn user_settings_path_for(uid: &str) -> Result<PathBuf> {
+    let uid = uid.trim();
+    if uid.is_empty() {
+        anyhow::bail!("用户设置缺少当前用户");
+    }
+    let tree = crate::user_tree::UserTree::open(uid, "")?;
+    tree.path_in_home(Path::new(".pointer/settings.json"))
+}
+
+#[cfg(test)]
+fn user_settings_path() -> Result<PathBuf> {
+    let uid = settings_owner_id().ok_or_else(|| anyhow::anyhow!("用户设置缺少当前用户"))?;
+    user_settings_path_for(&uid)
+}
+
+fn provider_keys_path_for(uid: &str) -> Result<PathBuf> {
+    let uid = uid.trim();
+    if uid.is_empty() {
+        anyhow::bail!("用户设置缺少当前用户");
+    }
+    let tree = crate::user_tree::UserTree::open(uid, "")?;
+    tree.path_in_home(Path::new(".pointer/provider_keys.enc"))
+}
+
+/// 按用户隔离的运行时设置：`{home}/.pointer/runtime.json`。
 fn user_overlay_path(uid: &str) -> Result<PathBuf> {
-    let segment = sanitize_storage_dir_segment(uid);
-    Ok(data_dir()?.join("user-settings").join(format!("{segment}.json")))
+    let tree = crate::user_tree::UserTree::open(uid, "")?;
+    let path = tree.path_in_home(Path::new(".pointer/runtime.json"))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    log::info!("user-settings: runtime overlay {}", path.display());
+    Ok(path)
 }
 
 /// 读取某个用户的运行时覆盖；文件不存在或损坏时返回默认（等于「没有覆盖」）。
@@ -323,14 +379,14 @@ fn user_overlay_exists(uid: &str) -> bool {
 /// 覆盖，甚至把刚清空的字段又写回来。
 static GLOBAL_SETTINGS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// 一次性迁移的收尾：把三项从全局 `user_settings.json` 里去掉并落盘，
-/// 让它们不再充当所有人的共享默认值。
+/// 一次性迁移的收尾：把三项从该用户自己的 `settings.json` 里去掉并落盘。
+/// 系统目录里的旧 `user_settings.json` 不读、不改。
 ///
 /// 定向改 JSON，不走 [`save_user_settings`]：那条会重新加密 provider key
 /// （每次密文都不同）、丢掉平台来源 provider，不是幂等写。
 /// 每次都从磁盘重新读，所以并发/重复调用不会把刚清空的字段写回来；
 /// 写盘用临时文件 + rename，读方永远看到完整文件。
-fn clear_legacy_runtime_settings_in_global() -> Result<()> {
+fn clear_legacy_runtime_settings_in_user_file(uid: &str) -> Result<()> {
     const LEGACY_KEYS: [&str; 3] = [
         "terminalEnvOverrides",
         "maxParallelToolCalls",
@@ -339,7 +395,7 @@ fn clear_legacy_runtime_settings_in_global() -> Result<()> {
     let _guard = GLOBAL_SETTINGS_WRITE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let path = user_settings_path()?;
+    let path = user_settings_path_for(uid)?;
     if !path.exists() {
         return Ok(());
     }
@@ -348,7 +404,7 @@ fn clear_legacy_runtime_settings_in_global() -> Result<()> {
         Ok(doc) => doc,
         Err(e) => {
             log::warn!(
-                "user-settings: clear legacy global runtime settings skipped (unparsable {}): {e}",
+                "user-settings: clear legacy runtime settings skipped (unparsable {}): {e}",
                 path.display()
             );
             return Ok(());
@@ -356,7 +412,7 @@ fn clear_legacy_runtime_settings_in_global() -> Result<()> {
     };
     let Some(obj) = doc.as_object_mut() else {
         log::warn!(
-            "user-settings: clear legacy global runtime settings skipped (not a json object): {}",
+            "user-settings: clear legacy runtime settings skipped (not a json object): {}",
             path.display()
         );
         return Ok(());
@@ -403,10 +459,10 @@ pub fn apply_user_runtime_overlay(user: &mut UserSettings, uid: &str) {
         };
         match save_user_runtime_overlay(uid, &migrated) {
             Ok(()) => {
-                // 迁移成功才清理全局：写失败时保持现状，下次读取还能重试。
-                if let Err(err) = clear_legacy_runtime_settings_in_global() {
+                // 迁移成功才清掉该用户设置文件里的旧字段：写失败时保持现状，下次读取还能重试。
+                if let Err(err) = clear_legacy_runtime_settings_in_user_file(uid) {
                     log::warn!(
-                        "user-settings: clear legacy global runtime settings failed: {err:#}"
+                        "user-settings: clear legacy runtime settings failed for {uid}: {err:#}"
                     );
                 }
                 // 内存里也清空，否则调用方看到的仍是全局值。这个用户自己那份
@@ -737,10 +793,7 @@ struct StoredSettings {
     agent_task_board_history_trim: HashMap<String, bool>,
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     computer_human_like: bool,
-    #[serde(
-        default = "default_computer_delegation",
-        rename = "computerDelegation"
-    )]
+    #[serde(default = "default_computer_delegation", rename = "computerDelegation")]
     computer_delegation: String,
     #[serde(default = "default_theme")]
     theme: String,
@@ -837,7 +890,15 @@ pub fn ensure_legacy_settings_migrated() {
 /// plaintext keys on disk, and `save_user_settings` calls this function's own `Once` cell
 /// (`ensure_legacy_settings_migrated`) and would deadlock. Only one number changes here.
 fn migrate_legacy_context_budget_on_disk() -> Result<()> {
-    let path = user_settings_path()?;
+    let Some(uid) = settings_owner_id() else {
+        log::info!("storage: skip context budget migration, no current user");
+        return Ok(());
+    };
+    migrate_legacy_context_budget_for(&uid)
+}
+
+fn migrate_legacy_context_budget_for(uid: &str) -> Result<()> {
+    let path = user_settings_path_for(uid)?;
     if !path.exists() {
         return Ok(());
     }
@@ -876,14 +937,18 @@ fn migrate_legacy_settings_if_needed() -> Result<()> {
     if !legacy.exists() || migrated.exists() {
         return Ok(());
     }
-    log::info!("storage: migrating legacy settings.json → user_settings.json");
+    let Some(uid) = settings_owner_id() else {
+        log::warn!("storage: skip legacy settings.json migration, no current user");
+        return Ok(());
+    };
+    log::info!("storage: migrating legacy settings.json → {uid} home settings");
     let raw = fs::read_to_string(&legacy)?;
     let stored: StoredSettings = serde_json::from_str(&raw).unwrap_or_default();
     let mut user = stored_settings_to_user(&stored);
     if user.theme.trim().is_empty() {
         user.theme = default_theme();
     }
-    write_user_settings_file(&user)?;
+    write_user_settings_file(&uid, &user)?;
     fs::rename(&legacy, &migrated)?;
     log::info!(
         "storage: legacy settings.json renamed to {}",
@@ -899,24 +964,29 @@ fn migrate_legacy_settings_if_needed() -> Result<()> {
     Ok(())
 }
 
-/// 读取全局 `user_settings.json`（不含任何用户覆盖）。
-/// 读取用户设置：全局文件 + 当前线程会话用户的运行时覆盖。
+/// 读取当前用户的设置，并叠上该用户的运行时覆盖。
 ///
-/// 没有会话用户（桌面端、启动期）时等价于 [`load_user_settings_global`]。
+/// 没有可归属的用户时返回默认值，不读取系统目录里的 `user_settings.json`。
 pub fn load_user_settings() -> Result<UserSettings> {
-    let mut user = load_user_settings_global()?;
-    if let Some(uid) = crate::session_user_env::current_session_user_id() {
-        if !uid.trim().is_empty() {
-            apply_user_runtime_overlay(&mut user, uid.trim());
-        }
-    }
+    let Some(uid) = settings_owner_id() else {
+        log::info!("user-settings: no current user, using defaults");
+        return Ok(UserSettings::default());
+    };
+    let mut user = load_user_settings_for(&uid)?;
+    apply_user_runtime_overlay(&mut user, &uid);
     Ok(user)
 }
 
-pub fn load_user_settings_global() -> Result<UserSettings> {
+/// 读取某个用户 `home/.pointer/settings.json`，不叠加运行时覆盖。
+/// 文件不存在时用默认值，不读取系统目录里的旧文件。
+pub fn load_user_settings_for(uid: &str) -> Result<UserSettings> {
     ensure_legacy_settings_migrated();
-    let path = user_settings_path()?;
+    if let Err(error) = migrate_legacy_context_budget_for(uid) {
+        log::warn!("storage: context budget migration failed for {uid}: {error:#}");
+    }
+    let path = user_settings_path_for(uid)?;
     if !path.exists() {
+        log::info!("user-settings: {} missing, using defaults", path.display());
         return Ok(UserSettings::default());
     }
     let raw = fs::read_to_string(&path)?;
@@ -958,7 +1028,7 @@ pub fn load_user_settings_global() -> Result<UserSettings> {
     }
     // Legacy provider_keys.enc compat: backfill keys for providers whose json
     // entry has no key. Read-only — save_user_settings no longer writes this file.
-    if let Ok(legacy_keys) = load_provider_api_keys() {
+    if let Ok(legacy_keys) = load_provider_api_keys_for(uid) {
         for (provider_id, key) in legacy_keys {
             if let Some(provider) = user.providers.iter_mut().find(|p| p.id == provider_id) {
                 if provider.api_key.is_empty() {
@@ -970,20 +1040,33 @@ pub fn load_user_settings_global() -> Result<UserSettings> {
     Ok(user)
 }
 
-fn write_user_settings_file(user: &UserSettings) -> Result<()> {
-    fs::write(user_settings_path()?, serde_json::to_vec_pretty(user)?)?;
+/// 当前归属用户的设置文件，不含运行时覆盖。没有用户时返回默认值。
+pub fn load_user_settings_global() -> Result<UserSettings> {
+    match settings_owner_id() {
+        Some(uid) => load_user_settings_for(&uid),
+        None => {
+            log::info!("user-settings: no current user, using defaults");
+            Ok(UserSettings::default())
+        }
+    }
+}
+
+fn write_user_settings_file(uid: &str, user: &UserSettings) -> Result<()> {
+    let path = user_settings_path_for(uid)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, serde_json::to_vec_pretty(user)?)
+        .with_context(|| format!("write {}", path.display()))?;
+    log::info!("user-settings: saved {}", path.display());
     Ok(())
 }
 
-fn provider_keys_path() -> Result<PathBuf> {
-    Ok(data_dir()?.join("provider_keys.enc"))
-}
-
-/// Legacy (read-only): decrypt user-typed provider keys saved by the old
-/// `provider_keys.enc` sidecar. Kept for backward compat during the
-/// key-in-json migration; new saves write keys into user_settings.json.
-fn load_provider_api_keys() -> Result<Vec<(String, String)>> {
-    let path = provider_keys_path()?;
+/// Legacy (read-only): decrypt user-typed provider keys saved beside this
+/// user's settings. New saves write keys into `.pointer/settings.json`.
+/// The system-directory copy is not read.
+fn load_provider_api_keys_for(uid: &str) -> Result<Vec<(String, String)>> {
+    let path = provider_keys_path_for(uid)?;
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -999,17 +1082,22 @@ fn load_provider_api_keys() -> Result<Vec<(String, String)>> {
     Ok(serde_json::from_str(&payload).unwrap_or_default())
 }
 
-/// Persist the full user settings layer (user configuration incl. debug fields).
-/// Provider keys the user typed are encrypted (AES-256-GCM, machine-bound) and
-/// stored inline in user_settings.json as `enc:v1:<base64>` on each provider's
-/// apiKey. Platform-injected keys never pass through here — they live only in
-/// platform memory (see `update_user_settings` filtering by source).
+/// Persist the full user settings layer for the current owner.
 pub fn save_user_settings(user: &UserSettings) -> Result<()> {
+    let uid = settings_owner_id().ok_or_else(|| anyhow::anyhow!("用户设置缺少当前用户"))?;
+    save_user_settings_for(&uid, user)
+}
+
+/// Persist settings into `{home}/.pointer/settings.json` for `uid`.
+///
+/// Provider keys the user typed are encrypted (AES-256-GCM, machine-bound) and
+/// stored inline as `enc:v1:<base64>` on each provider's apiKey.
+/// Platform-injected keys never pass through here.
+pub fn save_user_settings_for(uid: &str, user: &UserSettings) -> Result<()> {
     ensure_legacy_settings_migrated();
     let mut to_save = user.clone();
     to_save.media_oss = Default::default();
-    // 运行时设置按用户存（`user-settings/<uid>.json`），全局文件不保存：
-    // 否则一个用户的值会变成所有人的默认值。
+    // 运行时设置写在该用户的 runtime.json，不进 settings.json。
     to_save.terminal_env_overrides.clear();
     to_save.max_parallel_tool_calls = None;
     to_save.max_parallel_sub_agents = None;
@@ -1033,7 +1121,7 @@ pub fn save_user_settings(user: &UserSettings) -> Result<()> {
             );
         }
     }
-    write_user_settings_file(&to_save)
+    write_user_settings_file(uid, &to_save)
 }
 
 /// Keep free-form `extraBody` keys after absorbing structured thinking fields.
@@ -1681,7 +1769,11 @@ mod legacy_context_budget_tests {
                 .unwrap_or(0)
         ));
         std::fs::create_dir_all(&dir).expect("temp dir");
-        let path = dir.join("user_settings.json");
+        set_test_app_data_dir(dir.clone());
+        let path = user_settings_path().expect("user settings path");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("settings dir");
+        }
         std::fs::write(
             &path,
             serde_json::to_vec_pretty(&json!({
@@ -1691,7 +1783,10 @@ mod legacy_context_budget_tests {
             .unwrap(),
         )
         .expect("write");
-        set_test_app_data_dir(dir.clone());
+        assert!(
+            !dir.join("user_settings.json").exists(),
+            "legacy migration must not read the system user_settings.json"
+        );
 
         migrate_legacy_context_budget_on_disk().expect("migrate");
 
@@ -1757,7 +1852,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let raw = format!("  {}  ", tmp.path().to_string_lossy());
         let dir = resolve_pointer_home(Some(&raw)).unwrap();
-        assert_eq!(dir, tmp.path(), "两端空白要吃掉，否则会建成一个带空格的怪目录");
+        assert_eq!(
+            dir,
+            tmp.path(),
+            "两端空白要吃掉，否则会建成一个带空格的怪目录"
+        );
     }
 
     #[test]
@@ -1811,7 +1910,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let target = tmp.path().join("not-created-yet");
         let raw = target.to_string_lossy().to_string();
-        assert_eq!(resolve_pointer_home_no_create(Some(&raw)), Some(target.clone()));
+        assert_eq!(
+            resolve_pointer_home_no_create(Some(&raw)),
+            Some(target.clone())
+        );
         assert!(!target.exists(), "no_create 变体不该建目录");
     }
 
@@ -1851,7 +1953,9 @@ mod user_overlay_tests {
         with_temp_data_dir(|| {
             let a = crate::models::UserRuntimeOverlay {
                 terminal_env_overrides: Some(
-                    [("PATH".to_string(), "/a/bin".to_string())].into_iter().collect(),
+                    [("PATH".to_string(), "/a/bin".to_string())]
+                        .into_iter()
+                        .collect(),
                 ),
                 max_parallel_tool_calls: Some(1),
                 max_parallel_sub_agents: None,
@@ -1867,7 +1971,10 @@ mod user_overlay_tests {
             let loaded_a = load_user_runtime_overlay("user-a");
             let loaded_b = load_user_runtime_overlay("user-b");
             assert_eq!(
-                loaded_a.terminal_env_overrides.as_ref().and_then(|m| m.get("PATH")),
+                loaded_a
+                    .terminal_env_overrides
+                    .as_ref()
+                    .and_then(|m| m.get("PATH")),
                 Some(&"/a/bin".to_string())
             );
             assert_eq!(loaded_a.max_parallel_tool_calls, Some(1));
@@ -1882,8 +1989,9 @@ mod user_overlay_tests {
     fn global_file_never_stores_runtime_settings() {
         with_temp_data_dir(|| {
             let mut user = UserSettings::default();
-            user.terminal_env_overrides =
-                [("PATH".to_string(), "/global/bin".to_string())].into_iter().collect();
+            user.terminal_env_overrides = [("PATH".to_string(), "/global/bin".to_string())]
+                .into_iter()
+                .collect();
             user.max_parallel_tool_calls = Some(7);
             user.max_parallel_sub_agents = Some(3);
             save_user_settings(&user).expect("save");
@@ -1909,7 +2017,9 @@ mod user_overlay_tests {
                 "user-a",
                 &crate::models::UserRuntimeOverlay {
                     terminal_env_overrides: Some(
-                        [("PATH".to_string(), "/a".to_string())].into_iter().collect(),
+                        [("PATH".to_string(), "/a".to_string())]
+                            .into_iter()
+                            .collect(),
                     ),
                     max_parallel_tool_calls: Some(1),
                     max_parallel_sub_agents: None,
@@ -1920,13 +2030,19 @@ mod user_overlay_tests {
             // user-b 没有覆盖文件 → 迁移全局值，成为 user-b 自己的覆盖
             apply_user_runtime_overlay(&mut user, "user-b");
             assert_eq!(user.max_parallel_tool_calls, Some(5));
-            assert_eq!(user.terminal_env_overrides.get("LANG"), Some(&"C.UTF-8".to_string()));
+            assert_eq!(
+                user.terminal_env_overrides.get("LANG"),
+                Some(&"C.UTF-8".to_string())
+            );
             assert!(user_overlay_exists("user-b"));
 
             // user-a 有自己的覆盖 → 用自己那份，不受迁移影响
             apply_user_runtime_overlay(&mut user, "user-a");
             assert_eq!(user.max_parallel_tool_calls, Some(1));
-            assert_eq!(user.terminal_env_overrides.get("PATH"), Some(&"/a".to_string()));
+            assert_eq!(
+                user.terminal_env_overrides.get("PATH"),
+                Some(&"/a".to_string())
+            );
 
             // 全局已空的新用户拿到默认值（不再有人人共享的默认）
             let mut fresh = UserSettings::default();
@@ -1947,9 +2063,9 @@ mod user_overlay_tests {
             legacy.terminal_env_overrides = [("LANG".to_string(), "C.UTF-8".to_string())]
                 .into_iter()
                 .collect();
-            write_user_settings_file(&legacy).expect("write legacy global");
+            write_user_settings_file("first-user", &legacy).expect("write user settings");
 
-            let mut user = load_user_settings_global().expect("load global");
+            let mut user = load_user_settings_for("first-user").expect("load user");
             apply_user_runtime_overlay(&mut user, "first-user");
 
             // 迁移落成该用户自己的覆盖，本人仍读到这些值
@@ -1966,8 +2082,9 @@ mod user_overlay_tests {
             assert_eq!(user.max_parallel_tool_calls, Some(5));
             assert_eq!(user.max_parallel_sub_agents, Some(4));
 
-            // 全局文件：三项消失，其他字段原样
-            let raw = fs::read_to_string(user_settings_path().expect("path")).expect("read global");
+            // 该用户的设置文件：三项消失，其他字段原样
+            let raw = fs::read_to_string(user_settings_path_for("first-user").expect("path"))
+                .expect("read user settings");
             let doc: serde_json::Value = serde_json::from_str(&raw).expect("global json");
             assert!(
                 doc.get("terminalEnvOverrides").is_none(),
@@ -1985,7 +2102,7 @@ mod user_overlay_tests {
             assert_eq!(doc.get("uiLocale").and_then(|v| v.as_str()), Some("en"));
 
             // 重新读全局：三项回到默认值
-            let reread = load_user_settings_global().expect("reload global");
+            let reread = load_user_settings_for("first-user").expect("reload user");
             assert!(reread.terminal_env_overrides.is_empty());
             assert_eq!(reread.max_parallel_tool_calls, None);
             assert_eq!(reread.max_parallel_sub_agents, None);
@@ -2002,13 +2119,13 @@ mod user_overlay_tests {
             legacy.terminal_env_overrides = [("LANG".to_string(), "C.UTF-8".to_string())]
                 .into_iter()
                 .collect();
-            write_user_settings_file(&legacy).expect("write legacy global");
+            write_user_settings_file("first-user", &legacy).expect("write user settings");
 
-            let mut first = load_user_settings_global().expect("load global");
+            let mut first = load_user_settings_for("first-user").expect("load first");
             apply_user_runtime_overlay(&mut first, "first-user");
             assert_eq!(first.max_parallel_tool_calls, Some(5));
 
-            let mut second = load_user_settings_global().expect("load global");
+            let mut second = load_user_settings_for("second-user").expect("load second");
             apply_user_runtime_overlay(&mut second, "second-user");
             assert!(second.terminal_env_overrides.is_empty());
             assert_eq!(second.max_parallel_tool_calls, None);
@@ -2026,21 +2143,17 @@ mod user_overlay_tests {
             legacy.terminal_env_overrides = [("LANG".to_string(), "C.UTF-8".to_string())]
                 .into_iter()
                 .collect();
-            write_user_settings_file(&legacy).expect("write legacy global");
+            write_user_settings_file("kept-user", &legacy).expect("write user settings");
+            let settings_path = user_settings_path_for("kept-user").expect("path");
+            let pointer = settings_path.parent().expect("pointer dir");
+            // 临时文件占成目录，覆盖写入必然失败，设置文件本身仍可读。
+            fs::create_dir(pointer.join("runtime.json.tmp")).expect("block overlay tmp");
 
-            // 注入不可写：`user-settings` 先占成普通文件，create_dir_all 必然失败。
-            let overlay_dir = user_settings_path()
-                .expect("path")
-                .parent()
-                .expect("data dir")
-                .join("user-settings");
-            fs::write(&overlay_dir, b"not a dir").expect("block overlay dir");
+            let mut user = load_user_settings_for("kept-user").expect("load user");
+            apply_user_runtime_overlay(&mut user, "kept-user");
 
-            let mut user = load_user_settings_global().expect("load global");
-            apply_user_runtime_overlay(&mut user, "blocked-user");
-
-            // 迁移失败：全局保持现状
-            let raw = fs::read_to_string(user_settings_path().expect("path")).expect("read global");
+            // 迁移失败：该用户的设置文件保持现状
+            let raw = fs::read_to_string(&settings_path).expect("read user settings");
             let doc: serde_json::Value = serde_json::from_str(&raw).expect("global json");
             assert_eq!(
                 doc.get("maxParallelToolCalls").and_then(|v| v.as_u64()),
@@ -2054,8 +2167,11 @@ mod user_overlay_tests {
 
             // 读取没被阻断，内存里仍是全局值
             assert_eq!(user.max_parallel_tool_calls, Some(5));
-            assert_eq!(user.terminal_env_overrides.get("LANG"), Some(&"C.UTF-8".to_string()));
-            assert!(!user_overlay_exists("blocked-user"));
+            assert_eq!(
+                user.terminal_env_overrides.get("LANG"),
+                Some(&"C.UTF-8".to_string())
+            );
+            assert!(!user_overlay_exists("kept-user"));
         });
     }
 }

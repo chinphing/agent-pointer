@@ -59,7 +59,7 @@ fn now_ms() -> u64 {
 }
 
 fn journal_path(session_user_id: &str) -> Result<PathBuf> {
-    let home = crate::user_data_paths::user_home_host_root(session_user_id)?;
+    let home = crate::user_data_paths::user_home_host_root(session_user_id, "")?;
     let dir = home.join(".pointer");
     fs::create_dir_all(&dir)?;
     Ok(dir.join(JOURNAL_FILE))
@@ -119,7 +119,6 @@ fn copy_verified(src: &Path, dst: &Path) -> Result<(u64, String)> {
     Ok((bytes, hash))
 }
 
-
 fn path_owned_by_user(rel: &Path, user_segment: &str, user_key_seg: &str) -> bool {
     rel.components().any(|component| {
         let text = component.as_os_str().to_string_lossy();
@@ -143,7 +142,10 @@ fn walk_files(root: &Path) -> Result<Vec<PathBuf>> {
     if !root.is_dir() {
         return Ok(out);
     }
-    for entry in walkdir::WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if entry.file_type().is_file() {
             out.push(entry.path().to_path_buf());
         }
@@ -270,7 +272,11 @@ pub fn migrate_user_layout(session_user_id: &str, dry_run: bool) -> Result<Migra
                 copied += 1;
             }
             Err(e) => {
-                log::warn!("migration copy failed {} -> {}: {e:#}", src.display(), dst.display());
+                log::warn!(
+                    "migration copy failed {} -> {}: {e:#}",
+                    src.display(),
+                    dst.display()
+                );
                 journal.items.push(MigrationItem {
                     kind,
                     source: src_s,

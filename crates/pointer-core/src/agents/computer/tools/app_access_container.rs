@@ -161,7 +161,11 @@ fn pick<'a>(entries: &'a [DesktopEntry], query: &str) -> Option<&'a DesktopEntry
                 .iter()
                 .find(|e| e.name.to_lowercase().contains(&q) || e.id.to_lowercase().contains(&q))
         })
-        .or_else(|| entries.iter().find(|e| binary_of(&e.exec).to_lowercase() == q))
+        .or_else(|| {
+            entries
+                .iter()
+                .find(|e| binary_of(&e.exec).to_lowercase() == q)
+        })
 }
 
 fn run(env: &Arc<dyn Environment>, script: &str) -> Result<String> {
@@ -248,10 +252,7 @@ pub fn launch(
     };
 
     let cmd = strip_field_codes(&entry.exec);
-    run(
-        env,
-        &format!("setsid {cmd} >/dev/null 2>&1 & sleep 0.3"),
-    )?;
+    run(env, &format!("setsid {cmd} >/dev/null 2>&1 & sleep 0.3"))?;
 
     Ok(AppOpenResult {
         success: true,
@@ -355,7 +356,8 @@ chromium\tChromium 重复\tchromium\n";
 
     #[test]
     fn parses_window_listing_and_matches_by_process_name() {
-        let windows = parse_windows("75\tchromium\t1\tabout:blank - Chromium\n36\tplank\t0\tplank\n");
+        let windows =
+            parse_windows("75\tchromium\t1\tabout:blank - Chromium\n36\tplank\t0\tplank\n");
         assert_eq!(windows.len(), 2);
         assert_eq!(windows[0].pid, 75);
         assert!(windows[0].active);

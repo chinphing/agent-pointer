@@ -32,7 +32,8 @@ pub fn verify_response_schema(family: OperationFamily) -> Value {
     });
     if family == OperationFamily::Scroll {
         // `at_edge` only exists for scroll — a click that fails has no edge.
-        properties["failure_cause"]["enum"] = json!(["wrong_operation", "precision_miss", "at_edge"]);
+        properties["failure_cause"]["enum"] =
+            json!(["wrong_operation", "precision_miss", "at_edge"]);
         properties["scroll_moved"] = json!({
             "type": "number",
             "description": "How far the content moved, as a fraction of the target area (0.05 = 5%). Signed by the direction the content actually moved relative to the request."
@@ -64,8 +65,14 @@ mod tests {
     #[test]
     fn scroll_fields_only_exist_for_the_scroll_family() {
         let scroll = verify_response_schema(OperationFamily::Scroll);
-        assert!(scroll["properties"].get("scroll_moved").is_some(), "{scroll}");
-        assert!(scroll["properties"].get("scroll_unit").is_some(), "{scroll}");
+        assert!(
+            scroll["properties"].get("scroll_moved").is_some(),
+            "{scroll}"
+        );
+        assert!(
+            scroll["properties"].get("scroll_unit").is_some(),
+            "{scroll}"
+        );
         let causes = scroll["properties"]["failure_cause"]["enum"]
             .as_array()
             .expect("failure_cause enum");
@@ -103,7 +110,10 @@ mod tests {
                 "step_summary",
                 "loading_detected",
             ] {
-                assert!(schema["properties"].get(key).is_some(), "{family:?} 缺 {key}");
+                assert!(
+                    schema["properties"].get(key).is_some(),
+                    "{family:?} 缺 {key}"
+                );
             }
         }
     }

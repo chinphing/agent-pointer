@@ -5,7 +5,7 @@
 //! （不是 user 消息）。
 //!
 //! 规则：
-//! - 全局：`~/.pointer/AGENTS.md`（`dirs::home_dir()`，跨平台）；
+//! - 全局：会话 home 下的 `.pointer/AGENTS.md`；没有会话时才用进程用户的 `~/.pointer`；
 //! - 项目：会话工作区当作 cwd（不使用进程 cwd）。从该目录向上找 `.git`
 //!   （目录或 worktree 文件），再从 git 根沿路径走到工作区，每层最多一份；
 //! - 找不到 git 根时只读工作区根上的那一份；
@@ -307,6 +307,71 @@ fn format_project_context_block(merged: &str) -> String {
     format!("{PROJECT_CONTEXT_PREAMBLE}{merged}")
 }
 
+fn session_pointer_home(conversation_id: &str) -> Option<PathBuf> {
+    let env = crate::env::session_env::env_for_conversation(conversation_id)
+        .or_else(crate::env::current_env)?;
+    if env.is_denied() || env.path_map().is_host_passthrough() {
+        log::warn!("agents_md: skip host home conversation_id={conversation_id}");
+        return None;
+    }
+    let guest = env.home_root().join(".pointer");
+    if guest.as_os_str().is_empty() {
+        log::warn!("agents_md: session home is empty conversation_id={conversation_id}");
+        return None;
+    }
+    match env.path_map().to_host(&guest) {
+        Ok(host) => {
+            log::info!("agents_md: session pointer home conversation_id={conversation_id}");
+            Some(host)
+        }
+        Err(error) => {
+            log::warn!(
+                "agents_md: session home not mapped conversation_id={conversation_id}: {error:#}"
+            );
+            Some(guest)
+        }
+    }
+}
+
+fn workspace_dir_for_agents(conversation_id: &str, raw: &str) -> Option<PathBuf> {
+    let root = PathBuf::from(raw);
+    if root.is_dir() {
+        return Some(root);
+    }
+    let Some(env) = crate::env::session_env::env_for_conversation(conversation_id)
+        .or_else(crate::env::current_env)
+    else {
+        log::warn!(
+            "agents_md: workspace is not a directory conversation_id={conversation_id} root={raw}"
+        );
+        return None;
+    };
+    if env.is_denied() || env.path_map().is_host_passthrough() {
+        log::warn!("agents_md: workspace refused conversation_id={conversation_id} root={raw}");
+        return None;
+    }
+    match env.path_map().to_host(&root) {
+        Ok(host) if host.is_dir() => {
+            log::info!(
+                "agents_md: read session workspace conversation_id={conversation_id} session={raw}"
+            );
+            Some(host)
+        }
+        Ok(_) => {
+            log::warn!(
+                "agents_md: session workspace is not a directory conversation_id={conversation_id} session={raw}"
+            );
+            None
+        }
+        Err(error) => {
+            log::warn!(
+                "agents_md: session workspace not mapped conversation_id={conversation_id} session={raw}: {error:#}"
+            );
+            None
+        }
+    }
+}
+
 /// Append Hermes-style `# Project Context` from the AGENTS.md chain
 /// (system cacheable).
 pub fn push_agents_md_to_cacheable(
@@ -326,22 +391,16 @@ pub fn push_agents_md_to_cacheable_with_home(
 ) {
     let started = Instant::now();
     let raw = workspace_root.trim();
-    let pointer_home = resolved_pointer_home(pointer_home);
+    let pointer_home = match pointer_home {
+        Some(home) => Some(home.to_path_buf()),
+        None => session_pointer_home(conversation_id).or_else(|| resolved_pointer_home(None)),
+    };
 
     let workspace_root = if raw.is_empty() {
         log::info!("agents_md: skip empty workspace conversation_id={conversation_id}");
         None
     } else {
-        let root = PathBuf::from(raw);
-        if !root.is_dir() {
-            log::warn!(
-                "agents_md: workspace is not a directory conversation_id={conversation_id} root={}",
-                root.display()
-            );
-            None
-        } else {
-            Some(root)
-        }
+        workspace_dir_for_agents(conversation_id, raw)
     };
 
     let files = discover_agents_md_chain(workspace_root.as_deref(), pointer_home.as_deref());
@@ -354,29 +413,29 @@ pub fn push_agents_md_to_cacheable_with_home(
         }
         Err(err) => {
             log::warn!(
-                "agents_md: 读取失败 conversation_id={conversation_id} workspace={} elapsed_ms={} files={} err={err:#}",
-                workspace_root
-                    .as_deref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default(),
+                "agents_md: 读取失败 conversation_id={conversation_id} workspace={raw} elapsed_ms={} files={} err={err:#}",
                 started.elapsed().as_millis(),
                 files.len()
             );
             return;
         }
     }
-    let git_root = workspace_root
+    let translated = workspace_root
         .as_ref()
-        .and_then(|p| p.canonicalize().ok())
-        .and_then(|c| find_git_root(&c));
+        .is_some_and(|path| path.display().to_string() != raw);
+    let git_root = if translated {
+        None
+    } else {
+        workspace_root
+            .as_ref()
+            .and_then(|p| p.canonicalize().ok())
+            .and_then(|c| find_git_root(&c))
+    };
     let elapsed_ms = started.elapsed().as_millis();
     let labels: Vec<&str> = files.iter().map(|(l, _)| l.as_str()).collect();
     let msg = format!(
         "agents_md: load conversation_id={conversation_id} workspace={} git_root={} elapsed_ms={elapsed_ms} files={} labels={labels:?} injected={injected} partition=cacheable",
-        workspace_root
-            .as_deref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default(),
+        raw,
         git_root
             .as_deref()
             .map(|p| p.display().to_string())

@@ -156,7 +156,10 @@ pub fn render_captcha_svg(text: &str) -> String {
             for (k, (x, y)) in stroke.iter().enumerate() {
                 let px = ox + x * scale;
                 let py = oy + y * scale;
-                d.push_str(&format!("{}{px:.1},{py:.1}", if k == 0 { "M" } else { " L" }));
+                d.push_str(&format!(
+                    "{}{px:.1},{py:.1}",
+                    if k == 0 { "M" } else { " L" }
+                ));
             }
             strokes.push_str(&format!(
                 "<path d=\"{d}\" fill=\"none\" stroke=\"#1f2937\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" transform=\"rotate({rot:.1} {cx:.1} {cy:.1})\"/>"
@@ -181,15 +184,24 @@ mod tests {
     #[test]
     fn svg_never_carries_the_answer_as_text() {
         let svg = render_captcha_svg("YHES");
-        assert!(!svg.contains("<text"), "captcha must not emit <text>: {svg}");
-        assert!(!svg.contains("font-family"), "captcha must not depend on fonts");
+        assert!(
+            !svg.contains("<text"),
+            "captcha must not emit <text>: {svg}"
+        );
+        assert!(
+            !svg.contains("font-family"),
+            "captcha must not depend on fonts"
+        );
         assert!(
             !svg.contains("YHES"),
             "answer must not appear literally in the SVG: {svg}"
         );
         // Every answer character is drawn: one path per stroke, no box fallback.
         assert!(svg.contains("<path"), "expected vector strokes: {svg}");
-        assert!(!svg.contains("<rect x="), "no glyph should fall back to a box");
+        assert!(
+            !svg.contains("<rect x="),
+            "no glyph should fall back to a box"
+        );
     }
 
     #[test]

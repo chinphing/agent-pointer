@@ -19,14 +19,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::env::{EnvKind, Environment, EnvironmentGuard};
+use crate::env::{Environment, EnvironmentGuard, SessionEnv};
 
 /// 一次工具调用的执行上下文。
 #[derive(Clone)]
 pub struct ToolContext {
     conversation_id: String,
     session_user_id: String,
-    env: Arc<dyn Environment>,
+    env: SessionEnv,
     workspace_root: PathBuf,
 }
 
@@ -45,7 +45,7 @@ impl ToolContext {
     pub fn new(
         conversation_id: impl Into<String>,
         session_user_id: impl Into<String>,
-        env: Arc<dyn Environment>,
+        env: SessionEnv,
         workspace_root: impl Into<PathBuf>,
     ) -> Self {
         Self {
@@ -70,13 +70,10 @@ impl ToolContext {
         fallback_workspace: impl Into<PathBuf>,
     ) -> Result<Self> {
         let fallback_workspace = fallback_workspace.into();
-        let suits = |env: &Arc<dyn Environment>| {
-            crate::env::session_env::env_matches_session_user(env.as_ref(), session_user_id)
-        };
-        let env = if let Some(env) = crate::env::current_env().filter(&suits).or_else(|| {
-            crate::env::session_env::env_for_conversation(conversation_id).filter(&suits)
+        let session = if let Some(session) = crate::env::current_session().filter(|session| {
+            crate::env::session_env::env_matches_session_user(session.environment().as_ref(), session_user_id)
         }) {
-            env
+            session
         } else {
             log::info!(
                 "tool context: conversation={conversation_id} user={session_user_id} env does not match tier, rebinding"
@@ -86,23 +83,19 @@ impl ToolContext {
                 session_user_id,
                 fallback_workspace.clone(),
             )?;
-            let env = crate::env::current_env().ok_or_else(|| {
+            let session = crate::env::current_session().ok_or_else(|| {
                 anyhow::anyhow!(
                     "执行环境未绑定，且调用方要求显式绑定：该入口不会按部署档位回落到默认环境"
                 )
             })?;
             drop(guard);
-            env
+            session
         };
-        let workspace_root = if env.kind() == EnvKind::Local {
-            fallback_workspace
-        } else {
-            env.workspace_root().to_path_buf()
-        };
+        let workspace_root = session.workspace_root().to_path_buf();
         Ok(Self::new(
             conversation_id,
             session_user_id,
-            env,
+            session,
             workspace_root,
         ))
     }
@@ -113,9 +106,10 @@ impl ToolContext {
     /// 免得「没有会话上下文」变成一条静默落到宿主的入口。
     #[cfg(test)]
     pub fn local_default() -> Self {
-        let env = crate::env::host_env();
-        let workspace_root = env.workspace_root().to_path_buf();
-        Self::new("", "", env, workspace_root)
+        let dir = std::env::temp_dir().join("pointer-tool-context");
+        let session = SessionEnv::open_roots("test", &dir, &dir, &dir).expect("test session");
+        let workspace_root = session.workspace_root().to_path_buf();
+        Self::new("", "", session, workspace_root)
     }
 
     pub fn conversation_id(&self) -> &str {
@@ -127,6 +121,10 @@ impl ToolContext {
     }
 
     pub fn env(&self) -> Arc<dyn Environment> {
+        self.env.environment()
+    }
+
+    pub fn session(&self) -> SessionEnv {
         self.env.clone()
     }
 
@@ -147,7 +145,7 @@ pub struct ToolContextGuard {
 
 impl ToolContextGuard {
     pub fn enter(ctx: ToolContext) -> Self {
-        let env_guard = EnvironmentGuard::enter(ctx.env());
+        let env_guard = EnvironmentGuard::enter(ctx.session());
         let previous = CURRENT_TOOL_CONTEXT.with(|slot| slot.borrow_mut().replace(ctx));
         Self {
             previous,
@@ -177,22 +175,19 @@ mod tests {
     #[test]
     fn guard_exposes_context_and_clears_on_drop() {
         assert!(current_tool_context().is_none());
+        let dir = tempfile::tempdir().unwrap();
+        let session = SessionEnv::open_roots("c:conv-1", dir.path(), dir.path(), dir.path())
+            .expect("session");
         {
-            let ctx = ToolContext::new(
-                "conv-1",
-                "user-1",
-                crate::env::test_light_env(),
-                "/workspace",
-            );
+            let ctx = ToolContext::new("conv-1", "user-1", session, dir.path());
             let _g = ToolContextGuard::enter(ctx);
             let seen = current_tool_context().expect("上下文应可见");
             assert_eq!(seen.conversation_id(), "conv-1");
-            // 同一作用域内工具体读到的环境必须是会话环境，不是宿主
-            assert_eq!(crate::env::effective_env().kind(), EnvKind::Headless);
-            assert_eq!(
-                crate::env::effective_env().workspace_root(),
-                Path::new("/data/workspaces")
-            );
+            assert!(!crate::env::effective_env().path_map().is_host_passthrough());
+            assert!(crate::env::effective_env()
+                .workspace_root()
+                .starts_with(dir.path())
+                || dir.path().starts_with(crate::env::effective_env().workspace_root()));
         }
         assert!(current_tool_context().is_none());
         // 退出后环境绑定也恢复：不会把上一个会话的环境留给线程复用的下一轮
@@ -201,10 +196,21 @@ mod tests {
 
     #[test]
     fn nested_guard_restores_outer_context() {
-        let outer = ToolContext::new("outer", "u", crate::env::test_light_env(), "/workspace");
+        let dir = tempfile::tempdir().unwrap();
+        let outer = ToolContext::new(
+            "outer",
+            "u",
+            SessionEnv::open_roots("outer", dir.path(), dir.path(), dir.path()).unwrap(),
+            dir.path(),
+        );
         let _g1 = ToolContextGuard::enter(outer);
         {
-            let inner = ToolContext::new("inner", "u", crate::env::test_light_env(), "/workspace");
+            let inner = ToolContext::new(
+                "inner",
+                "u",
+                SessionEnv::open_roots("inner", dir.path(), dir.path(), dir.path()).unwrap(),
+                dir.path(),
+            );
             let _g2 = ToolContextGuard::enter(inner);
             assert_eq!(current_tool_context().unwrap().conversation_id(), "inner");
         }

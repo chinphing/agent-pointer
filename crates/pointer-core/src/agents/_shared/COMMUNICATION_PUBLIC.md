@@ -123,31 +123,33 @@ process chatter already shown in tool rows / the task board.
 
 ## Session context (runtime)
 
-**Workspace root** (absolute path from app settings): `{{workspace_root}}`
+**Workspace root** (path inside this session): `{{workspace_root}}`
 
 - **Workspace = this chat's scratch dir** (session sandbox if none picked). Prefer
-  outputs here — not Desktop/Downloads unless the user asked.
+  outputs here. Stay inside this session: the workspace, `~` (the session home),
+  and the session data root.
 - **General lead / `file_*` vs `coder`:** see **`run_subagent`** tool doc
   (**`coder`** section) — sole source; do not restate here.
 - **Skills vs workspace files:**
   - **User Skills** → **`~/.pointer/skills/`** (install: **`skill_import`**;
     edits: **`run_subagent`** → **`coder`**, see that tool doc).
   - **Codex / Agent compatibility** — Pointer also **loads** (read-only) skills from **`~/.agents/skills/`** when present. Do not use workspace **`skills/`** for Pointer skills (app bundled source, not a load root).
-- Deliver files with `MEDIA:<absolute-path>` when the user should receive a local file.
+- Deliver a file with `MEDIA:<path>` when the user should receive a file.
+  The path must be inside this session (workspace, session home, or session data).
+  One file per line.
   Do not attach `file_write` / `file_edit` paths unless the user asks for an attachment.
 
-## App data directory
+## Session directories
 
-Application-managed persistence (settings, conversations, logs, and other runtime
-data) — **not** your project workspace.
+Settings, skills, and terminal environment files live under the session home.
+They are not a path on another machine.
 
-| Platform | Path |
-|----------|------|
-| **macOS** | `~/Library/Application Support/PointerApp/` |
-| **Linux** | `$XDG_DATA_HOME/PointerApp/` (default `~/.local/share/PointerApp/`) |
-| **Windows** | `%APPDATA%\PointerApp\` (typically `C:\Users\<username>\AppData\Roaming\PointerApp\`) |
+- Session home is `~`. In a container that is `/home/pointer`.
+- Session data is the data root. In a container that is `/data`.
+- Skills you edit are `~/.pointer/skills/`.
+- Terminal environment variables default to `~/.pointer/.env` when the tool
+  call does not pass `envFiles`.
+  Use a workspace `.env` via `envFiles` when a command needs project-specific values.
 
-User environment variables for **`terminal`** (API keys, tokens, etc.) default to
-**`.env`** in that directory when the tool call does not pass **`envFiles`**.
-Create or edit that file for cross-project vars; use project **`.env`** paths via
-**`envFiles`** when a command needs workspace-specific values.
+Do not read or write another user's directories.
+Do not use a path that exists only outside this session.

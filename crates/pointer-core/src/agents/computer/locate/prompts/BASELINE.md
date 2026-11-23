@@ -452,7 +452,7 @@ verify 判否时触发，中/大目标本来就在第一轮过掉，裁片碰不
 ## 十一、真实会话复盘：2026-11-06 东方财富年报（4 分 41 秒 / 4 次失败）
 
 > 会话 `69fc0b0c-de27-4662-b0e9-d961eb5f001c`
-> trace：`~/Library/Application Support/PointerApp/computer-captures/locate/69fc0b0c_01{0..4}_001*.json`
+> trace：session captures for `69fc0b0c` (`01` through `04`)
 > 帧 3440×1440，模型看到的是 2444×1023
 
 任务：东方财富公告列表里点开「2025年报」那一行。**同一个目标，5 次尝试，前 4 次全败，共 4 分 41 秒。**

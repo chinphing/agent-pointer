@@ -39,7 +39,8 @@ const BOX_WIDTH: i32 = 4;
 const LOCATE_JPEG_QUALITY: u8 = 85;
 
 /// One encoded image plus its pixel size (tests assert which frame was sent).
-#[derive(Debug, Clone, PartialEq, Eq)]pub struct LocateImage {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocateImage {
     pub jpeg: Vec<u8>,
     pub width: u32,
     pub height: u32,
@@ -298,7 +299,12 @@ pub fn render_crop_marked(
     let mut crop = RgbImage::from_pixel(crop_w, crop_h, Rgb([0, 0, 0]));
     // Crop origin may be negative (crop extends past the screen edge); those
     // pixels stay black, matching PIL's padding behaviour in the baseline.
-    image::imageops::replace(&mut crop, &frame.image, -bounds.x0.round() as i64, -bounds.y0.round() as i64);
+    image::imageops::replace(
+        &mut crop,
+        &frame.image,
+        -bounds.x0.round() as i64,
+        -bounds.y0.round() as i64,
+    );
 
     let mut magnified = image::imageops::resize(&crop, out_px, out_px, FilterType::Lanczos3);
 
@@ -641,7 +647,6 @@ fn draw_center_mark(
             y += 1.0;
         }
     }
-
 }
 
 /// Darken pixels outside `keep` so the box interior stands out.
@@ -743,15 +748,8 @@ mod tests {
         // 同一个白块的归一化坐标（0–1000 刻度）。
         let candidate = NormBox::new(495.0, 493.75, 505.0, 506.25);
 
-        let (image, bounds) = render_crop_marked(
-            &frame,
-            candidate,
-            200.0,
-            1920,
-            false,
-            Mark::CrossOnly,
-        )
-        .unwrap();
+        let (image, bounds) =
+            render_crop_marked(&frame, candidate, 200.0, 1920, false, Mark::CrossOnly).unwrap();
 
         // 窗口：边长 200，中心在 (500,400)。
         assert_eq!(
@@ -775,7 +773,10 @@ mod tests {
         );
         // 白块左边界：960 - 48 = 912。往外 12 px 应当是黑底。
         let outside = decoded.get_pixel(900, 960);
-        assert!(outside[0] < 60, "白块左边界外的像素应当是黑的（实际 {outside:?}）");
+        assert!(
+            outside[0] < 60,
+            "白块左边界外的像素应当是黑的（实际 {outside:?}）"
+        );
     }
     use super::*;
     use image::Rgb;
@@ -881,8 +882,7 @@ mod tests {
     #[ignore]
     fn dump_render_for_parity() {
         use image::ImageReader;
-        let src = std::env::var("PARITY_SRC")
-            .unwrap_or_else(|_| "/tmp/parity_src.png".to_string());
+        let src = std::env::var("PARITY_SRC").unwrap_or_else(|_| "/tmp/parity_src.png".to_string());
         let Ok(reader) = ImageReader::open(&src) else {
             eprintln!("跳过：找不到 {src}");
             return;
@@ -928,16 +928,14 @@ mod tests {
         let (plain_a, _) =
             render_crop_marked(&f, candidate, 120.0, 400, false, Mark::CrossOnly).unwrap();
         let (ring_a, _) =
-            render_crop_marked(&f, candidate, 120.0, 400, false, Mark::CrossWithTolerance)
-                .unwrap();
+            render_crop_marked(&f, candidate, 120.0, 400, false, Mark::CrossWithTolerance).unwrap();
         assert_ne!(plain_a.jpeg, ring_a.jpeg, "小圈也必须画出来");
 
         // 小裁片 → 大圈（80 px 裁片��400 px 输出 = 5.0× → 25 px 圈）
         let (plain_b, _) =
             render_crop_marked(&f, candidate, 80.0, 400, false, Mark::CrossOnly).unwrap();
         let (ring_b, _) =
-            render_crop_marked(&f, candidate, 80.0, 400, false, Mark::CrossWithTolerance)
-                .unwrap();
+            render_crop_marked(&f, candidate, 80.0, 400, false, Mark::CrossWithTolerance).unwrap();
         assert_ne!(plain_b.jpeg, ring_b.jpeg, "大圈同样要画");
     }
 
@@ -1009,9 +1007,9 @@ mod tests {
     #[test]
     fn decoded_frame_reports_logical_size() {
         let f = frame(640, 480);
-        let (img, _) = render_crop(&f, NormBox::new(100.0, 100.0, 200.0, 200.0), 240.0, 16).unwrap();
+        let (img, _) =
+            render_crop(&f, NormBox::new(100.0, 100.0, 200.0, 200.0), 240.0, 16).unwrap();
         let decoded = LocateFrame::from_jpeg(&img.jpeg).unwrap();
         assert_eq!((decoded.width(), decoded.height()), (16, 16));
     }
 }
-

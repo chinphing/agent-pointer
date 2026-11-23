@@ -3,7 +3,8 @@
 //! Storage follows the execution environment. Local writes
 //! `{app_data}/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt`.
 //! A sandbox writes `{data_root}/turn-baselines/...` (guest `/data/turn-baselines`).
-//! Each baseline has a sibling `.path` file recording the absolute path,
+//! Each baseline has a sibling `.path` file recording `data:` or `home:` plus the
+//! relative segment. A stored host absolute path is refused and not opened.
 //! and `summary.json` for the page-footer file list (written once when the UI
 //! freezes the turn — same rows the user already sees).
 //!
@@ -162,7 +163,9 @@ fn env_for_baseline_store(conversation_id: &str) -> Result<Arc<dyn crate::env::E
                 "工作区在沙箱内，但当前没有会话环境，无法读写回合基线（conversation={conversation_id}）"
             );
         }
-        Ok(false) => Ok(crate::env::host_env()),
+        Ok(false) => {
+            bail!("回合基线缺少当前用户的执行环境（conversation={conversation_id}）")
+        }
         Err(error) => {
             warn!(
                 "turn_file_baseline: workspace lookup failed conversation_id={conversation_id}: {error:#}"
@@ -307,12 +310,22 @@ pub fn save_turn_file_changes(
         return Ok(());
     }
     let env = env_for_baseline_store(conv)?;
+    let mut stored_files = Vec::with_capacity(normalized.len());
+    for file in &normalized {
+        let path = encode_changed_path(env.as_ref(), Path::new(&file.path))?;
+        stored_files.push(TurnFileChangeEntry {
+            path,
+            kind: file.kind.clone(),
+            adds: file.adds,
+            dels: file.dels,
+        });
+    }
     let root = baseline_root(env.as_ref(), conv, turn)?;
     env.create_dir_all(&root)
         .with_context(|| format!("create turn baseline dir {}", root.display()))?;
     let file = summary_json_path(&root);
     let payload = TurnFileChangeSummaryFile {
-        files: normalized.clone(),
+        files: stored_files.clone(),
     };
     let json = serde_json::to_string_pretty(&payload)
         .with_context(|| format!("serialize turn summary {}", file.display()))?;
@@ -320,7 +333,7 @@ pub fn save_turn_file_changes(
         .with_context(|| format!("write turn summary {}", file.display()))?;
     info!(
         "turn_file_baseline: saved summary conversation_id={conv} turn_id={turn} files={}",
-        normalized.len()
+        stored_files.len()
     );
     Ok(())
 }
@@ -340,7 +353,7 @@ fn list_one_turn_file_changes(
             .read_to_string(&summary)
             .with_context(|| format!("read turn summary {}", summary.display()))?;
         match serde_json::from_str::<TurnFileChangeSummaryFile>(&text) {
-            Ok(parsed) => return Ok(normalize_entries(&parsed.files)),
+            Ok(parsed) => return Ok(display_changed_entries(env, &parsed.files)),
             Err(error) => {
                 warn!(
                     "turn_file_baseline: invalid summary conversation_id={conversation_id} turn_id={turn_id}: {error}"
@@ -367,14 +380,16 @@ fn list_one_turn_file_changes(
                 continue;
             }
         };
-        let path = path_text.trim().replace('\\', "/");
-        if path.is_empty() {
-            warn!(
-                "turn_file_baseline: empty path sidecar conversation_id={conversation_id} turn_id={turn_id} path={}",
-                entry.path.display()
-            );
-            continue;
-        }
+        let path = match display_changed_path(env, path_text.trim()) {
+            Ok(path) => path,
+            Err(error) => {
+                warn!(
+                    "turn_file_baseline: skip path sidecar conversation_id={conversation_id} turn_id={turn_id} path={}: {error:#}",
+                    entry.path.display()
+                );
+                continue;
+            }
+        };
         by_key.insert(
             key.to_string(),
             TurnFileChangeEntry {
@@ -454,6 +469,7 @@ pub fn ensure_baseline(
     if env.is_denied() {
         bail!("执行环境不可用，无法保存回合基线（conversation={conversation_id}）");
     }
+    let stored_path = encode_changed_path(env, abs_path)?;
     let root = baseline_root(env, &conversation_id, &turn_id)?;
     env.create_dir_all(&root)
         .with_context(|| format!("create turn baseline dir {}", root.display()))?;
@@ -463,10 +479,8 @@ pub fn ensure_baseline(
     }
     env.write_file(&file, content_before.as_bytes())
         .with_context(|| format!("write turn baseline {}", file.display()))?;
-    if let Err(error) = env.write_file(
-        meta_path(&root, abs_path).as_path(),
-        path_text(abs_path).as_bytes(),
-    ) {
+    if let Err(error) = env.write_file(meta_path(&root, abs_path).as_path(), stored_path.as_bytes())
+    {
         warn!(
             "turn_file_baseline: path sidecar write failed conversation_id={conversation_id} turn_id={turn_id} path={}: {error:#}",
             abs_path.display()
@@ -552,6 +566,106 @@ fn path_text(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+fn normalized_root(path: &Path) -> String {
+    let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    path_text(&canon).trim_end_matches('/').to_string()
+}
+
+fn strip_text(root: &str, path: &str) -> Option<String> {
+    let rest = path.strip_prefix(root)?.trim_start_matches('/');
+    if rest.is_empty()
+        || rest
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
+fn strip_root(root: &Path, path: &Path) -> Option<String> {
+    let root_raw = path_text(root).trim_end_matches('/').to_string();
+    let path_raw = path_text(path).trim_end_matches('/').to_string();
+    if let Some(rest) = strip_text(&root_raw, &path_raw) {
+        return Some(rest);
+    }
+    strip_text(&normalized_root(root), &normalized_root(path))
+}
+
+fn encode_changed_path(env: &dyn crate::env::Environment, path: &Path) -> Result<String> {
+    if env.is_denied() || env.path_map().is_host_passthrough() {
+        log::warn!(
+            "turn_file_baseline: refuse passthrough environment for {}",
+            path.display()
+        );
+        bail!("回合基线缺少当前用户的执行环境");
+    }
+    let text = path_text(path);
+    if let Ok(stored) = crate::user_data_paths::UserRelPath::decode(&text) {
+        return Ok(stored.encode());
+    }
+    if let Some(rel) = strip_root(env.data_root(), path) {
+        return Ok(crate::user_data_paths::UserRelPath::new(
+            crate::user_data_paths::UserRootKind::Data,
+            rel,
+        )?
+        .encode());
+    }
+    if let Some(rel) = strip_root(env.home_root(), path) {
+        return Ok(crate::user_data_paths::UserRelPath::new(
+            crate::user_data_paths::UserRootKind::Home,
+            rel,
+        )?
+        .encode());
+    }
+    log::warn!(
+        "turn_file_baseline: path is outside the session: {}",
+        path.display()
+    );
+    bail!("回合文件不在当前会话环境里")
+}
+
+fn display_changed_path(env: &dyn crate::env::Environment, stored: &str) -> Result<String> {
+    let stored = stored.trim().replace('\\', "/");
+    if stored.is_empty() {
+        bail!("回合基线路径为空");
+    }
+    if crate::user_data_paths::is_host_absolute(&stored) {
+        log::warn!("turn_file_baseline: refuse host absolute path");
+        bail!("宿主绝对路径不能打开");
+    }
+    if let Ok(rel) = crate::user_data_paths::UserRelPath::decode(&stored) {
+        let root = match rel.root {
+            crate::user_data_paths::UserRootKind::Home => env.home_root(),
+            crate::user_data_paths::UserRootKind::Data => env.data_root(),
+        };
+        return Ok(path_text(&root.join(&rel.rel)));
+    }
+    Ok(stored)
+}
+
+fn display_changed_entries(
+    env: &dyn crate::env::Environment,
+    files: &[TurnFileChangeEntry],
+) -> Vec<TurnFileChangeEntry> {
+    let mut shown = Vec::new();
+    for file in files {
+        match display_changed_path(env, &file.path) {
+            Ok(path) => shown.push(TurnFileChangeEntry {
+                path,
+                kind: file.kind.clone(),
+                adds: file.adds,
+                dels: file.dels,
+            }),
+            Err(error) => warn!(
+                "turn_file_baseline: skip stored path {}: {error:#}",
+                file.path
+            ),
+        }
+    }
+    normalize_entries(&shown)
+}
+
 fn path_needs_session_env(workspace_root: &Path, path: &str) -> bool {
     crate::workspace_resolve::looks_like_sandbox_guest_path(&path_text(workspace_root))
         || crate::workspace_resolve::looks_like_sandbox_guest_path(path)
@@ -594,11 +708,11 @@ fn env_for_turn_file_diff(
             );
             return Ok(env);
         }
-        info!(
-            "turn_file_diff: host path via host environment conversation_id={conversation_id} workspace={} path={path}",
+        warn!(
+            "turn_file_diff: path is outside the session environment conversation_id={conversation_id} workspace={} path={path}",
             workspace_root.display()
         );
-        return Ok(crate::env::host_env_at(workspace_root));
+        bail!("回合文件不在当前会话环境里（conversation={conversation_id}）");
     }
     if guest {
         warn!(
@@ -610,7 +724,11 @@ fn env_for_turn_file_diff(
             workspace_root.display()
         );
     }
-    Ok(crate::env::host_env_at(workspace_root))
+    warn!(
+        "turn_file_diff: missing session environment conversation_id={conversation_id} workspace={} path={path}",
+        workspace_root.display()
+    );
+    bail!("回合文件缺少当前用户的执行环境（conversation={conversation_id}）")
 }
 
 fn join_guest(root: &Path, relative: &str) -> PathBuf {
@@ -793,23 +911,26 @@ mod tests {
         let _lock = crate::storage::test_app_data_dir_lock();
         let dir = tempfile::tempdir().unwrap();
         crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
-        let path = Path::new("/ws/file.ts");
+        crate::env::session_env::remember_local_for_test("conv", dir.path());
+        let env = crate::env::session_env::env_for_conversation("conv").expect("session");
+        let path = env.data_root().join("file.ts");
         {
             let _guard = TurnBaselineGuard::enter("conv", "u2");
-            ensure_baseline(crate::env::host_env().as_ref(), path, "after-u1").unwrap();
+            ensure_baseline(env.as_ref(), &path, "after-u1").unwrap();
         }
         {
             let _guard = TurnBaselineGuard::enter("conv", "u3");
-            ensure_baseline(crate::env::host_env().as_ref(), path, "after-u2").unwrap();
+            ensure_baseline(env.as_ref(), &path, "after-u2").unwrap();
         }
         let found = read_next_path_baseline(
-            crate::env::host_env().as_ref(),
+            env.as_ref(),
             "conv",
             &["u2".into(), "u3".into()],
-            path,
-            path,
+            &path,
+            &path,
         )
         .unwrap();
+        crate::env::session_env::release("conv");
         assert_eq!(found, Some(("u2".into(), "after-u1".into())));
     }
 
@@ -818,18 +939,22 @@ mod tests {
         let _lock = crate::storage::test_app_data_dir_lock();
         let dir = tempfile::tempdir().unwrap();
         crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        crate::env::session_env::remember_local_for_test("conv", dir.path());
+        let env = crate::env::session_env::env_for_conversation("conv").expect("session");
+        let path_a = path_text(&env.data_root().join("a.ts"));
+        let path_b = path_text(&env.data_root().join("b.ts"));
         save_turn_file_changes(
             "conv",
             "u1",
             &[
                 TurnFileChangeEntry {
-                    path: "/ws/b.ts".into(),
+                    path: path_b.clone(),
                     kind: "edit".into(),
                     adds: 2,
                     dels: 1,
                 },
                 TurnFileChangeEntry {
-                    path: "/ws/a.ts".into(),
+                    path: path_a.clone(),
                     kind: "write".into(),
                     adds: 4,
                     dels: 0,
@@ -841,12 +966,13 @@ mod tests {
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].turn_id, "u1");
         assert_eq!(listed[0].files.len(), 2);
-        assert_eq!(listed[0].files[0].path, "/ws/a.ts");
+        assert_eq!(listed[0].files[0].path, path_a);
         assert_eq!(listed[0].files[0].kind, "write");
         assert_eq!(listed[0].files[0].adds, 4);
-        assert_eq!(listed[0].files[1].path, "/ws/b.ts");
+        assert_eq!(listed[0].files[1].path, path_b);
         assert_eq!(listed[0].files[1].adds, 2);
         assert!(listed[1].files.is_empty());
+        crate::env::session_env::release("conv");
     }
 
     #[test]
@@ -854,15 +980,30 @@ mod tests {
         let _lock = crate::storage::test_app_data_dir_lock();
         let dir = tempfile::tempdir().unwrap();
         crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
-        let path = Path::new("/ws/legacy.ts");
+        crate::env::session_env::remember_local_for_test("conv", dir.path());
+        let env = crate::env::session_env::env_for_conversation("conv").expect("session");
+        let path = env.data_root().join("legacy.ts");
         {
             let _guard = TurnBaselineGuard::enter("conv", "u1");
-            ensure_baseline(crate::env::host_env().as_ref(), path, "x").unwrap();
+            ensure_baseline(env.as_ref(), &path, "x").unwrap();
+            let outside = encode_changed_path(env.as_ref(), Path::new("/Users/someone/secret.pdf"));
+            assert!(outside
+                .unwrap_err()
+                .to_string()
+                .contains("不在当前会话环境里"));
         }
+        let root = baseline_root(env.as_ref(), "conv", "u1").unwrap();
+        env.write_file(
+            root.join("absolute.path").as_path(),
+            b"/Users/someone/secret.pdf",
+        )
+        .unwrap();
         let listed = list_turn_file_changes("conv", &["u1".into()]).unwrap();
         assert_eq!(listed[0].files.len(), 1);
-        assert_eq!(listed[0].files[0].path, "/ws/legacy.ts");
+        assert_eq!(listed[0].files[0].path, path_text(&path));
+        assert!(!listed[0].files[0].path.contains("secret.pdf"));
         assert_eq!(listed[0].files[0].adds, 0);
+        crate::env::session_env::release("conv");
     }
 
     #[test]
@@ -895,11 +1036,14 @@ mod tests {
         std::fs::write(&file, "now\n").unwrap();
         let abs = file.canonicalize().unwrap();
         let conv = format!("host-diff-{}", uuid::Uuid::new_v4());
+        crate::env::session_env::remember_local_for_test(&conv, &workspace);
+        let env = crate::env::session_env::env_for_conversation(&conv).expect("session");
         {
             let _guard = TurnBaselineGuard::enter(&conv, "u1");
-            ensure_baseline(crate::env::host_env().as_ref(), &abs, "old\n").unwrap();
+            ensure_baseline(env.as_ref(), &abs, "old\n").unwrap();
         }
         let diff = turn_file_diff(&conv, "u1", &workspace, "src/a.txt").unwrap();
+        crate::env::session_env::release(&conv);
         assert!(!diff.baseline_missing);
         assert_eq!(diff.diff_stats["adds"].as_u64().unwrap(), 1);
     }
@@ -913,12 +1057,21 @@ mod tests {
     }
 
     #[test]
-    fn guest_diff_rejects_a_host_passthrough_env() {
-        let conv = format!("guest-local-{}", uuid::Uuid::new_v4());
-        crate::env::session_env::remember_local_for_test(&conv, Path::new("/data/workspaces"));
-        let err = turn_file_diff(&conv, "u1", Path::new("/data/workspaces/proj"), "src/a.txt")
-            .unwrap_err();
-        assert!(err.to_string().contains("执行环境不可用"), "{err}");
+    fn session_env_rejects_a_host_passthrough() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = crate::env::SessionEnv::try_new(
+            std::sync::Arc::new(crate::env::LocalEnv::new(dir.path())),
+            crate::env::SessionScope {
+                id: "u:test".into(),
+                home_host: dir.path().to_path_buf(),
+                data_host: dir.path().to_path_buf(),
+            },
+        );
+        let err = match result {
+            Ok(_) => panic!("整机环境不能进入会话"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("整机"), "{err}");
     }
 
     #[test]

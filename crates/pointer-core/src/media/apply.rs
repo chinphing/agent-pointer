@@ -145,6 +145,8 @@ pub async fn apply_media_to_history(
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
             {
+                // Host location for server IO. The model marker is built from
+                // the storage key and the current session root, not this path.
                 if let Ok(path) = crate::media::store::media_abs_path(rel) {
                     if path.is_file() {
                         att.local_abs_path = Some(path.display().to_string());

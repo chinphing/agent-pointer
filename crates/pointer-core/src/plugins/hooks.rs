@@ -596,16 +596,20 @@ async fn run_hook_command(
     let suits = |env: &std::sync::Arc<dyn crate::env::Environment>| {
         crate::env::session_env::env_matches_session_user(env.as_ref(), &session_user_id)
     };
-    let env = match crate::env::current_env()
-        .filter(&suits)
-        .or_else(|| crate::env::session_env::env_for_conversation(conversation_id).filter(&suits))
-    {
-        Some(env) => env,
-        None => {
-            crate::env::ensure_host_execution_allowed(conversation_id, "插件 hook 脚本")?;
-            crate::env::host_env()
-        }
+    let session = crate::env::current_session().or_else(|| {
+        crate::env::session_env::bound_session(conversation_id)
+    });
+    let Some(session) = session else {
+        anyhow::bail!("插件 hook 缺少当前用户的执行环境");
     };
+    if !session_user_id.trim().is_empty() {
+        let expected = crate::env::SessionScope::id_for(&session_user_id, conversation_id)?;
+        if session.scope().id != expected {
+            anyhow::bail!("插件 hook 的环境与当前用户不一致");
+        }
+    }
+    let _ = suits;
+    let env = session.environment();
     // 非 Host 档位：插件目录是宿主路径，要换成沙箱里的挂载点（`/plugins/...`
     // 或工作区内的 `.pointer/plugins/...`）。映射不到就明确报错，不猜。
     let command_path = if env.kind() == crate::env::EnvKind::Local {

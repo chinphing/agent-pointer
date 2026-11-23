@@ -321,7 +321,9 @@ fn docker_env_git_status_and_diff_work() {
 
     // 变更列表（面板「变更」标签的数据来源）
     let dyn_env: std::sync::Arc<dyn pointer_core::env::Environment> = env.clone();
-    let guard = EnvironmentGuard::enter(dyn_env.clone());
+    let guard = EnvironmentGuard::enter(
+        pointer_core::env::SessionEnv::wrap("it-user", "it-conv", dyn_env.clone()).expect("session"),
+    );
     let changes = pointer_core::workspace_read::git_status(dyn_env.as_ref(), repo)
         .expect("git_status");
     assert_eq!(changes.len(), 1, "应有 1 个变更: {changes:?}");

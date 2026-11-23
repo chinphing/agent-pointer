@@ -337,7 +337,6 @@ pub fn refine_hint(verdict: &VerifyVerdict) -> String {
     verdict.notes.trim().to_string()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,14 +375,20 @@ mod tests {
     #[test]
     fn a_no_without_a_remark_is_retried() {
         let raw = r#"{"is_same":"no","remark":""}"#;
-        assert!(parse_verify_arguments(raw).is_none(), "empty remark must retry");
+        assert!(
+            parse_verify_arguments(raw).is_none(),
+            "empty remark must retry"
+        );
     }
 
     #[test]
     fn a_remark_missing_a_view_is_retried() {
         // 只有表态、没有结论，下游不知道该往哪挪。
         let raw = r#"{"is_same":"yes","remark":"一致"}"#;
-        assert!(parse_verify_arguments(raw).is_none(), "partial template must retry");
+        assert!(
+            parse_verify_arguments(raw).is_none(),
+            "partial template must retry"
+        );
     }
 
     #[test]
@@ -473,7 +478,10 @@ mod tests {
         let wide = verify_prompt_views("数独盘面C3的空格子", true);
         let close = verify_prompt_views("数独盘面C3的空格子", false);
         assert!(wide.contains("图二"), "wide intro missing 图二");
-        assert!(!close.contains("范围是图一的 4 倍"), "close must not describe a second image");
+        assert!(
+            !close.contains("范围是图一的 4 倍"),
+            "close must not describe a second image"
+        );
         assert!(!wide.contains("{"), "unsubstituted placeholder in wide");
         assert!(!close.contains("{"), "unsubstituted placeholder in close");
         let body = |s: &str| s[s.find("## 图里有什么").expect("body")..].to_string();

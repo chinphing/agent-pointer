@@ -274,23 +274,14 @@ mod tests {
     #[test]
     fn display_label_uses_chinese_not_english_slug() {
         let def = sample_def("general", "general-assistant", AgentProfile::General);
-        assert_eq!(
-            agent_display_label_for(&def, UiLocale::ZhCn),
-            "通用助手"
-        );
+        assert_eq!(agent_display_label_for(&def, UiLocale::ZhCn), "通用助手");
         let coder = sample_def("coder", "vibe-coding", AgentProfile::Coder);
-        assert_eq!(
-            agent_display_label_for(&coder, UiLocale::ZhCn),
-            "氛围编程"
-        );
+        assert_eq!(agent_display_label_for(&coder, UiLocale::ZhCn), "氛围编程");
     }
 
     #[test]
     fn display_label_english_catalog() {
         let def = sample_def("computer", "computer-use", AgentProfile::Computer);
-        assert_eq!(
-            agent_display_label_for(&def, UiLocale::En),
-            "Computer use"
-        );
+        assert_eq!(agent_display_label_for(&def, UiLocale::En), "Computer use");
     }
 }

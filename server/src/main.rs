@@ -38,12 +38,12 @@ use pointer_core::{
 };
 mod access_host;
 mod auth_doctor;
-mod client_ip;
 mod auth_pending;
 mod auth_routes;
 mod captcha;
 mod captcha_glyphs;
 mod channels;
+mod client_ip;
 mod web_session;
 
 use web_session::WebSessionStore;
@@ -209,12 +209,9 @@ async fn stream_workspace_file_media(
         WorkspaceMediaBody::HostPath(path) => {
             stream_media_file_response(&path, &mime_type, &file_name, true).await
         }
-        WorkspaceMediaBody::Inline(bytes) => Ok(media_bytes_response(
-            bytes,
-            &mime_type,
-            &file_name,
-            true,
-        )),
+        WorkspaceMediaBody::Inline(bytes) => {
+            Ok(media_bytes_response(bytes, &mime_type, &file_name, true))
+        }
     }
 }
 
@@ -723,7 +720,10 @@ async fn run() -> anyhow::Result<()> {
         log::info!("pointer-server: no [auth.providers] configured");
     } else {
         let ids: Vec<&str> = auth_providers.enabled().map(|(id, _)| id).collect();
-        log::info!("pointer-server: auth providers enabled [{}]", ids.join(", "));
+        log::info!(
+            "pointer-server: auth providers enabled [{}]",
+            ids.join(", ")
+        );
     }
 
     let state = ServerState {
@@ -868,7 +868,10 @@ async fn run() -> anyhow::Result<()> {
         .route("/api/projects/sidebar", get(load_sidebar_projects))
         .route("/api/projects", get(load_projects).post(create_project))
         .route("/api/workspace/policy", get(workspace_policy))
-        .route("/api/workspace/dirs", get(workspace_list_dirs).post(workspace_create_dir))
+        .route(
+            "/api/workspace/dirs",
+            get(workspace_list_dirs).post(workspace_create_dir),
+        )
         .route("/api/workspace/select", post(workspace_select))
         .route("/api/worktrees", post(create_worktree))
         .route("/api/worktrees/inspect", get(inspect_worktree))
@@ -1115,9 +1118,8 @@ async fn get_settings(
 ) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
     // 运行时设置按用户隔离，读取要带会话用户上下文（否则拿到的是全局默认值）。
-    let _user_guard = pointer_core::session_user_env::SessionUserIdGuard::enter(
-        platform_session_user_id(&state),
-    );
+    let _user_guard =
+        pointer_core::session_user_env::SessionUserIdGuard::enter(platform_session_user_id(&state));
     Ok(Json(WebEffectiveSettingsView(
         state.core.effective_settings_view(),
     )))
@@ -1129,9 +1131,8 @@ async fn update_user_settings(
 ) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
     // 写入时也要带会话用户：运行时设置会按用户落到 user-settings/<uid>.json。
-    let _user_guard = pointer_core::session_user_env::SessionUserIdGuard::enter(
-        platform_session_user_id(&state),
-    );
+    let _user_guard =
+        pointer_core::session_user_env::SessionUserIdGuard::enter(platform_session_user_id(&state));
     let view = state.core.update_user_settings(user).map_err(ApiError)?;
     Ok(Json(WebEffectiveSettingsView(view)))
 }
@@ -1695,12 +1696,9 @@ async fn download_media_ref(
         WorkspaceMediaBody::HostPath(path) => {
             stream_media_file_response(&path, &mime_type, &file_name, false).await
         }
-        WorkspaceMediaBody::Inline(bytes) => Ok(media_bytes_response(
-            bytes,
-            &mime_type,
-            &file_name,
-            false,
-        )),
+        WorkspaceMediaBody::Inline(bytes) => {
+            Ok(media_bytes_response(bytes, &mime_type, &file_name, false))
+        }
     }
 }
 
@@ -1859,12 +1857,9 @@ async fn download_chat_media(
         WorkspaceMediaBody::HostPath(path) => {
             stream_media_file_response(&path, &mime_type, &file_name, false).await
         }
-        WorkspaceMediaBody::Inline(bytes) => Ok(media_bytes_response(
-            bytes,
-            &mime_type,
-            &file_name,
-            false,
-        )),
+        WorkspaceMediaBody::Inline(bytes) => {
+            Ok(media_bytes_response(bytes, &mime_type, &file_name, false))
+        }
     }
 }
 
@@ -2279,44 +2274,10 @@ fn non_empty_uid(uid: &str) -> Option<String> {
     (!uid.is_empty()).then(|| uid.to_string())
 }
 
-/// `computer-captures/` 相对路径里的会话段。
-///
-/// 写盘布局固定为 `{YYYY-MM-DD}/{conversation_id}/{文件名}`（见
-/// `capture_debug::save_computer_capture_debug` / `capture_dump_dir`），文件名之后
-/// 允许再嵌套子目录。分隔符先归一（`\` → `/`），再按段解析。
-///
-/// `locate/` 这类没有会话段的调试目录、旧布局、以及任何非预期形状都返回 `None`；
-/// 调用方必须**拒绝**，不能把「解析不出来」当成「没有归属」放行。
+/// 截图键里的会话段。新键是 `data:captures/{日期}/{会话}/{文件}`，
+/// 旧键是 `{日期}/{会话}/{文件}`。解析不出就拒绝，不能当成没有归属放行。
 fn capture_rel_conversation_id(rel: &str) -> Option<String> {
-    let normalized = rel.trim().replace('\\', "/");
-    let segments: Vec<&str> = normalized
-        .split('/')
-        .filter(|segment| !segment.is_empty() && *segment != ".")
-        .collect();
-    // 至少要有 日期 / 会话 / 文件 三段。
-    if segments.len() < 3 {
-        return None;
-    }
-    if !is_capture_date_segment(segments[0]) {
-        return None;
-    }
-    if segments.iter().any(|segment| *segment == "..") {
-        return None;
-    }
-    let conversation_id = segments[1].trim();
-    (!conversation_id.is_empty()).then(|| conversation_id.to_string())
-}
-
-/// `YYYY-MM-DD`：`capture_debug` 用 `chrono::Local` 的 `%Y-%m-%d` 建日期目录。
-fn is_capture_date_segment(segment: &str) -> bool {
-    let bytes = segment.as_bytes();
-    bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes
-            .iter()
-            .enumerate()
-            .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+    pointer_core::agents::computer::capture_debug::capture_conversation_id(rel)
 }
 
 /// 解析会话段，解析不出就报错（**不**放行）。
@@ -2424,7 +2385,11 @@ fn media_rel_user_segment(rel: &str) -> Result<Option<String>, ()> {
         return Ok(None);
     }
     if let Some(rest) = rel.strip_prefix(SESSION_SANDBOXES_PREFIX) {
-        return Ok(rest.split('/').next().filter(|s| !s.is_empty()).map(str::to_string));
+        return Ok(rest
+            .split('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string));
     }
     if is_app_data_subtree_rel(rel) {
         return Err(());
@@ -2514,7 +2479,9 @@ mod conversation_access_tests {
     /// 与 `normalize_session_user_id` 同口径：比较前 trim。
     #[test]
     fn owner_comparison_is_trimmed() {
-        assert!(conversation_access_decision("conv-a", " user-a ", Some("user-a\n"), false).is_ok());
+        assert!(
+            conversation_access_decision("conv-a", " user-a ", Some("user-a\n"), false).is_ok()
+        );
     }
 
     // ---- computer 截图（computer-captures/）归属 ----
@@ -2535,6 +2502,12 @@ mod conversation_access_tests {
             capture_rel_conversation_id(r"2026-11-21\conv-a\round_1_screen.jpg").as_deref(),
             Some("conv-a")
         );
+        assert_eq!(
+            capture_rel_conversation_id("data:captures/2026-11-21/conv-a/round_1_screen.jpg")
+                .as_deref(),
+            Some("conv-a")
+        );
+        assert!(capture_rel_conversation_id("/Users/someone/secret.pdf").is_none());
     }
 
     /// 解析不出会话段的路径必须**拒绝**（不是放行）：`locate/` 调试目录、旧的两段布局、
@@ -2617,7 +2590,10 @@ mod conversation_access_tests {
             let guard = body
                 .find("require_platform_access(&state)?")
                 .unwrap_or_else(|| panic!("{handler} 缺少 require_platform_access(&state)?"));
-            for ownership in ["require_conversation_access(", "require_capture_rel_access("] {
+            for ownership in [
+                "require_conversation_access(",
+                "require_capture_rel_access(",
+            ] {
                 if let Some(pos) = body.find(ownership) {
                     assert!(
                         guard < pos,
@@ -2634,7 +2610,9 @@ mod conversation_access_tests {
     fn media_rel_segment_follows_the_layout() {
         // 新布局 `{user}/{conv}/{file}`
         assert_eq!(
-            media_rel_user_segment("user-a/conv-1/a.png").unwrap().as_deref(),
+            media_rel_user_segment("user-a/conv-1/a.png")
+                .unwrap()
+                .as_deref(),
             Some("user-a")
         );
         // 旧布局（两段）没有身份段
@@ -2647,7 +2625,10 @@ mod conversation_access_tests {
             Some("user-a")
         );
         // 进程生成物没有归属
-        assert_eq!(media_rel_user_segment("generated-media/charts/a.png").unwrap(), None);
+        assert_eq!(
+            media_rel_user_segment("generated-media/charts/a.png").unwrap(),
+            None
+        );
         assert!(media_rel_user_segment("").is_err());
     }
 
@@ -2870,7 +2851,6 @@ struct CreateProjectRequest {
     workspace_root: String,
 }
 
-
 #[derive(Deserialize)]
 struct WorkspaceBrowseQuery {
     #[serde(default)]
@@ -2910,15 +2890,20 @@ async fn workspace_list_dirs(
 ) -> Result<Json<pointer_core::workspace_service::WorkspaceListResult>, ApiError> {
     require_platform_access(&state)?;
     let uid = platform_session_user_id(&state);
-    if let Some(cid) = q.conversation_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(cid) = q
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         require_conversation_access(&state, cid)?;
     }
     let cid = q
         .conversation_id
         .clone()
         .unwrap_or_else(|| format!("browse-{}", uid));
-    let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
-        .map_err(ApiError::from)?;
+    let env =
+        pointer_core::workspace_service::browse_env_for_user(&cid, &uid).map_err(ApiError::from)?;
     let parent = q.parent.clone();
     let result = tokio::task::spawn_blocking(move || {
         pointer_core::workspace_service::list_directories(&uid, parent.as_deref(), env)
@@ -2935,15 +2920,20 @@ async fn workspace_create_dir(
 ) -> Result<Json<pointer_core::workspace_service::WorkspaceDirEntry>, ApiError> {
     require_platform_access(&state)?;
     let uid = platform_session_user_id(&state);
-    if let Some(cid) = body.conversation_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(cid) = body
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         require_conversation_access(&state, cid)?;
     }
     let cid = body
         .conversation_id
         .clone()
         .unwrap_or_else(|| format!("browse-{}", uid));
-    let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
-        .map_err(ApiError::from)?;
+    let env =
+        pointer_core::workspace_service::browse_env_for_user(&cid, &uid).map_err(ApiError::from)?;
     let result = tokio::task::spawn_blocking(move || {
         pointer_core::workspace_service::create_directory(&uid, &body.parent, &body.name, env)
     })
@@ -2959,15 +2949,20 @@ async fn workspace_select(
 ) -> Result<Json<pointer_core::workspace_service::WorkspaceSelectResult>, ApiError> {
     require_platform_access(&state)?;
     let uid = platform_session_user_id(&state);
-    if let Some(cid) = body.conversation_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(cid) = body
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         require_conversation_access(&state, cid)?;
     }
     let cid = body
         .conversation_id
         .clone()
         .unwrap_or_else(|| format!("browse-{}", uid));
-    let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
-        .map_err(ApiError::from)?;
+    let env =
+        pointer_core::workspace_service::browse_env_for_user(&cid, &uid).map_err(ApiError::from)?;
     let selection = pointer_core::workspace_resolve::WorkspaceSelection {
         path: body.path.clone(),
     };
@@ -2987,8 +2982,8 @@ async fn create_project(
     require_platform_access(&state)?;
     let uid = platform_session_user_id(&state);
     let cid = format!("browse-{uid}");
-    let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
-        .map_err(ApiError::from)?;
+    let env =
+        pointer_core::workspace_service::browse_env_for_user(&cid, &uid).map_err(ApiError::from)?;
     let selected = pointer_core::workspace_service::select_workspace(
         &uid,
         &pointer_core::workspace_resolve::WorkspaceSelection {
@@ -3395,10 +3390,7 @@ mod send_chat_trigger_request_tests {
             HeaderValue::from_static("pointer.hospital.example"),
         );
         let req = send_chat_trigger_request(payload(), None, &headers);
-        assert_eq!(
-            req.access_host.as_deref(),
-            Some("pointer.hospital.example")
-        );
+        assert_eq!(req.access_host.as_deref(), Some("pointer.hospital.example"));
     }
 
     #[test]
@@ -5395,7 +5387,10 @@ const AUTH_REQUIRED_MESSAGES: &[&str] = &["platform_login_required", "local_logi
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let msg = self.0.to_string();
-        if AUTH_REQUIRED_MESSAGES.iter().any(|needle| msg.contains(needle)) {
+        if AUTH_REQUIRED_MESSAGES
+            .iter()
+            .any(|needle| msg.contains(needle))
+        {
             return (StatusCode::UNAUTHORIZED, msg).into_response();
         }
         if msg.contains("server_access_denied") || msg.contains("conversation_access_denied") {
@@ -5598,8 +5593,8 @@ mod cors_layer_tests {
 #[cfg(test)]
 mod api_error_status_tests {
     use super::ApiError;
-    use axum::response::IntoResponse;
     use axum::http::StatusCode;
+    use axum::response::IntoResponse;
 
     /// Regression: `local_login_required` used to fall through to 500, so the
     /// web SPA kept re-fetching meta / reopening SSE in a loop.

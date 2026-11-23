@@ -25,9 +25,9 @@ Independent file tools. Call them directly by their flat names:
 - **`file_grep`** — search file contents with a regex.
 - **`file_list`** — list directory entries.
 
-**Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`file_write`** and **`file_edit`** accept **workspace-relative** paths **or** **absolute** paths (including **`~`**) that resolve **under an allowed write root**: workspace, user home, system temp (`TMPDIR` / OS temp), standard user data dirs (config / cache / desktop / documents / downloads), or Pointer app data. Paths outside those roots are rejected. These writes may require user approval. For **read-only** methods (**`file_read`**, **`file_glob`**, **`file_grep`**, **`file_list`**), you may also use **absolute** paths **outside** the workspace when the user asks. Paths starting with **`~`** are expanded to the session user's home directory.
+**Relative paths** resolve under the workspace root. Do not use `..` to escape it. Reads and writes stay inside this session: the workspace, the session home, and the session data root. Paths outside that session are rejected. **`file_write`** and **`file_edit`** accept workspace-relative paths or paths under the session home and session data root, including **`~`**. These writes may require user approval. **`~`** expands to the session home (`/home/pointer` in a container).
 
-**Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is an **absolute** path. The OS may use a canonical form (e.g. resolved symlinks; on Windows, a `\\?\` prefix is normal).
+**Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is a path inside this session. Reuse that path on later calls.
 
 **Single-file read / edit:** **`file_read`** and **`file_edit`** each take one **`path`** per call.
 To touch multiple files, issue **multiple parallel tool calls** in the same turn (host runs them
@@ -55,7 +55,7 @@ Prefer **`grep`** first, then a tight line window.
 | Method | Purpose |
 |--------|---------|
 | **`read`** | Read one UTF-8 text file. Response is a single object (`path`, `content`, …). |
-| **`write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute/`~` under allowed write roots (see above). |
+| **`write`** | Create or overwrite a file. `path` is workspace-relative, or under the session home / session data root, including `~`. |
 | **`edit`** | Replace one unique substring in one file via **`path`**, **`oldString`**, **`newString`**. |
 | **`glob`** | List paths matching a glob under the search root (workspace root or optional `base`). Default: **files only**; optional **directories** or **both**. |
 | **`grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |

@@ -254,8 +254,8 @@ pub fn click_count_from_args(args: &Value) -> Result<u32> {
     let Some(v) = args.get("clicks") else {
         return Ok(1);
     };
-    let clicks = value_to_u32_loose(v)
-        .ok_or_else(|| anyhow!("clicks must be an integer: 1 or 2"))?;
+    let clicks =
+        value_to_u32_loose(v).ok_or_else(|| anyhow!("clicks must be an integer: 1 or 2"))?;
     if !(1..=2).contains(&clicks) {
         return Err(anyhow!("clicks must be 1 or 2, got {clicks}"));
     }

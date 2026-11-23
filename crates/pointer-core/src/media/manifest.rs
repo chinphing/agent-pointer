@@ -62,16 +62,41 @@ pub fn attachment_local_abs_path(att: &MediaAttachment) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
+        if crate::user_data_paths::is_host_absolute(rel) {
+            log::warn!("attachment: refuse host absolute storage path");
+            return None;
+        }
         return media_abs_path(rel)
             .ok()
             .map(|p| p.display().to_string())
             .filter(|s| !s.is_empty());
     }
-    att.local_abs_path
+    let stored = att
+        .local_abs_path
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())?;
+    if crate::user_data_paths::is_host_absolute(stored) {
+        log::warn!("attachment: refuse stored host absolute path");
+        return None;
+    }
+    Some(stored.to_string())
+}
+
+/// Path shown to the model: the current session root plus the stored relative segment.
+pub fn attachment_model_path(att: &MediaAttachment) -> Option<String> {
+    let rel = att
+        .storage_rel_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    match super::store::session_display_path(rel) {
+        Ok(path) => Some(path),
+        Err(error) => {
+            log::warn!("attachment: model path unavailable for {rel}: {error:#}");
+            None
+        }
+    }
 }
 
 fn attachment_sandbox_path(att: &MediaAttachment) -> Option<String> {
@@ -80,6 +105,12 @@ fn attachment_sandbox_path(att: &MediaAttachment) -> Option<String> {
         .as_deref()?
         .trim()
         .trim_start_matches('/');
+    if let Ok(stored) = crate::user_data_paths::UserRelPath::decode(rel) {
+        let text = stored.rel.to_string_lossy().replace('\\', "/");
+        let rest = text.strip_prefix("attachments/")?;
+        let path = format!("attachments/{rest}");
+        return super::store::short_attachment_id_from_sandbox_rel(rel).map(|_| path);
+    }
     let (_, sandbox_path) = rel.rsplit_once("/attachments/")?;
     let path = format!("attachments/{sandbox_path}");
     super::store::short_attachment_id_from_sandbox_rel(rel).map(|_| path)
@@ -112,7 +143,7 @@ pub fn attachment_summary_json(att: &MediaAttachment) -> Value {
     if let Some(path) = attachment_sandbox_path(att) {
         obj["sandboxPath"] = json!(path);
     }
-    if let Some(path) = attachment_local_abs_path(att) {
+    if let Some(path) = attachment_model_path(att) {
         obj["localPath"] = json!(path);
     }
     if attachment_has_remote(att) {
@@ -173,7 +204,7 @@ fn format_attachment_entry(index: usize, att: &MediaAttachment) -> String {
         lines.push(format!("{size_line}   - remoteUrl: {url}"));
     }
     if has_local {
-        if let Some(local_path) = attachment_local_abs_path(att) {
+        if let Some(local_path) = attachment_model_path(att) {
             let rel = att.storage_rel_path.as_deref().unwrap_or("").trim();
             if rel.is_empty() {
                 lines.push(format!("{size_line}   - localPath: {local_path}"));
@@ -289,7 +320,7 @@ mod tests {
         assert!(m.contains(USER_ATTACHMENTS_MARKER));
         assert!(m.contains("**photo.png**"));
         assert!(m.contains("pointer-media://conv/a1.png"));
-        assert!(m.contains("localPath:"));
+        assert!(!m.contains("localPath:"), "{m}");
         assert!(m.contains("sizeBytes: 100"));
     }
 
@@ -349,7 +380,7 @@ mod tests {
         let j = attachment_summary_json(&att);
         assert_eq!(j["fileName"], "photo.png");
         assert!(j["ref"].as_str().unwrap().starts_with("pointer-media://"));
-        assert!(j.get("localPath").is_some());
+        assert!(j.get("localPath").is_none(), "{j}");
     }
 
     #[test]
@@ -397,7 +428,37 @@ mod tests {
         assert!(!m.contains(ATTACHMENT_NEEDS_INTENT_MARKER));
         assert!(m.contains("**out.png**"));
         assert!(m.contains("pointer-media://conv/out.png"));
-        assert!(m.contains("localPath:"));
+        assert!(!m.contains("localPath:"), "{m}");
+    }
+
+    #[test]
+    fn model_path_uses_the_session_data_root() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let _session = crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots("model-path", tmp.path(), tmp.path(), tmp.path())
+                .expect("session"),
+        );
+        let att = MediaAttachment {
+            id: "0a1b2c3d4e5f".into(),
+            kind: "document".into(),
+            mime_type: "application/pdf".into(),
+            file_name: "report.pdf".into(),
+            size_bytes: 1,
+            storage_rel_path: Some("data:attachments/conv/0a1b2c3d4e5f_report.pdf".into()),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: Some("/etc/passwd".into()),
+            remote_url: None,
+            oss_object_key: None,
+        };
+        let shown = attachment_model_path(&att).expect("model path");
+        let want = tmp
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|_| tmp.path().to_path_buf())
+            .join("attachments/conv/0a1b2c3d4e5f_report.pdf");
+        assert_eq!(std::path::Path::new(&shown), want.as_path(), "{shown}");
+        assert!(!shown.contains("/etc/passwd"), "{shown}");
     }
 
     #[test]

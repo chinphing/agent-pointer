@@ -116,11 +116,54 @@ fn attachment_abs_path(att: &MediaAttachment) -> Option<PathBuf> {
     None
 }
 
-/// Display path for a persisted attachment (relative to WORKING_DIR when possible).
+/// Path written into `MEDIA:` for the model.
+///
+/// A stored attachment is the current session root plus the relative segment.
+/// The host file location stays on `local_abs_path` for server IO and is not
+/// copied into the message. Without a session, the marker is omitted.
 pub fn media_marker_path_for_attachment(att: &MediaAttachment) -> Option<String> {
-    let abs = attachment_abs_path(att)?;
-    let root = workspace_root_for_media();
-    Some(media_marker_path_for_file(&abs, root.as_deref()))
+    if let Some(rel) = att
+        .storage_rel_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        match crate::media::store::session_display_path(rel) {
+            Ok(path) => {
+                log::info!(
+                    "media marker: session path attachment={} path={path}",
+                    att.id
+                );
+                return Some(path);
+            }
+            Err(error) => {
+                log::warn!(
+                    "media marker: session path unavailable attachment={} rel={rel}: {error:#}",
+                    att.id
+                );
+                return None;
+            }
+        }
+    }
+    let Some(abs) = attachment_abs_path(att) else {
+        return None;
+    };
+    match crate::media::store::model_visible_path("", &abs.display().to_string()) {
+        Ok(path) => {
+            log::info!(
+                "media marker: session path attachment={} path={path}",
+                att.id
+            );
+            Some(path)
+        }
+        Err(error) => {
+            log::warn!(
+                "media marker: local file not in session attachment={}: {error:#}",
+                att.id
+            );
+            None
+        }
+    }
 }
 
 /// Build `MEDIA:…?attachmentId=` lines for user-upload attachments.
@@ -210,6 +253,7 @@ pub fn rewrite_media_markers_with_attachment_ids(
         let att = id_opt
             .as_deref()
             .and_then(|id| by_id.get(id).copied())
+            .or_else(|| by_abs.get(path_part.trim()).copied())
             .or_else(|| {
                 let resolved = resolve_media_marker_path(&path_part)?;
                 let key = resolved.to_string_lossy().to_string();
@@ -299,5 +343,99 @@ mod tests {
         assert!(out.contains("attachmentId=9f2f0b9a8b7c"));
         assert!(out.contains("| 生成时间 |"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn attachment(rel: Option<&str>, local: Option<&str>) -> MediaAttachment {
+        MediaAttachment {
+            id: "b172aa7ed528".into(),
+            kind: "document".into(),
+            mime_type: "text/plain".into(),
+            file_name: "note.txt".into(),
+            size_bytes: 4,
+            storage_rel_path: rel.map(str::to_string),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: local.map(str::to_string),
+            remote_url: None,
+            oss_object_key: None,
+        }
+    }
+
+    #[test]
+    fn stored_attachment_marker_uses_session_root_not_host_path() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let _session = crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots("marker-local", tmp.path(), tmp.path(), tmp.path())
+                .expect("session"),
+        );
+        let att = attachment(
+            Some("data:attachments/conv/b172aa7ed528_note.txt"),
+            Some("/etc/passwd"),
+        );
+        let out = ensure_user_content_media_markers("请看附件", &[att]);
+        let want = crate::env::current_session()
+            .expect("session")
+            .data_root()
+            .join("attachments/conv/b172aa7ed528_note.txt");
+        assert!(
+            out.contains(&want.display().to_string()),
+            "{out} missing {}",
+            want.display()
+        );
+        assert!(!out.contains("/etc/passwd"), "{out}");
+    }
+
+    #[test]
+    fn stored_attachment_marker_uses_container_data_root() {
+        let inner = std::sync::Arc::new(crate::env::docker::DockerEnv::fake_for_tests(
+            "marker-docker",
+        ));
+        let session =
+            crate::env::SessionEnv::wrap("local-admin", "conv", inner).expect("docker session");
+        let _guard = crate::env::EnvironmentGuard::enter(session);
+        let att = attachment(
+            Some("data:attachments/conv/b172aa7ed528_note.txt"),
+            Some("/private/tmp/pointer-chat-verify/docker-data/users/u/data/note.txt"),
+        );
+        let out = ensure_user_content_media_markers("请看附件", &[att]);
+        assert!(
+            out.contains(
+                "MEDIA:/data/attachments/conv/b172aa7ed528_note.txt?attachmentId=b172aa7ed528"
+            ),
+            "{out}"
+        );
+        assert!(!out.contains("pointer-chat-verify"), "{out}");
+    }
+
+    #[test]
+    fn stored_attachment_without_session_omits_host_path() {
+        let att = attachment(
+            Some("data:attachments/conv/b172aa7ed528_note.txt"),
+            Some("/etc/passwd"),
+        );
+        let out = ensure_user_content_media_markers("请看附件", &[att]);
+        assert_eq!(out, "请看附件");
+    }
+
+    #[test]
+    fn unmapped_local_file_omits_host_path() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let outside = tempfile::NamedTempFile::new().expect("outside");
+        let _session = crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots(
+                "marker-unmapped",
+                tmp.path(),
+                tmp.path(),
+                tmp.path(),
+            )
+            .expect("session"),
+        );
+        let att = attachment(None, Some(outside.path().to_str().expect("utf8")));
+        let out = ensure_user_content_media_markers("请看附件", &[att]);
+        assert_eq!(out, "请看附件");
+        assert!(
+            !out.contains(outside.path().to_str().expect("utf8")),
+            "{out}"
+        );
     }
 }

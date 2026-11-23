@@ -397,7 +397,10 @@ mod tests {
             scroll_past_panel: None,
         };
         let c = VerifyConclusion::from_module_output(&out).unwrap();
-        assert_eq!(c.failure_cause.as_ref().map(|x| x.as_str()), Some("at_edge"));
+        assert_eq!(
+            c.failure_cause.as_ref().map(|x| x.as_str()),
+            Some("at_edge")
+        );
         assert_eq!(
             c.verify_line_for_tool_card(),
             "Verify: fail (at_edge) — moved 0; footer 已显示全部 visible and static"

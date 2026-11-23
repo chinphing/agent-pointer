@@ -925,7 +925,7 @@ fn run_config_entry(
 /// 会话环境，`exec` 里的 `require_env()` 才拿得到。旧代码在 worker 里靠
 /// `effective_env()` 兜底：沙箱部署下拿到的是 `DeniedEnv`，lint 一条都跑不起来。
 fn run_plan_in_env(
-    env: std::sync::Arc<dyn crate::env::Environment>,
+    env: crate::env::SessionEnv,
     plan: RunPlan,
     root: &Path,
     filters: &[PathBuf],
@@ -957,7 +957,7 @@ fn run_read_lints(args: Value) -> Result<String> {
     // 工具分发点（`ToolRegistry::invoke`）已把会话环境挂到本线程；这里要求显式绑定，
     // 拿不到就报错——沙箱部署下按部署档位兜底会拿到 `DeniedEnv`，lint 全部跑不起来，
     // 报出来的却是「工作区里没有 linter」。
-    let env = crate::env::require_env()?;
+    let env = crate::env::require_session()?;
     let root = resolve_tool_workspace_root()?;
     let mode = parse_stack_mode(&args);
     let wall_total = wall_ms_from_args(&args);

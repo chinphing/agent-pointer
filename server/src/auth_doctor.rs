@@ -13,8 +13,8 @@ use std::time::Duration;
 type RegistryResult = anyhow::Result<AuthProviderRegistry>;
 
 use pointer_core::auth_provider::{
-    default_callback_path, AuthCodeRequest, AuthProviderConfig, AuthProviderKind, AuthProviderRegistry,
-    LOCAL_PASSWORD_PROVIDER_ID, PLATFORM_CALLBACK_PATH, PLATFORM_PROVIDER_ID,
+    default_callback_path, AuthCodeRequest, AuthProviderConfig, AuthProviderKind,
+    AuthProviderRegistry, LOCAL_PASSWORD_PROVIDER_ID, PLATFORM_CALLBACK_PATH, PLATFORM_PROVIDER_ID,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -178,12 +178,10 @@ pub fn diagnose(inputs: &Inputs) -> Report {
         ),
     ));
 
-    let registry = AuthProviderRegistry::for_deployment(inputs.providers.clone(), inputs.standalone);
+    let registry =
+        AuthProviderRegistry::for_deployment(inputs.providers.clone(), inputs.standalone);
     match &registry {
-        Ok(registry) => checks.push(Check::ok(
-            "provider 注册表",
-            describe_providers(registry),
-        )),
+        Ok(registry) => checks.push(Check::ok("provider 注册表", describe_providers(registry))),
         Err(e) => checks.push(Check::fail(
             "provider 注册表",
             format!("{e:#}"),
@@ -259,10 +257,7 @@ fn provider_fix_hint(message: &str) -> &'static str {
     }
 }
 
-fn check_default_provider(
-    registry: &RegistryResult,
-    builtin_id: &str,
-) -> Check {
+fn check_default_provider(registry: &RegistryResult, builtin_id: &str) -> Check {
     let Ok(registry) = registry else {
         return Check::warn(
             "默认 provider",
@@ -363,9 +358,7 @@ fn check_callback_paths(registry: &RegistryResult) -> Check {
     for (id, config) in registry.enabled() {
         let path = config.callback_path(id);
         if FIXED_ROUTES.contains(&path.as_str()) {
-            problems.push(format!(
-                "`{id}` 的 callback_path `{path}` 与固定路由同名"
-            ));
+            problems.push(format!("`{id}` 的 callback_path `{path}` 与固定路由同名"));
         }
         if path.starts_with("/api/auth/callback/") && path != default_callback_path(id) {
             problems.push(format!(
@@ -470,7 +463,11 @@ fn split_host_port(url: &str) -> Result<(String, u16), String> {
     if authority.is_empty() {
         return Err(format!("`{url}` 缺少主机名"));
     }
-    let default_port = if scheme.eq_ignore_ascii_case("https") { 443 } else { 80 };
+    let default_port = if scheme.eq_ignore_ascii_case("https") {
+        443
+    } else {
+        80
+    };
     let (host, port) = match authority.rsplit_once(':') {
         Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) && !port.is_empty() => (
             host.to_string(),
@@ -609,9 +606,9 @@ fn uses_token_endpoint(config: &AuthProviderConfig) -> bool {
                 || !config.oidc.discovery_url.trim().is_empty()
                 || !config.issuer.trim().is_empty()
         }
-        AuthProviderKind::Platform | AuthProviderKind::LocalPassword | AuthProviderKind::TokenLookup => {
-            false
-        }
+        AuthProviderKind::Platform
+        | AuthProviderKind::LocalPassword
+        | AuthProviderKind::TokenLookup => false,
     }
 }
 
@@ -633,10 +630,8 @@ pub async fn run_from_environment(network: bool, exchange: bool) -> Report {
     };
     let mut report = diagnose(&inputs);
     if exchange {
-        let registry = AuthProviderRegistry::for_deployment(
-            inputs.providers.clone(),
-            inputs.standalone,
-        );
+        let registry =
+            AuthProviderRegistry::for_deployment(inputs.providers.clone(), inputs.standalone);
         report.checks.retain(|check| check.name != "令牌换发");
         report
             .checks
@@ -680,7 +675,10 @@ mod tests {
         let mut oidc = AuthProviderConfig::builtin(AuthProviderKind::Oidc, "Keycloak");
         oidc.issuer = "https://kc.example.com/realms/main".to_string();
         oidc.token.url = String::new();
-        assert!(uses_token_endpoint(&oidc), "oidc with an issuer must be probed");
+        assert!(
+            uses_token_endpoint(&oidc),
+            "oidc with an issuer must be probed"
+        );
 
         let mut discovery_only = AuthProviderConfig::builtin(AuthProviderKind::Oidc, "KC");
         discovery_only.issuer = String::new();
@@ -693,12 +691,17 @@ mod tests {
 
         let mut oauth2 = AuthProviderConfig::builtin(AuthProviderKind::Oauth2Userinfo, "OAuth2");
         oauth2.token.url = String::new();
-        assert!(!uses_token_endpoint(&oauth2), "oauth2 without token.url is skipped");
+        assert!(
+            !uses_token_endpoint(&oauth2),
+            "oauth2 without token.url is skipped"
+        );
         oauth2.token.url = "https://idp.example.com/token".to_string();
         assert!(uses_token_endpoint(&oauth2));
 
         assert!(!uses_token_endpoint(&local_password()));
-        assert!(!uses_token_endpoint(&signed_ticket("/api/auth/callback/portal")));
+        assert!(!uses_token_endpoint(&signed_ticket(
+            "/api/auth/callback/portal"
+        )));
     }
 
     #[test]
@@ -714,7 +717,10 @@ mod tests {
         });
         assert!(!report.failed(), "{}", report.render());
         let rendered = report.render();
-        assert!(rendered.contains("未找到 pointer-server.toml"), "{rendered}");
+        assert!(
+            rendered.contains("未找到 pointer-server.toml"),
+            "{rendered}"
+        );
         assert!(rendered.contains("local_password"), "{rendered}");
         assert!(rendered.contains("单实例"), "{rendered}");
         assert!(rendered.contains("修复："), "{rendered}");

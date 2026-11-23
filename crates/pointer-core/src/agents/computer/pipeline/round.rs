@@ -101,7 +101,12 @@ fn batch_operation_text(targets: &[VerifyTarget]) -> String {
             format_operation_summary(&t.name, &t.args),
             t.args
         ));
-        if let Some(text) = t.tool_result.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(text) = t
+            .tool_result
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             out.push_str(&format!("   result: {text}\n"));
         }
     }
@@ -122,10 +127,7 @@ pub async fn run_verify_phase(
     stream: Option<&StreamTx>,
     mut usage: Option<&mut PipelineLlmUsageRecorder<'_>>,
 ) -> Result<VerifyConclusion> {
-    let after_cap = computer_state
-        .capture_screen(conversation_id)
-        .await?
-        .0;
+    let after_cap = computer_state.capture_screen(conversation_id).await?.0;
     // Read the pointer once, right after the after-frame capture: it sits on the
     // click point, and both frames then show the same spot. A pointer that moved
     // later (user interference) is not something this marker can fix anyway.
@@ -210,12 +212,7 @@ pub async fn run_verify_phase(
     // 实测踩过：两处各调一次 `next_msg_seq()` → 图是 `_001_`、json 是 `_002_`。
     let round_seq = computer_state.current_pipeline_round_seq(conversation_id);
     let msg_seq = computer_state.next_msg_seq(conversation_id);
-    save_verify_inputs(
-        conversation_id,
-        round_seq,
-        msg_seq,
-        &verify_wire,
-    );
+    save_verify_inputs(conversation_id, round_seq, msg_seq, &verify_wire);
     let mut verify_wire = verify_wire;
     let (mut out, mut last_meta) = match run_verify_once(
         &prov,
@@ -542,8 +539,10 @@ async fn run_verify_once(
     dump_label: Option<&str>,
     usage: Option<&mut PipelineLlmUsageRecorder<'_>>,
 ) -> Result<VerifyOnceBundle> {
-    let (output, meta) =
-        run_verify_llm(prov, settings, system, wire, family, cancel, dump_label, usage).await?;
+    let (output, meta) = run_verify_llm(
+        prov, settings, system, wire, family, cancel, dump_label, usage,
+    )
+    .await?;
     Ok(VerifyOnceBundle { output, meta })
 }
 
@@ -612,7 +611,12 @@ mod tests {
     /// 抠数字 —— 措辞一改就断，中文摘要更是抓不到。
     #[test]
     fn sidecar_keeps_the_scroll_measurement() {
-        let v = action_verify_sidecar_payload("tool=mouse_scroll_current", None, &scroll_conclusion(true), Some((615, 355)));
+        let v = action_verify_sidecar_payload(
+            "tool=mouse_scroll_current",
+            None,
+            &scroll_conclusion(true),
+            Some((615, 355)),
+        );
         let sc = &v["verify"]["scroll"];
         assert_eq!(sc["moved"], 1.2);
         assert_eq!(sc["axis"], "vertical");
@@ -668,7 +672,10 @@ mod tests {
         // it falls back to the generic prompt instead of judging a type as a click.
         let click = VerifyTarget::new("mouse_click_at", Value::Null, None);
         let input = VerifyTarget::new("input_at", Value::Null, None);
-        assert_eq!(batch_family(&[click.clone()]), OperationFamily::PointerClick);
+        assert_eq!(
+            batch_family(&[click.clone()]),
+            OperationFamily::PointerClick
+        );
         assert_eq!(batch_family(&[input.clone()]), OperationFamily::Input);
         assert_eq!(batch_family(&[click, input]), OperationFamily::Other);
     }

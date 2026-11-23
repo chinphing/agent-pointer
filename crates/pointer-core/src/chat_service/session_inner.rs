@@ -330,6 +330,12 @@ pub(super) async fn run_chat_inner(
         &session_user_id,
         std::path::PathBuf::from(&effective_workspace),
     )?;
+    if let Err(error) = state.skills.reload_meta() {
+        log::warn!("skill_registry: reload for user={session_user_id} failed: {error:#}");
+    }
+    if let Err(error) = state.plugins.scan() {
+        log::warn!("plugins: scan for user={session_user_id} failed: {error:#}");
+    }
     let _workspace_guard = ConversationWorkspaceGuard::enter(tool_workspace.clone());
     let _work_dir_guard =
         crate::session_work_dir_env::SessionWorkDirGuard::enter(tool_workspace.clone());
@@ -830,7 +836,8 @@ mod workspace_tests {
     }
 
     #[test]
-    fn workspace_baseline_uses_stored_when_inherit_disabled() {        let baseline = workspace_baseline_for_ui("c1", "", true, "user-1", false);
+    fn workspace_baseline_uses_stored_when_inherit_disabled() {
+        let baseline = workspace_baseline_for_ui("c1", "", true, "user-1", false);
         assert_eq!(baseline, "");
     }
 

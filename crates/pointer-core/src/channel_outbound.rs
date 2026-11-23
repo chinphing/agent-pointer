@@ -198,7 +198,10 @@ pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
             .to_string(),
     );
     lines.push(
-        "For attachments, end the reply with `MEDIA:<absolute-path>` (one file per line)."
+        "For attachments, end the reply with `MEDIA:<path>` (one file per line).".to_string(),
+    );
+    lines.push(
+        "The path must be inside this session: workspace, session home, or session data."
             .to_string(),
     );
     lines.push("There is no separate delivery tool — do not expect a desktop chat UI.".to_string());

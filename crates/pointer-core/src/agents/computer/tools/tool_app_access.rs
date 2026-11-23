@@ -34,9 +34,7 @@ fn ensure_desktop(desktop: bool, kind: crate::env::EnvKind) -> Result<()> {
     if desktop {
         return Ok(());
     }
-    anyhow::bail!(
-        "当前执行环境没有桌面会话（{kind:?}），无法操作 GUI 应用；请在 local 环境执行"
-    )
+    anyhow::bail!("当前执行环境没有桌面会话（{kind:?}），无法操作 GUI 应用；请在 local 环境执行")
 }
 
 impl AppAccessTool {

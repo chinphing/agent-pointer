@@ -1,7 +1,9 @@
 //! Stateless HMAC-signed public download URLs for IM large-file delivery.
 //!
 //! Token format: `{base64url(payload)}.{base64url(hmac-sha256)}`
-//! Payload JSON: `{ "rel": "...", "exp": unix_secs, "name": "optional" }`
+//! Payload JSON: `{ "user": "<user_key|anon/conversation>", "root": "home|data", "rel": "...", "exp": unix_secs, "name": "optional" }`
+//!
+//! Tokens that carry a host absolute path, or the older payload with only `rel`, do not redeem.
 //!
 //! No login cookie required. Links expire after [`DEFAULT_TTL_SECS`] (or caller TTL).
 
@@ -11,9 +13,9 @@ use base64::Engine;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 #[cfg(test)]
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::local_secret;
@@ -40,7 +42,13 @@ pub const PUBLIC_DOWNLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TokenPayload {
-    /// Path relative to `{app_data}/` (may include `conversation-media/` or `generated-media/`).
+    /// Directory name under `{app data}/users`: a user key, or `anon/{conversation}`.
+    #[serde(default)]
+    user: String,
+    /// `home` or `data`.
+    #[serde(default)]
+    root: String,
+    /// Path relative to that root. Never a host absolute path.
     rel: String,
     exp: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -135,47 +143,78 @@ fn decode_token(key: &[u8; 32], token: &str, now: u64) -> Result<TokenPayload> {
     Ok(payload)
 }
 
-/// Resolve a token `rel` under an explicit app-data root (no env).
-#[cfg(test)]
-fn resolve_under_root(root: &Path, rel: &str) -> Result<PathBuf> {
-    let rel = rel.trim().trim_start_matches('/');
-    if rel.is_empty() || path_has_traversal(rel) {
-        bail!("invalid token rel path");
+/// Redeem `user` + `root` + `rel` under `{app_data}/users`. Host absolute paths fail
+/// before the file is opened.
+fn resolve_token_payload(app_data: &std::path::Path, payload: &TokenPayload) -> Result<PathBuf> {
+    let user = payload.user.trim();
+    let root_kind = payload.root.trim();
+    if user.is_empty() || root_kind.is_empty() {
+        log::warn!("public download: token missing user or root");
+        bail!("旧的下载令牌无法兑换");
     }
-    let root = root.canonicalize().context("app data dir")?;
-    let path = root.join(rel);
+    if crate::user_data_paths::is_host_absolute(&payload.rel) {
+        log::warn!("public download: token contains a host absolute path");
+        bail!("下载令牌包含宿主绝对路径");
+    }
+    if user.contains("..") || user.starts_with('/') || user.contains('\\') {
+        bail!("下载令牌用户无效");
+    }
+    let stored = crate::user_data_paths::UserRelPath::decode(&format!(
+        "{root_kind}:{}",
+        payload.rel.trim().trim_start_matches('/')
+    ))?;
+    let users = app_data.join("users");
+    let tree = if let Some(conv) = user.strip_prefix("anon/") {
+        if conv.is_empty() || conv.contains('/') || conv.contains("..") {
+            bail!("下载令牌用户无效");
+        }
+        users.join("anon").join(conv)
+    } else if user.contains('/') {
+        bail!("下载令牌用户无效");
+    } else {
+        users.join(user)
+    };
+    let home = tree.join("home");
+    let data = tree.join("data");
+    let root = match stored.root {
+        crate::user_data_paths::UserRootKind::Home => &home,
+        crate::user_data_paths::UserRootKind::Data => &data,
+    };
+    let path = stored.join_host(&home, &data);
+    if !path.starts_with(root) {
+        log::warn!("public download: rel escaped user tree {}", path.display());
+        bail!("下载路径不在该用户目录内");
+    }
     if !path.is_file() {
-        bail!("media file not found: {rel}");
+        bail!("media file not found");
     }
     let canonical = path.canonicalize().context("canonicalize media path")?;
-    if !canonical.starts_with(&root) {
-        bail!("download path outside app data");
+    let root_canonical = root.canonicalize().context("user root")?;
+    if !canonical.starts_with(&root_canonical) {
+        log::warn!(
+            "public download: canonical path left user tree {}",
+            canonical.display()
+        );
+        bail!("下载路径不在该用户目录内");
     }
     Ok(canonical)
 }
 
-/// Issue a token for a path that is already relative to `root`.
-///
-/// Same token format as [`issue_download_token`], but the secret, the root and
-/// the clock are injected — the shape tests and hosts need.
+/// Issue a token for a file already inside `{app_data}/users/{user}/{root}/{rel}`.
 #[cfg(test)]
 pub(crate) fn issue_download_token_at(
-    root: &Path,
+    app_data: &Path,
     key: &[u8; 32],
+    user: &str,
+    root: &str,
     rel: &str,
     file_name: Option<&str>,
     ttl_secs: u64,
     now: u64,
 ) -> Result<String> {
-    let abs = resolve_under_root(root, rel)?;
-    let meta = std::fs::metadata(&abs).context("stat media file")?;
-    if meta.len() > PUBLIC_DOWNLOAD_MAX_BYTES {
-        bail!(
-            "file too large for public download (max {} MB)",
-            PUBLIC_DOWNLOAD_MAX_BYTES / (1024 * 1024)
-        );
-    }
     let payload = TokenPayload {
+        user: user.to_string(),
+        root: root.to_string(),
         rel: rel.trim().trim_start_matches('/').to_string(),
         exp: now.saturating_add(ttl_secs.clamp(60, MAX_TTL_SECS)),
         name: file_name
@@ -183,19 +222,27 @@ pub(crate) fn issue_download_token_at(
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string()),
     };
+    let abs = resolve_token_payload(app_data, &payload)?;
+    let meta = std::fs::metadata(&abs).context("stat media file")?;
+    if meta.len() > PUBLIC_DOWNLOAD_MAX_BYTES {
+        bail!(
+            "file too large for public download (max {} MB)",
+            PUBLIC_DOWNLOAD_MAX_BYTES / (1024 * 1024)
+        );
+    }
     encode_token(key, &payload)
 }
 
-/// Verify a token against an explicit root + key + clock (no env).
+/// Verify a token against an explicit app-data root + key + clock (no env).
 #[cfg(test)]
 pub(crate) fn verify_download_at(
-    root: &Path,
+    app_data: &Path,
     key: &[u8; 32],
     token: &str,
     now: u64,
 ) -> Result<VerifiedPublicDownload> {
     let payload = decode_token(key, token, now)?;
-    let path = resolve_under_root(root, &payload.rel)?;
+    let path = resolve_token_payload(app_data, &payload)?;
     let meta = std::fs::metadata(&path).context("stat media file")?;
     if meta.len() > PUBLIC_DOWNLOAD_MAX_BYTES {
         bail!("file too large");
@@ -270,14 +317,96 @@ fn resolve_token_rel_to_abs(rel: &str) -> Result<PathBuf> {
     media_abs_path_unscoped(rel)
 }
 
-/// Issue a signed token for an on-disk file under app data.
+fn locate_host_file(path: &std::path::Path) -> Result<(String, String, String)> {
+    let users = crate::user_data_paths::users_root()?
+        .canonicalize()
+        .context("users root")?;
+    let canonical = path.canonicalize().context("canonicalize media path")?;
+    let rest = canonical.strip_prefix(&users).map_err(|_| {
+        log::warn!(
+            "public download: path is outside the user tree {}",
+            canonical.display()
+        );
+        anyhow::anyhow!("公开下载路径不在用户目录内")
+    })?;
+    let parts: Vec<String> = rest
+        .components()
+        .filter_map(|component| component.as_os_str().to_str().map(|s| s.to_string()))
+        .collect();
+    let (user, root_index) = if parts.first().map(String::as_str) == Some("anon") {
+        if parts.len() < 4 {
+            bail!("公开下载路径不在用户目录内");
+        }
+        (format!("anon/{}", parts[1]), 2)
+    } else if parts.len() >= 3 {
+        (parts[0].clone(), 1)
+    } else {
+        bail!("公开下载路径不在用户目录内");
+    };
+    let root = match parts[root_index].as_str() {
+        "home" => "home",
+        "data" => "data",
+        _ => bail!("公开下载路径不在用户的 home 或 data 内"),
+    };
+    let rel = parts[root_index + 1..].join("/");
+    let stored = crate::user_data_paths::UserRelPath::decode(&format!("{root}:{rel}"))?;
+    Ok((
+        user,
+        root.to_string(),
+        stored.rel.to_string_lossy().replace('\\', "/"),
+    ))
+}
+
+fn locate_for_issue(path_or_rel: &str) -> Result<(String, String, String, PathBuf)> {
+    if crate::user_data_paths::is_host_absolute(path_or_rel) {
+        let (user, root, rel) = locate_host_file(std::path::Path::new(path_or_rel))?;
+        let path = std::path::PathBuf::from(path_or_rel)
+            .canonicalize()
+            .context("canonicalize media path")?;
+        return Ok((user, root, rel, path));
+    }
+    if let Ok(stored) = crate::user_data_paths::UserRelPath::decode(path_or_rel) {
+        let session = crate::env::current_session().context("公开下载缺少当前用户的执行环境")?;
+        let user = if let Some(key) = session.scope().id.strip_prefix("u:") {
+            key.to_string()
+        } else if let Some(conv) = session.scope().id.strip_prefix("c:") {
+            format!(
+                "anon/{}",
+                crate::storage::sanitize_storage_dir_segment(conv)
+            )
+        } else {
+            bail!("公开下载缺少当前用户");
+        };
+        let path = stored.join_host(&session.scope().home_host, &session.scope().data_host);
+        if !path.is_file() {
+            bail!("media file not found for public download");
+        }
+        let root = match stored.root {
+            crate::user_data_paths::UserRootKind::Home => "home",
+            crate::user_data_paths::UserRootKind::Data => "data",
+        };
+        return Ok((
+            user,
+            root.to_string(),
+            stored.rel.to_string_lossy().replace('\\', "/"),
+            path,
+        ));
+    }
+    let abs = resolve_token_rel_to_abs(path_or_rel)?;
+    let (user, root, rel) = locate_host_file(&abs)?;
+    Ok((user, root, rel, abs))
+}
+
+/// Issue a signed token for a file inside a user tree.
+///
+/// The payload is the user directory, the root kind, the relative segment, and
+/// the expiry. A host absolute path is not stored.
 pub fn issue_download_token(
     path_or_rel: &str,
     file_name: Option<&str>,
     ttl_secs: u64,
 ) -> Result<String> {
-    let rel = normalize_app_data_rel(path_or_rel)?;
-    let abs = resolve_token_rel_to_abs(&rel)?;
+    let (user, root, rel, abs) = locate_for_issue(path_or_rel)?;
     if !abs.is_file() {
         bail!("media file not found for public download");
     }
@@ -290,6 +419,8 @@ pub fn issue_download_token(
     }
     let ttl = ttl_secs.clamp(60, MAX_TTL_SECS);
     let payload = TokenPayload {
+        user,
+        root,
         rel,
         exp: now_unix().saturating_add(ttl),
         name: file_name
@@ -297,6 +428,12 @@ pub fn issue_download_token(
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string()),
     };
+    log::info!(
+        "public download: issued user={} root={} rel={}",
+        payload.user,
+        payload.root,
+        payload.rel
+    );
     encode_token(&signing_secret()?, &payload)
 }
 
@@ -326,16 +463,7 @@ pub struct VerifiedPublicDownload {
 /// Verify token and resolve the on-disk file (no session login).
 pub fn verify_and_resolve_download(token: &str) -> Result<VerifiedPublicDownload> {
     let payload = decode_token(&signing_secret()?, token, now_unix())?;
-    if path_has_traversal(&payload.rel) {
-        bail!("invalid download path");
-    }
-    let path = resolve_token_rel_to_abs(&payload.rel)?;
-    if !path.is_file() {
-        bail!("media file not found");
-    }
-    if !path_is_under_app_data(&path) {
-        bail!("download path outside app data");
-    }
+    let path = resolve_token_payload(&app_data_dir()?, &payload)?;
     let meta = std::fs::metadata(&path).context("stat media file")?;
     if meta.len() > PUBLIC_DOWNLOAD_MAX_BYTES {
         bail!("file too large");
@@ -400,10 +528,19 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let root = tmp.path();
         let rel = "generated-media/_pub_dl_test/a.txt";
-        write_under(root, rel, b"hello-public");
+        write_under(root, &format!("users/uabc/data/{rel}"), b"hello-public");
 
-        let token = issue_download_token_at(root, &TEST_KEY, rel, Some("a.txt"), 3600, NOW)
-            .expect("issue");
+        let token = issue_download_token_at(
+            root,
+            &TEST_KEY,
+            "uabc",
+            "data",
+            rel,
+            Some("a.txt"),
+            3600,
+            NOW,
+        )
+        .expect("issue");
         let verified = verify_download_at(root, &TEST_KEY, &token, NOW).expect("verify");
         assert_eq!(verified.file_name, "a.txt");
         assert_eq!(verified.mime_type, "text/plain");
@@ -423,6 +560,8 @@ mod tests {
         write_under(root, rel, b"x");
 
         let payload = TokenPayload {
+            user: "uabc".into(),
+            root: "data".into(),
             rel: rel.to_string(),
             exp: NOW.saturating_sub(10),
             name: Some("b.txt".into()),
@@ -441,8 +580,53 @@ mod tests {
     fn traversal_rels_are_rejected_before_touching_disk() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let root = tmp.path();
-        assert!(issue_download_token_at(root, &TEST_KEY, "../etc/passwd", None, 60, NOW).is_err());
+        assert!(issue_download_token_at(
+            root,
+            &TEST_KEY,
+            "uabc",
+            "data",
+            "../etc/passwd",
+            None,
+            60,
+            NOW
+        )
+        .is_err());
         assert!(verify_download_at(root, &TEST_KEY, "not-a-token", NOW).is_err());
+    }
+
+    #[test]
+    fn old_and_absolute_tokens_do_not_open_a_host_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, b"host-secret").expect("secret");
+        let old = TokenPayload {
+            user: String::new(),
+            root: String::new(),
+            rel: secret.display().to_string(),
+            exp: NOW + 60,
+            name: None,
+        };
+        let token = encode_token(&TEST_KEY, &old).expect("encode");
+        let err = verify_download_at(tmp.path(), &TEST_KEY, &token, NOW).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("旧的下载令牌"), "{msg}");
+        assert!(!msg.contains("host-secret"), "{msg}");
+
+        let absolute = TokenPayload {
+            user: "uabc".into(),
+            root: "data".into(),
+            rel: secret.display().to_string(),
+            exp: NOW + 60,
+            name: None,
+        };
+        let token = encode_token(&TEST_KEY, &absolute).expect("encode");
+        let err = verify_download_at(tmp.path(), &TEST_KEY, &token, NOW).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("宿主绝对路径") || msg.contains("不能作为用户路径"),
+            "{msg}"
+        );
+        assert!(!msg.contains("host-secret"), "{msg}");
     }
 
     #[test]

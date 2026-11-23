@@ -27,15 +27,23 @@ use list::execute_file_list_payload;
 use read::execute_file_read_with;
 use write::execute_file_write_payload;
 
-/// 文件工具执行路径用的执行环境。
-///
-/// 分发点已经按会话绑过环境时直接用它。没绑定时：本机工作区按宿主读；
-/// `/data/...` 这类容器路径改查会话环境，没有就失败，不再把容器路径当成宿主路径。
+/// 文件工具执行路径用的执行环境。没有当前用户的会话环境就返回错误。
 pub(super) fn tool_env(root: &std::path::Path) -> Result<Arc<dyn crate::env::Environment>> {
-    match path::runtime_env_for(root)? {
-        Some(env) => Ok(env),
-        None => Ok(crate::env::host_env_at(root)),
+    if let Some(env) = path::runtime_env_for(root)? {
+        if !env.path_map().is_host_passthrough() && !env.is_denied() {
+            return Ok(env);
+        }
+        log::warn!(
+            "file tool: ignoring host passthrough for {}",
+            root.display()
+        );
     }
+    if let Some(session) = crate::env::current_session() {
+        if !session.is_denied() && !session.path_map().is_host_passthrough() {
+            return Ok(session.environment());
+        }
+    }
+    anyhow::bail!("文件工具缺少当前用户的执行环境")
 }
 
 /// Doc for registry tool `file`; keep in sync with `prompts/file.md`.
@@ -230,11 +238,30 @@ mod tests {
     use serde_json::json;
     use std::fs;
     use std::io::Write;
+    use std::path::Path;
+
+    fn bind_user_tree(root: &Path) -> crate::env::EnvironmentGuard {
+        crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots("test-file", root, root, root)
+                .expect("test session"),
+        )
+    }
+
+    #[test]
+    fn file_read_without_session_does_not_return_host_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        fs::write(tmp.path().join("secret.txt"), "host-secret\n").unwrap();
+        let err = execute_file_read(&json!({ "path": "secret.txt" }), tmp.path()).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("文件工具缺少当前用户的执行环境"), "{msg}");
+        assert!(!msg.contains("host-secret"), "{msg}");
+    }
 
     #[test]
     fn file_read_single_path_returns_content_object() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("solo.txt"), "only\n").unwrap();
         let out = execute_file_read(&json!({ "path": "solo.txt" }), root).expect("read");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -249,6 +276,7 @@ mod tests {
     fn file_read_accepts_file_alias_and_line_range() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
         let out = execute_file_read(&json!({ "file": "x.txt", "offset": 2, "limit": 2 }), root)
             .expect("read");
@@ -262,6 +290,7 @@ mod tests {
     fn file_read_defaults_limit_and_stops_before_eof() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let default_limit = crate::models::DEFAULT_FILE_READ_LIMIT as usize;
         let mut body = String::new();
         for i in 1..=default_limit + 50 {
@@ -289,6 +318,7 @@ mod tests {
     fn file_read_ignores_legacy_line_start_end_keys() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
         let out = execute_file_read(
             &json!({ "path": "x.txt", "lineStart": 2, "lineEnd": 4 }),
@@ -306,6 +336,7 @@ mod tests {
     fn file_read_clamps_limit_above_ceiling() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let ceiling = crate::models::CEILING_FILE_READ_LIMIT as usize;
         let mut body = String::new();
         for i in 1..=ceiling + 20 {
@@ -325,6 +356,7 @@ mod tests {
     fn file_read_line_window_ignores_whole_file_max_bytes_gate() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         // Whole file > maxBytes, but the requested line window is tiny.
         let mut body = String::from("head\n");
         body.push_str(&"x".repeat(20_000));
@@ -351,6 +383,7 @@ mod tests {
     fn file_read_hard_caps_overlong_line_without_loading_it() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let mut body = "x".repeat(20_000);
         body.push_str("\ntail\n");
         fs::write(root.join("wide.txt"), &body).unwrap();
@@ -371,6 +404,7 @@ mod tests {
     fn file_read_clamps_max_bytes_above_ceiling() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("ok.txt"), "hello\n").unwrap();
         let out = execute_file_read(&json!({ "path": "ok.txt", "maxBytes": 99_000_000 }), root)
             .expect("clamped maxBytes must still read small files");
@@ -414,6 +448,7 @@ mod tests {
     fn file_edit_flat_args_ok() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("z.txt"), "foo\n").unwrap();
         let out = execute_file_edit_payload(
             &json!({
@@ -440,6 +475,7 @@ mod tests {
     fn writable_relative_path_stays_under_workspace_not_home() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let got = resolve_writable_path(root, "z.txt").expect("relative");
         let want = root.canonicalize().expect("canon ws").join("z.txt");
         assert_eq!(got, want);
@@ -470,6 +506,7 @@ mod tests {
     fn file_edit_accepts_trailing_slash_on_existing_file() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("z.txt"), "foo\n").unwrap();
         let mut abs = root
             .join("z.txt")
@@ -516,6 +553,7 @@ mod tests {
     fn file_grep_path_searches_only_that_file() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("one.rs"), "fn alpha() {}\nfn beta() {}\n").unwrap();
         fs::write(root.join("two.rs"), "fn alpha_dup() {}\n").unwrap();
         let args = json!({
@@ -536,6 +574,7 @@ mod tests {
     fn file_grep_path_nested_file_single_file_scope() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::create_dir_all(root.join("pkg")).unwrap();
         fs::write(root.join("pkg").join("a.java"), "class A { void m() {} }\n").unwrap();
         fs::write(root.join("pkg").join("b.java"), "class A { void n() {} }\n").unwrap();
@@ -560,6 +599,7 @@ mod tests {
     fn file_grep_path_directory_scans_all_files_under() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::create_dir_all(root.join("pkg")).unwrap();
         fs::write(root.join("pkg").join("a.java"), "class A {}\n").unwrap();
         fs::write(root.join("pkg").join("b.java"), "class B {}\n").unwrap();
@@ -579,9 +619,11 @@ mod tests {
     fn file_grep_missing_absolute_path_includes_sibling_hints() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join("src-tauri")).unwrap();
         fs::write(root.join("src").join("main.rs"), "read_lints\n").unwrap();
+        let _session = bind_user_tree(root);
 
         let abs_ui = root.join("ui");
         let args = json!({
@@ -602,7 +644,9 @@ mod tests {
     fn file_grep_relative_missing_path_includes_hints() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::create_dir_all(root.join("src")).unwrap();
+        let _session = bind_user_tree(root);
         let args = json!({"pattern": "foo", "path": "ui", "limit": 20});
         let err = execute_file_grep_payload(&args, root).unwrap_err();
         let msg = err.to_string();
@@ -614,6 +658,7 @@ mod tests {
     fn file_grep_subdir_parameter_rejected() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("x.txt"), "a\n").unwrap();
         let args = json!({
             "pattern": "a",
@@ -633,6 +678,7 @@ mod tests {
     fn file_grep_missing_path_rejected() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("x.txt"), "a\n").unwrap();
         let args = json!({"pattern": "a", "limit": 20});
         let err = execute_file_grep_payload(&args, root).unwrap_err();
@@ -643,6 +689,7 @@ mod tests {
     fn file_grep_include_hidden() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         // create hidden file
         fs::create_dir(root.join(".hidden_dir")).unwrap();
         fs::write(root.join(".hidden_dir").join("file.txt"), "secret\n").unwrap();
@@ -667,6 +714,7 @@ mod tests {
     fn file_grep_fixed_string() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("f.txt"), "x.y)\n").unwrap();
         // regex would treat '.' as any char and ')' as literal (needs escape). But with fixedString it's literal.
         let args = json!({"pattern": "x.y)", "path": "f.txt", "fixedString": true, "limit": 20});
@@ -679,6 +727,7 @@ mod tests {
     fn file_grep_ignore_case() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("case.txt"), "Hello World\n").unwrap();
         // default case sensitive should not match lowercase
         let args_sensitive = json!({"pattern": "hello", "path": "case.txt", "limit": 20});
@@ -700,6 +749,7 @@ mod tests {
     fn file_grep_file_types() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("a.rs"), "rust\n").unwrap();
         fs::write(root.join("a.py"), "python\n").unwrap();
         // fileTypes ["rust"] should only scan .rs files and not .py
@@ -718,6 +768,7 @@ mod tests {
     fn file_grep_file_types_rs_alias() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("a.rs"), "rust\n").unwrap();
         fs::write(root.join("a.py"), "python\n").unwrap();
         let args = json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rs"], "limit": 20});
@@ -736,6 +787,7 @@ mod tests {
     fn file_grep_file_types_yaml_and_cpp_aliases() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("cfg.yml"), "key: val\n").unwrap();
         fs::write(root.join("main.cpp"), "int main() {}\n").unwrap();
         fs::write(root.join("readme.md"), "key: val\n").unwrap();
@@ -763,6 +815,7 @@ mod tests {
     fn file_grep_include_exclude_globs() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join("test")).unwrap();
         fs::write(root.join("src").join("lib.rs"), "code\n").unwrap();
@@ -793,6 +846,7 @@ mod tests {
     fn file_grep_clips_overlong_match_line() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let mut line = String::from("NEEDLE");
         line.push_str(&"x".repeat(8_000));
         line.push('\n');
@@ -822,6 +876,7 @@ mod tests {
     fn file_grep_stops_at_hard_output_byte_cap() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let mut body = String::new();
         for i in 0..120 {
             body.push_str(&format!("HIT{i} {}\n", "y".repeat(2_000)));
@@ -855,6 +910,7 @@ mod tests {
     fn file_grep_reports_skipped_oversized_file() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let mut huge = String::from("UNIQUE_TOKEN ");
         huge.push_str(&"z".repeat(super::MAX_GREP_FILE_BYTES + 64));
         fs::write(root.join("huge.txt"), &huge).unwrap();
@@ -877,6 +933,7 @@ mod tests {
     fn resolve_rejects_parent_escape() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let err = resolve_within_workspace_root(root, "../outside").unwrap_err();
         assert!(err.to_string().contains("工作区") || err.to_string().contains("越出"));
     }
@@ -885,6 +942,7 @@ mod tests {
     fn resolve_accepts_absolute_path_under_workspace_for_new_file() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let abs = root.join("nested").join("new.txt");
         let got = resolve_within_workspace_root(root, abs.to_str().unwrap()).unwrap();
         let root_c = root.canonicalize().unwrap();
@@ -896,6 +954,7 @@ mod tests {
     fn resolve_accepts_absolute_path_under_workspace_existing_file() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let p = root.join("z.txt");
         fs::write(&p, "z").unwrap();
         let abs = p.canonicalize().unwrap();
@@ -940,7 +999,10 @@ mod tests {
         let dir = home.path().join(".pointer-writable-test");
         fs::create_dir_all(&dir).unwrap();
         // `note.txt` does not exist yet, so canonicalize the dir it lives in.
-        let target = dir.canonicalize().unwrap_or_else(|_| dir.clone()).join("note.txt");
+        let target = dir
+            .canonicalize()
+            .unwrap_or_else(|_| dir.clone())
+            .join("note.txt");
         let got = super::path::resolve_writable_path_at(
             ws.path(),
             "~/.pointer-writable-test/note.txt",
@@ -972,7 +1034,10 @@ mod tests {
         let home = tempfile::tempdir().expect("home");
         let got = super::path::resolve_accessible_path_at(ws.path(), "~", Some(home.path()))
             .expect("tilde");
-        let want = home.path().canonicalize().unwrap_or_else(|_| home.path().to_path_buf());
+        let want = home
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|_| home.path().to_path_buf());
         assert_eq!(got, want);
     }
 
@@ -991,6 +1056,7 @@ mod tests {
     fn file_list_non_recursive() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::create_dir_all(root.join("sub")).unwrap();
         fs::write(root.join("sub").join("a.txt"), "1").unwrap();
         fs::write(root.join("b.txt"), "2").unwrap();
@@ -1013,6 +1079,7 @@ mod tests {
     fn resolve_allows_nested_file() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let sub = root.join("a").join("b");
         fs::create_dir_all(&sub).unwrap();
         let f = sub.join("x.txt");
@@ -1055,6 +1122,7 @@ mod tests {
     fn file_glob_default_entry_type_matches_only_files() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("only.txt"), "x").unwrap();
         fs::create_dir_all(root.join("empty_dir")).unwrap();
         let args = json!({
@@ -1078,6 +1146,7 @@ mod tests {
     fn file_glob_entry_type_dir_finds_dot_git_with_include_hidden() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let git_dir = root.join(".git");
         fs::create_dir_all(&git_dir).unwrap();
         fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -1109,6 +1178,7 @@ mod tests {
     fn file_glob_skips_under_hidden_dir_without_include_hidden() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let nested = root.join(".hidden").join("nested");
         fs::create_dir_all(&nested).unwrap();
         fs::write(nested.join("leaf.txt"), "y").unwrap();
@@ -1134,6 +1204,7 @@ mod tests {
     fn file_glob_dot_pointer_from_parent_needs_include_hidden() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let skill = root.join(".pointer").join("skills").join("demo");
         fs::create_dir_all(&skill).unwrap();
         fs::write(skill.join("SKILL.md"), "body").unwrap();
@@ -1159,6 +1230,7 @@ mod tests {
     fn file_glob_absolute_pattern_ignores_wrong_base_and_finds_files() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let skill = root
             .join(".pointer")
             .join("skills")
@@ -1181,6 +1253,7 @@ mod tests {
     fn file_glob_rejects_invalid_entry_type() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         fs::write(root.join("z.txt"), "z").unwrap();
         let args = json!({
             "pattern": "*.txt",
@@ -1199,6 +1272,7 @@ mod tests {
     fn file_write_accepts_string_content() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let args = json!({
             "path": "out.txt",
             "content": "hello\n"
@@ -1211,6 +1285,7 @@ mod tests {
     fn file_write_reports_line_stats_for_new_file() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let args = json!({
             "path": "out.txt",
             "content": "hello\nworld\n"
@@ -1227,6 +1302,7 @@ mod tests {
     fn file_write_accepts_object_content_as_pretty_json() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
+        let _session = bind_user_tree(root);
         let args = json!({
             "path": "package.json",
             "content": {

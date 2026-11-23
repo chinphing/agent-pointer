@@ -21,8 +21,6 @@ pub use models::{
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
-use crate::media::path_hint::MEDIA_URI_SCHEME;
-use crate::media::store::app_data_media_rel_from_abs;
 use crate::models::ModelSettings;
 
 pub async fn generate_image(
@@ -58,23 +56,81 @@ pub async fn generate_video(
 pub fn format_generation_tool_result(
     artifact: &GenerationArtifact,
     kind: GenerationKind,
+    conversation_id: &str,
 ) -> String {
     let label = match kind {
         GenerationKind::Image => "image",
         GenerationKind::Video => "video",
     };
+    let count = if artifact.storage_rels.is_empty() {
+        artifact.local_paths.len()
+    } else {
+        artifact.storage_rels.len()
+    };
     let mut lines = vec![format!(
-        "Generated {} {}(s) with {}/{}.",
-        artifact.local_paths.len(),
-        label,
-        artifact.provider,
-        artifact.model
+        "Generated {count} {label}(s) with {}/{}.",
+        artifact.provider, artifact.model
     )];
-    for path in &artifact.local_paths {
-        let media_line = app_data_media_rel_from_abs(std::path::Path::new(path))
-            .map(|rel| format!("MEDIA:{MEDIA_URI_SCHEME}{rel}"))
-            .unwrap_or_else(|| format!("MEDIA:{path}"));
-        lines.push(media_line);
+    let sources: Vec<&str> = if artifact.storage_rels.is_empty() {
+        artifact.local_paths.iter().map(String::as_str).collect()
+    } else {
+        artifact.storage_rels.iter().map(String::as_str).collect()
+    };
+    for raw in sources {
+        match crate::media::store::model_visible_path(conversation_id, raw) {
+            Ok(path) => lines.push(format!("MEDIA:{path}")),
+            Err(error) => {
+                log::warn!(
+                    "generation tool result: session path unavailable conversation={conversation_id}: {error:#}"
+                );
+            }
+        }
     }
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn artifact(local: &str, rel: Option<&str>) -> GenerationArtifact {
+        GenerationArtifact {
+            local_paths: vec![local.to_string()],
+            storage_rels: rel.into_iter().map(str::to_string).collect(),
+            model: "m".into(),
+            provider: "p".into(),
+            usage: GenerationUsage::per_image(1),
+        }
+    }
+
+    #[test]
+    fn generation_tool_result_uses_container_data_root() {
+        let id = format!("gen-path-{}", uuid::Uuid::new_v4());
+        let inner = std::sync::Arc::new(crate::env::docker::DockerEnv::fake_for_tests("gen-path"));
+        crate::env::session_env::remember_env_for_test(&id, inner);
+        let text = format_generation_tool_result(
+            &artifact(
+                "/private/tmp/pointer-chat-verify/docker-data/users/u/data/a.png",
+                Some("data:attachments/conv/a.png"),
+            ),
+            GenerationKind::Image,
+            &id,
+        );
+        assert!(
+            text.contains("MEDIA:/data/attachments/conv/a.png"),
+            "{text}"
+        );
+        assert!(!text.contains("pointer-chat-verify"), "{text}");
+    }
+
+    #[test]
+    fn generation_tool_result_omits_unmapped_host_path() {
+        let text = format_generation_tool_result(
+            &artifact("/etc/passwd", None),
+            GenerationKind::Image,
+            "no-such-generation-conversation",
+        );
+        assert!(!text.contains("/etc/passwd"), "{text}");
+        assert!(!text.contains("MEDIA:"), "{text}");
+    }
 }

@@ -89,7 +89,8 @@ impl ComputerControl for LocalControl {
     }
 
     fn drag_to(&self, x: i32, y: i32) -> Result<()> {
-        self.exec().drag_left_from_current_to(x, y, self.human_like)?;
+        self.exec()
+            .drag_left_from_current_to(x, y, self.human_like)?;
         Ok(())
     }
 
@@ -345,7 +346,11 @@ mod tests {
         // 距离靠事件条数：30 → 3 条 10，20 → 2 条 10。
         c.scroll(20, 30).unwrap();
         let log = recorded(&calls);
-        assert_eq!(log.iter().filter(|l| *l == "scroll(10)").count(), 3, "{log:?}");
+        assert_eq!(
+            log.iter().filter(|l| *l == "scroll(10)").count(),
+            3,
+            "{log:?}"
+        );
         assert_eq!(
             log.iter().filter(|l| *l == "scroll_horizontal(10)").count(),
             2,
@@ -355,7 +360,11 @@ mod tests {
         let (c, calls) = control();
         c.scroll(0, -30).unwrap();
         let log = recorded(&calls);
-        assert_eq!(log.iter().filter(|l| *l == "scroll(-10)").count(), 3, "{log:?}");
+        assert_eq!(
+            log.iter().filter(|l| *l == "scroll(-10)").count(),
+            3,
+            "{log:?}"
+        );
         assert!(!log.iter().any(|c| c.starts_with("scroll_horizontal")));
 
         let (c, _) = control();
@@ -410,7 +419,6 @@ mod tests {
             "human_like off should plan a straight line, got: {recorded:?}"
         );
     }
-
 }
 
 impl Drop for LocalControl {

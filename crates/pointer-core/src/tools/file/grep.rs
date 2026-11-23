@@ -2,8 +2,8 @@ use super::path::{
     build_glob_set, deduplicate_globs, expand_file_types, path_display_abs, path_error_with_hints,
     resolve_existing_read_path, SKIP_EXT,
 };
-use super::{json_str, json_u64_opt_keys};
 use super::tool_env;
+use super::{json_str, json_u64_opt_keys};
 use super::{FileToolLimits, CONTEXT_LINES, MAX_GREP_FILE_BYTES, MAX_WALK_DEPTH};
 use crate::env::{Environment, WalkOptions};
 use crate::text_util::truncate_bytes;

@@ -162,20 +162,16 @@ fn run_sidecar(
     let (tx, rx) = std::sync::mpsc::channel::<Result<(String, String)>>();
     let waiter = std::thread::spawn(move || {
         let mut out = String::new();
-        let read_result = child
-            .reader()
-            .and_then(|mut reader| {
-                reader
-                    .read_to_string(&mut out)
-                    .map_err(|e| anyhow!("读取插件工具 stdout 失败: {e}"))
-            });
+        let read_result = child.reader().and_then(|mut reader| {
+            reader
+                .read_to_string(&mut out)
+                .map_err(|e| anyhow!("读取插件工具 stdout 失败: {e}"))
+        });
         if let Err(e) = read_result {
             let _ = tx.send(Err(e));
             return Ok::<(), anyhow::Error>(());
         }
-        let code = child
-            .wait()
-            .map_err(|e| anyhow!("等待插件工具失败: {e}"))?;
+        let code = child.wait().map_err(|e| anyhow!("等待插件工具失败: {e}"))?;
         let _ = tx.send(Ok((out, code.to_string())));
         Ok::<(), anyhow::Error>(())
     });

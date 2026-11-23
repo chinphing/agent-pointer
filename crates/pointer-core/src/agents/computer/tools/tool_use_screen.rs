@@ -165,7 +165,10 @@ mod tests {
         let reply = UseScreenTool::new()
             .execute(&json!({"goal": "切到主屏", "_conversation_id": "it-usescreen"}))
             .expect("use_screen");
-        assert!(reply.contains("container:desktop"), "回复里没有容器屏：{reply}");
+        assert!(
+            reply.contains("container:desktop"),
+            "回复里没有容器屏：{reply}"
+        );
         assert!(!reply.contains("Displays:"), "不该列宿主显示器：{reply}");
 
         let _ = std::process::Command::new("docker")

@@ -277,7 +277,7 @@ pub(super) fn init_sub_agent_session(
         task,
         &instance_scope.agent_instance_id,
     );
-    let prompt_workspace_root = crate::env::prompt_workspace_root(&workspace_root);
+    let prompt_workspace_root = crate::env::prompt_workspace_root(conversation_id, &workspace_root);
     let session_vars = SessionInjectVars {
         workspace_root: prompt_workspace_root.as_str(),
     };
@@ -319,8 +319,11 @@ pub(super) fn init_sub_agent_session(
         }
     }
     session_extras.extend(skill_prompts.clone());
-    let mut task_dynamic_blocks =
-        build_subagent_task_system_blocks(&task.goal, &task.context, workspace_root.as_str());
+    let mut task_dynamic_blocks = build_subagent_task_system_blocks(
+        &task.goal,
+        &task.context,
+        prompt_workspace_root.as_str(),
+    );
     task_dynamic_blocks.push(build_subagent_spawn_depth_block(
         spawn_depth,
         max_spawn_depth,
@@ -414,6 +417,8 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     let workspace_root = ctx.workspace_root;
     let user_dynamic_inject_enabled = ctx.user_dynamic_inject_enabled;
     let round_prep = Instant::now();
+    let prompt_workspace_root =
+        crate::env::prompt_workspace_root(conversation_id, workspace_root.trim());
     let mut injected_tail = Vec::new();
     let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
         computer_state: state.computer_state.as_ref(),
@@ -427,7 +432,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         task_board_store: state.task_board_store.clone(),
         task_board_store_key: sub_task_board_key,
         user_dynamic_inject_enabled,
-        workspace_root: workspace_root.trim(),
+        workspace_root: prompt_workspace_root.as_str(),
     };
     let t = Instant::now();
     state
@@ -438,7 +443,6 @@ pub(super) async fn prepare_sub_agent_round_prompts(
 
     let t = Instant::now();
     let mut cacheable = Vec::new();
-    let prompt_workspace_root = crate::env::prompt_workspace_root(workspace_root.trim());
     let session_vars = SessionInjectVars {
         workspace_root: prompt_workspace_root.as_str(),
     };
@@ -457,7 +461,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     push_env_to_cacheable(&mut cacheable);
     crate::plugins::agents_md::push_agents_md_to_cacheable(
         &mut cacheable,
-        workspace_root.trim(),
+        prompt_workspace_root.as_str(),
         conversation_id,
     );
     let assemble_system_prompts_ms = t.elapsed().as_millis();
@@ -601,7 +605,8 @@ mod definition_source_tests {
 
         let source = SubAgentDefinitionSource::Snapshot(&snapshot);
         let instance_scope = source.new_instance_scope("run", "conversation");
-        let linkage = build_sub_agent_linkage("anchor", &task, &snapshot.def, &instance_scope, 1, &[]);
+        let linkage =
+            build_sub_agent_linkage("anchor", &task, &snapshot.def, &instance_scope, 1, &[]);
 
         assert_eq!(
             linkage.trace_id,
@@ -703,8 +708,7 @@ mod definition_source_tests {
         let allowed_tools = vec!["terminal".to_string(), "run_subagent".to_string()];
         let allow_agents = vec!["explore".to_string()];
 
-        let capability =
-            resolve_subagent_spawn_capability(&allowed_tools, &allow_agents, 2, 2);
+        let capability = resolve_subagent_spawn_capability(&allowed_tools, &allow_agents, 2, 2);
 
         assert_eq!(
             capability,
@@ -717,8 +721,7 @@ mod definition_source_tests {
         let allowed_tools = vec!["terminal".to_string(), "run_subagent".to_string()];
         let allow_agents = vec!["explore".to_string()];
 
-        let capability =
-            resolve_subagent_spawn_capability(&allowed_tools, &allow_agents, 1, 2);
+        let capability = resolve_subagent_spawn_capability(&allowed_tools, &allow_agents, 1, 2);
 
         assert_eq!(
             capability,
@@ -743,8 +746,7 @@ mod definition_source_tests {
         let snapshot = snapshot();
         let mut allowed_tools = snapshot.allowed_tools.clone();
 
-        let allow_agents =
-            restore_fork_spawn_tools(&mut allowed_tools, &snapshot, 1, 2);
+        let allow_agents = restore_fork_spawn_tools(&mut allowed_tools, &snapshot, 1, 2);
 
         assert!(allowed_tools.iter().any(|tool| tool == "run_subagent"));
         assert_eq!(allow_agents, vec!["explore".to_string()]);
@@ -759,8 +761,7 @@ mod definition_source_tests {
         let snapshot = snapshot();
         let mut allowed_tools = snapshot.allowed_tools.clone();
 
-        let allow_agents =
-            restore_fork_spawn_tools(&mut allowed_tools, &snapshot, 2, 2);
+        let allow_agents = restore_fork_spawn_tools(&mut allowed_tools, &snapshot, 2, 2);
 
         assert!(!allowed_tools.iter().any(|tool| tool == "run_subagent"));
         assert_eq!(

@@ -68,5 +68,5 @@ player/gallery). **Do not** send a follow-up message repeating paths.
 
 When **terminal** (or build/export scripts) writes a file the user should receive —
 HTML app, PDF, zip, image, video, etc. — write under the **WORKING_DIR** unless
-the user named another path; add short prose if needed, then
-`MEDIA:<absolute-or-relative-path>`.
+the user named another path inside this session; add short prose if needed, then
+`MEDIA:<path>` using a path inside this session.

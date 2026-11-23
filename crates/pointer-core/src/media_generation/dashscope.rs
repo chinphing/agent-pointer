@@ -39,6 +39,8 @@ pub struct VideoGenerateRequest {
 #[derive(Debug, Clone)]
 pub struct GenerationArtifact {
     pub local_paths: Vec<String>,
+    /// Stored `data:` / `home:` keys. The model sees the session path, not `local_paths`.
+    pub storage_rels: Vec<String>,
     pub model: String,
     pub provider: String,
     pub usage: GenerationUsage,
@@ -163,11 +165,11 @@ async fn download_to_conversation(
     conversation_id: &str,
     url: &str,
     default_ext: &str,
-) -> Result<String> {
+) -> Result<super::save::SavedGeneratedFile> {
     let tmp_name = format!("gen{default_ext}");
-    let path = save_generated_bytes(conversation_id, &[], &tmp_name)?;
-    download_url_to_file(client, url, &path).await?;
-    Ok(path.to_string_lossy().into_owned())
+    let saved = save_generated_bytes(conversation_id, &[], &tmp_name)?;
+    download_url_to_file(client, url, &saved.path).await?;
+    Ok(saved)
 }
 
 fn dashscope_resolution_from_size(size: Option<&str>) -> String {
@@ -300,12 +302,14 @@ pub async fn generate_image_dashscope(
         .map(|u| GenerationUsage::from_dashscope_usage(u, GenerationKind::Image))
         .unwrap_or_else(|| GenerationUsage::per_image(urls.len() as u32));
     let mut local_paths = Vec::new();
+    let mut storage_rels = Vec::new();
     for (i, image_url) in urls.iter().enumerate() {
         if cancel.is_cancelled() {
             return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
-        let path = download_to_conversation(&client, conversation_id, image_url, ".png").await?;
-        local_paths.push(path);
+        let saved = download_to_conversation(&client, conversation_id, image_url, ".png").await?;
+        local_paths.push(saved.path.to_string_lossy().into_owned());
+        storage_rels.push(saved.rel);
         log::info!("dashscope image saved index={i} model={}", cfg.model);
     }
     record_generation_usage(
@@ -318,6 +322,7 @@ pub async fn generate_image_dashscope(
     );
     Ok(GenerationArtifact {
         local_paths,
+        storage_rels,
         model: cfg.model.clone(),
         provider: cfg.provider_id.clone(),
         usage,
@@ -391,12 +396,14 @@ pub async fn generate_video_dashscope(
         .map(|u| GenerationUsage::from_dashscope_video_usage(u, fallback))
         .unwrap_or_else(|| GenerationUsage::per_video_seconds(fallback));
     let mut local_paths = Vec::new();
+    let mut storage_rels = Vec::new();
     for video_url in &urls {
         if cancel.is_cancelled() {
             return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
-        let path = download_to_conversation(&client, conversation_id, video_url, ".mp4").await?;
-        local_paths.push(path);
+        let saved = download_to_conversation(&client, conversation_id, video_url, ".mp4").await?;
+        local_paths.push(saved.path.to_string_lossy().into_owned());
+        storage_rels.push(saved.rel);
     }
     record_generation_usage(
         run_id,
@@ -408,6 +415,7 @@ pub async fn generate_video_dashscope(
     );
     Ok(GenerationArtifact {
         local_paths,
+        storage_rels,
         model,
         provider: cfg.provider_id.clone(),
         usage,

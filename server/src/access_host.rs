@@ -17,11 +17,7 @@ fn first_hop(value: &str) -> &str {
 /// 避免把 IPv6 字面量（`[::1]`）误伤成 `[`。
 fn strip_port(host: &str) -> &str {
     match host.rsplit_once(':') {
-        Some((head, port))
-            if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) =>
-        {
-            head
-        }
+        Some((head, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => head,
         _ => host,
     }
 }
@@ -83,7 +79,10 @@ mod tests {
     #[test]
     fn takes_first_hop_of_a_proxy_chain() {
         let map = headers(&[("x-forwarded-host", "outer.example.com, inner.local")]);
-        assert_eq!(request_access_host(&map).as_deref(), Some("outer.example.com"));
+        assert_eq!(
+            request_access_host(&map).as_deref(),
+            Some("outer.example.com")
+        );
     }
 
     #[test]

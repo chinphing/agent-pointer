@@ -27,7 +27,6 @@ pub fn config_file_path(root: &Path) -> PathBuf {
     root.join(".pointer").join("lint.toml")
 }
 
-
 /// 探测用的执行环境。
 ///
 /// 与 `tools::file::path::env_is_dir` 同一套约定：**本线程绑定了就用绑定**，

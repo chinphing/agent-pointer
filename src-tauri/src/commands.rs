@@ -49,17 +49,13 @@ fn panel_binding(
     let id = conversation_id.map(str::trim).filter(|id| !id.is_empty());
     if let Some(id) = id {
         if pointer_core::env::session_env::env_for_conversation(id).is_none() {
-            // Docker 后端：/workspace 是项目目录的 bind mount，宿主读到的就是同一份文件。
-            // 这里**不创建沙箱**——否则面板手里的路径（可能是项目选择前的默认值）
-            // 会把整个会话的挂载定死，之后对话再改项目也换不回来。
             let cfg = pointer_core::env::provider::ProviderConfig::from_env();
             if let Ok(cfg) = cfg {
                 if let Ok(resolved) = cfg.resolve(None) {
                     if resolved.backend == pointer_core::env::provider::Backend::Docker {
-                        return Ok(
-                            pointer_core::env::session_env::WorkspaceRequestEnv::enter(
-                                pointer_core::env::host_env_at(Path::new(workspace_root)),
-                            ),
+                        return Err(
+                            "会话环境还没有建立，无法打开工作区。请先发送一条消息。"
+                                .to_string(),
                         );
                     }
                 }

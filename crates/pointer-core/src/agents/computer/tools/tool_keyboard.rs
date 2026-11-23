@@ -79,11 +79,13 @@ impl KeyboardTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-    use crate::agents::computer::actions::{ActionBackend, ActionExecutor, ActionResult, MouseButton};
+    use crate::agents::computer::actions::{
+        ActionBackend, ActionExecutor, ActionResult, MouseButton,
+    };
     use crate::agents::computer::input::actions::KeyPhase;
     use crate::agents::computer::input::mouse_move::MouseMoveProfile;
     use serde_json::json;
+    use std::sync::Mutex;
 
     #[derive(Default)]
     struct RecordingBackend {
@@ -151,8 +153,9 @@ mod tests {
         let backend = RecordingBackend::default();
         let calls = backend.calls.clone();
         let executor = Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend))));
-        let control: Arc<dyn ComputerControl> =
-            Arc::new(crate::agents::computer::control::LocalControl::new(executor, false));
+        let control: Arc<dyn ComputerControl> = Arc::new(
+            crate::agents::computer::control::LocalControl::new(executor, false),
+        );
         (KeyboardTool::new(control), calls)
     }
 

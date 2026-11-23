@@ -1,6 +1,6 @@
 use super::args_util::require_non_empty_str;
-use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::control::ComputerControl;
+use crate::agents::computer::verify::VerifyHintGenerator;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::Arc;

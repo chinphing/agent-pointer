@@ -40,11 +40,21 @@ pub fn pointer_home_dir() -> Result<PathBuf> {
     crate::storage::pointer_home_dir()
 }
 
-/// 用户级插件根目录 `~/.pointer/plugins`（不存在时创建）。
+/// 当前用户环境里的插件根 `home/.pointer/plugins`。
+///
+/// 还没有用户环境时返回错误，避免把进程家目录里的插件装进所有会话。
 pub fn user_plugins_dir() -> Result<PathBuf> {
-    let dir = pointer_home_dir()?.join(USER_PLUGINS_DIR_NAME);
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+    let Some(env) = crate::env::current_env() else {
+        anyhow::bail!("插件目录需要当前用户的执行环境");
+    };
+    if env.path_map().is_host_passthrough() {
+        anyhow::bail!("插件目录需要当前用户的执行环境");
+    }
+    let dir = env.home_root().join(".pointer").join(USER_PLUGINS_DIR_NAME);
+    std::fs::create_dir_all(dir.join("system"))?;
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user)?;
+    Ok(user)
 }
 
 /// 工作区级插件根目录 `<workspace>/.pointer/plugins`（不存在时创建）。
@@ -59,12 +69,25 @@ pub fn workspace_plugins_dir() -> Result<PathBuf> {
 pub fn discover_plugin_dirs() -> Result<Vec<(PathBuf, bool)>> {
     // (dir, is_user_level)
     let mut out: Vec<(PathBuf, bool)> = Vec::new();
-    let user = user_plugins_dir()?;
-    for entry in std::fs::read_dir(&user)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() && path.join(PLUGIN_MANIFEST_FILE).is_file() {
-            out.push((path, true));
+    let Ok(user) = user_plugins_dir() else {
+        log::info!("plugins: skip discovery before a user environment is bound");
+        return Ok(out);
+    };
+    let Some(plugins) = user.parent() else {
+        log::warn!("plugins: user plugin dir {} has no parent", user.display());
+        return Ok(out);
+    };
+    for bucket in ["user", "system"] {
+        let root = plugins.join(bucket);
+        if !root.is_dir() {
+            continue;
+        }
+        for entry in std::fs::read_dir(&root)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() && path.join(PLUGIN_MANIFEST_FILE).is_file() {
+                out.push((path, true));
+            }
         }
     }
     if let Ok(workspace) = workspace_plugins_dir() {

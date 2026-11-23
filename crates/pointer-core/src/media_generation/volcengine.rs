@@ -95,38 +95,38 @@ pub async fn generate_image_volcengine(
         return Err(anyhow!("Volcengine image HTTP {status}: {text}"));
     }
     let payload: Value = serde_json::from_str(&text).context("parse image json")?;
-    let mut urls = Vec::new();
+    let mut remote_urls = Vec::new();
+    let mut saved_files = Vec::new();
     if let Some(data) = payload.get("data").and_then(|v| v.as_array()) {
         for item in data {
             if let Some(url) = item.get("url").and_then(|v| v.as_str()) {
-                urls.push(url.to_string());
+                remote_urls.push(url.to_string());
             } else if let Some(b64) = item.get("b64_json").and_then(|v| v.as_str()) {
                 let bytes = base64::engine::general_purpose::STANDARD
                     .decode(b64)
                     .context("decode b64 image")?;
-                let path = save_generated_bytes(conversation_id, &bytes, "gen.png")?;
-                urls.push(format!("file://{}", path.display()));
+                saved_files.push(save_generated_bytes(conversation_id, &bytes, "gen.png")?);
             }
         }
     }
-    if urls.is_empty() {
+    if remote_urls.is_empty() && saved_files.is_empty() {
         return Err(anyhow!("Volcengine image response contained no images"));
     }
-    let count = urls.len() as u32;
-    let usage = GenerationUsage::per_image(count);
-    let mut local_paths = Vec::new();
-    for image_url in urls {
-        if image_url.starts_with("file://") {
-            local_paths.push(image_url.trim_start_matches("file://").to_string());
-            continue;
-        }
+    for image_url in remote_urls {
         if cancel.is_cancelled() {
             return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
-        let path = save_generated_bytes(conversation_id, &[], "gen.png")?;
-        download_url_to_file(&client, &image_url, &path).await?;
-        local_paths.push(path.to_string_lossy().into_owned());
+        let saved = save_generated_bytes(conversation_id, &[], "gen.png")?;
+        download_url_to_file(&client, &image_url, &saved.path).await?;
+        saved_files.push(saved);
     }
+    let count = saved_files.len() as u32;
+    let usage = GenerationUsage::per_image(count);
+    let local_paths = saved_files
+        .iter()
+        .map(|saved| saved.path.to_string_lossy().into_owned())
+        .collect();
+    let storage_rels = saved_files.into_iter().map(|saved| saved.rel).collect();
     record_generation_usage(
         run_id,
         conversation_id,
@@ -137,6 +137,7 @@ pub async fn generate_image_volcengine(
     );
     Ok(GenerationArtifact {
         local_paths,
+        storage_rels,
         model: cfg.model.clone(),
         provider: cfg.provider_id.clone(),
         usage,
@@ -238,8 +239,8 @@ pub async fn generate_video_volcengine(
     if cancel.is_cancelled() {
         return Err(anyhow!(crate::i18n::generation_stopped_msg()));
     }
-    let path = save_generated_bytes(conversation_id, &[], "gen.mp4")?;
-    download_url_to_file(&client, video_url, &path).await?;
+    let saved = save_generated_bytes(conversation_id, &[], "gen.mp4")?;
+    download_url_to_file(&client, video_url, &saved.path).await?;
     record_generation_usage(
         run_id,
         conversation_id,
@@ -249,7 +250,8 @@ pub async fn generate_video_volcengine(
         cfg.source,
     );
     Ok(GenerationArtifact {
-        local_paths: vec![path.to_string_lossy().into_owned()],
+        local_paths: vec![saved.path.to_string_lossy().into_owned()],
+        storage_rels: vec![saved.rel],
         model,
         provider: cfg.provider_id.clone(),
         usage,

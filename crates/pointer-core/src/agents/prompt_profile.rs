@@ -169,9 +169,18 @@ mod tests {
 
     #[test]
     fn profile_parse_accepts_known_values_and_rejects_others() {
-        assert_eq!(PromptProfile::parse("default"), Some(PromptProfile::Default));
-        assert_eq!(PromptProfile::parse(" DEFAULT "), Some(PromptProfile::Default));
-        assert_eq!(PromptProfile::parse("minimal"), Some(PromptProfile::Minimal));
+        assert_eq!(
+            PromptProfile::parse("default"),
+            Some(PromptProfile::Default)
+        );
+        assert_eq!(
+            PromptProfile::parse(" DEFAULT "),
+            Some(PromptProfile::Default)
+        );
+        assert_eq!(
+            PromptProfile::parse("minimal"),
+            Some(PromptProfile::Minimal)
+        );
         assert_eq!(PromptProfile::parse("MINI"), Some(PromptProfile::Minimal));
         assert_eq!(PromptProfile::parse(""), Some(PromptProfile::Default));
         assert_eq!(PromptProfile::parse("verbose"), None);
@@ -207,7 +216,10 @@ mod tests {
 
         ov.apply(&mut plan);
         assert_eq!(plan.prompt_profile, PromptProfile::Minimal);
-        assert_eq!(plan.system_prompts, vec![MINIMAL_SYSTEM_PROMPT.trim().to_string()]);
+        assert_eq!(
+            plan.system_prompts,
+            vec![MINIMAL_SYSTEM_PROMPT.trim().to_string()]
+        );
         assert_eq!(plan.active_system_prompt, MINIMAL_SYSTEM_PROMPT.trim());
         assert!(plan.resolved_skill_prompts.is_empty());
         // The minimal prompt is small: guard against accidental bloat.
@@ -224,7 +236,10 @@ mod tests {
 
         let mut plan = test_plan();
         ov.apply(&mut plan);
-        assert_eq!(plan.system_prompts, vec!["You are a tiny agent.".to_string()]);
+        assert_eq!(
+            plan.system_prompts,
+            vec!["You are a tiny agent.".to_string()]
+        );
         assert_eq!(plan.active_system_prompt, "You are a tiny agent.");
         assert_eq!(plan.prompt_profile, PromptProfile::Default);
     }
@@ -241,10 +256,22 @@ mod tests {
     #[test]
     fn minimal_layers_apply_to_worker_profiles_only() {
         use crate::agents::AgentProfile;
-        assert!(uses_minimal_layers(PromptProfile::Minimal, &AgentProfile::Coder));
-        assert!(uses_minimal_layers(PromptProfile::Minimal, &AgentProfile::General));
+        assert!(uses_minimal_layers(
+            PromptProfile::Minimal,
+            &AgentProfile::Coder
+        ));
+        assert!(uses_minimal_layers(
+            PromptProfile::Minimal,
+            &AgentProfile::General
+        ));
         // Computer keeps its own tier prompt path in every profile.
-        assert!(!uses_minimal_layers(PromptProfile::Minimal, &AgentProfile::Computer));
-        assert!(!uses_minimal_layers(PromptProfile::Default, &AgentProfile::Coder));
+        assert!(!uses_minimal_layers(
+            PromptProfile::Minimal,
+            &AgentProfile::Computer
+        ));
+        assert!(!uses_minimal_layers(
+            PromptProfile::Default,
+            &AgentProfile::Coder
+        ));
     }
 }

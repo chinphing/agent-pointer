@@ -468,11 +468,7 @@ impl ActionExecutor {
     }
 
     /// Click `button` at the **current** pointer with `clicks` press/release pairs.
-    pub fn click_button_here(
-        &self,
-        button: MouseButton,
-        clicks: u32,
-    ) -> Result<ActionResult> {
+    pub fn click_button_here(&self, button: MouseButton, clicks: u32) -> Result<ActionResult> {
         match (button, clicks) {
             (MouseButton::Left, 1) => self.click_here(),
             (MouseButton::Left, 2) => self.double_click_here(),

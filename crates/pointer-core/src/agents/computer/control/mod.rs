@@ -20,13 +20,13 @@ use anyhow::Result;
 
 use super::input::actions::MouseButton;
 
-pub mod sandbox;
 pub mod local;
 pub mod remote;
+pub mod sandbox;
 
-pub use sandbox::SandboxControl;
 pub use local::LocalControl;
 pub use remote::{RemoteControl, RemoteTransport};
+pub use sandbox::SandboxControl;
 
 /// 按会话挑控制后端：有桌面的执行环境走它自己的桌面，local 会话走宿主。
 ///
@@ -51,9 +51,9 @@ pub fn control_for_conversation(
 /// 判据是 `capabilities().desktop`，不是后端类型：envd 沙箱只要声明有桌面，
 /// 这里自动接上，不需要再改一次选路。返回 `None` 表示桌面在宿主上。
 pub fn sandbox_desktop_for(conversation_id: &str) -> Option<std::sync::Arc<dyn ComputerControl>> {
-    Some(std::sync::Arc::new(SandboxControl::new(
-        sandbox_env_for(conversation_id)?,
-    )))
+    Some(std::sync::Arc::new(SandboxControl::new(sandbox_env_for(
+        conversation_id,
+    )?)))
 }
 
 /// 桌面由执行环境提供时，返回那个环境本身。
@@ -82,13 +82,8 @@ pub trait ComputerControl: Send + Sync {
     ///
     /// `clicks` is 1 or 2. Implementations must reject counts they cannot
     /// express rather than silently collapsing them to 1.
-    fn click(
-        &self,
-        button: MouseButton,
-        x: Option<i32>,
-        y: Option<i32>,
-        clicks: u32,
-    ) -> Result<()>;
+    fn click(&self, button: MouseButton, x: Option<i32>, y: Option<i32>, clicks: u32)
+        -> Result<()>;
 
     /// `MOUSE_DOWN` — press a button at the current pointer.
     fn mouse_down(&self, button: MouseButton) -> Result<()>;

@@ -193,11 +193,7 @@ impl ComputerState {
         let human_like_default =
             crate::platform_config::effective_settings_global().computer_human_like;
         let pipeline_config = ComputerModelConfig::from_agent_registry(agents);
-        Self::with_config(
-            human_like_default,
-            pipeline_config,
-            Some(platform_config),
-        )
+        Self::with_config(human_like_default, pipeline_config, Some(platform_config))
     }
 
     /// Test convenience constructor with default pipeline config.
@@ -303,7 +299,9 @@ impl ComputerState {
         let cfg = self.effective_pipeline_config();
         crate::thinking_strategy::apply_thinking_intensity_to_round(
             s,
-            cfg.pipeline_llm.thinking_intensity_for_phase(phase).as_deref(),
+            cfg.pipeline_llm
+                .thinking_intensity_for_phase(phase)
+                .as_deref(),
         );
     }
 
@@ -906,11 +904,7 @@ impl ComputerState {
 
     pub fn locked_goal_dynamic_block(&self, conversation_id: &str) -> Option<String> {
         let session = self.get_or_create_session(conversation_id);
-        let block = session
-            .lock()
-            .unwrap()
-            .runtime
-            .locked_goal_dynamic_block();
+        let block = session.lock().unwrap().runtime.locked_goal_dynamic_block();
         block
     }
 
@@ -1037,8 +1031,7 @@ mod tests {
     fn real_screenshot_round_trips_through_the_pipeline_cache() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/locate_fixture/fixtures/sudoku.jpg");
-        let jpeg = std::fs::read(&path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let jpeg = std::fs::read(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
         let (w, h) = image::ImageReader::new(std::io::Cursor::new(&jpeg))
             .with_guessed_format()
             .expect("probe")

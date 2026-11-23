@@ -78,7 +78,6 @@ impl SandboxControl {
         Ok(())
     }
 
-
     /// 键名 → X keysym。对齐 `enigo::parse_key_name` 的命名。
     fn keysym(key: &str) -> Result<String> {
         let lower = key.to_lowercase();
@@ -281,8 +280,7 @@ impl ComputerControl for SandboxControl {
         }
         let image = image::load_from_memory(&png.stdout).context("截图不是合法 PNG")?;
         let mut jpeg = Vec::new();
-        let mut encoder =
-            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 82);
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 82);
         encoder
             .encode_image(&image)
             .map_err(|e| anyhow!("截图转 JPEG 失败: {e}"))?;

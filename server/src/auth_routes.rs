@@ -228,15 +228,23 @@ pub async fn start_login(
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, String)> {
     let client = client_key(&state, peer.as_ref().map(|info| info.0), &headers);
-    match state.login_limiter.check_start(&client, auth_rate_limit::now_ms()) {
+    match state
+        .login_limiter
+        .check_start(&client, auth_rate_limit::now_ms())
+    {
         StartVerdict::Allow => {}
         StartVerdict::RateLimited { retry_after_secs } => {
-            log::warn!("auth: login/start rate limited client={client} retry_after={retry_after_secs}s");
+            log::warn!(
+                "auth: login/start rate limited client={client} retry_after={retry_after_secs}s"
+            );
             return Err((StatusCode::TOO_MANY_REQUESTS, "rate_limited".to_string()));
         }
         StartVerdict::Backoff { retry_after_secs } => {
             log::warn!("auth: login/start during failure backoff client={client} retry_after={retry_after_secs}s");
-            return Err((StatusCode::TOO_MANY_REQUESTS, "too_many_attempts".to_string()));
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                "too_many_attempts".to_string(),
+            ));
         }
     }
     match state.auth_providers.login_entry(q.provider.as_deref()) {
@@ -269,8 +277,13 @@ pub async fn finish_login(
     let client = client_key(&state, peer.as_ref().map(|info| info.0), &headers);
     let now = auth_rate_limit::now_ms();
     if let Some(retry_after_secs) = state.login_limiter.in_backoff(&client, now) {
-        log::warn!("auth: login/finish during backoff client={client} retry_after={retry_after_secs}s");
-        return Err((StatusCode::TOO_MANY_REQUESTS, "too_many_attempts".to_string()));
+        log::warn!(
+            "auth: login/finish during backoff client={client} retry_after={retry_after_secs}s"
+        );
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_attempts".to_string(),
+        ));
     }
     let result = match state.auth_providers.login_entry(q.provider.as_deref()) {
         LoginEntry::LocalPassword { id } => local_password_finish(&state, id, input).await,
@@ -302,11 +315,7 @@ pub async fn finish_login(
 
 /// Rate-limit bucket for this request (trusted proxies decide whether the
 /// forwarded header is read at all — see `client_ip`).
-fn client_key(
-    state: &ServerState,
-    peer: Option<SocketAddr>,
-    headers: &HeaderMap,
-) -> String {
+fn client_key(state: &ServerState, peer: Option<SocketAddr>, headers: &HeaderMap) -> String {
     let trusted = &state.login_limiter.config().trusted_proxies;
     crate::client_ip::client_key(crate::client_ip::resolve_client_ip(
         peer.map(|addr| addr.ip()),
@@ -315,7 +324,10 @@ fn client_key(
     ))
 }
 
-fn pending_start_error(provider_id: &str, error: auth_pending::PendingError) -> (StatusCode, String) {
+fn pending_start_error(
+    provider_id: &str,
+    error: auth_pending::PendingError,
+) -> (StatusCode, String) {
     match error {
         auth_pending::PendingError::AtCapacity => {
             log::warn!("auth: in-flight login capacity reached provider={provider_id}");
@@ -445,7 +457,8 @@ fn callback_path(state: &ServerState, provider_id: &str) -> String {
         .unwrap_or_else(|| pointer_core::auth_provider::default_callback_path(provider_id))
 }
 
-fn public_url() -> Result<String, (StatusCode, String)> {    crate::resolve_server_public_url().ok_or_else(|| {
+fn public_url() -> Result<String, (StatusCode, String)> {
+    crate::resolve_server_public_url().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "POINTER_SERVER_PUBLIC_URL 未配置；请在 pointer-server.toml [server].public_url 设置外部可达地址"
@@ -497,11 +510,18 @@ async fn code_callback(
     let pending = match redeem_pending(state, headers, params, provider_id) {
         Ok(pending) => pending,
         Err(err) => {
-            log::warn!("auth provider: callback rejected provider={provider_id} code={}", err.as_code());
+            log::warn!(
+                "auth provider: callback rejected provider={provider_id} code={}",
+                err.as_code()
+            );
             return err.redirect();
         }
     };
-    if let Some(error) = params.get("error").map(|value| value.trim()).filter(|v| !v.is_empty()) {
+    if let Some(error) = params
+        .get("error")
+        .map(|value| value.trim())
+        .filter(|v| !v.is_empty())
+    {
         log::warn!("auth provider: provider={provider_id} returned error={error}");
         return LoginError::ProviderDenied.redirect();
     }
@@ -537,7 +557,13 @@ async fn code_callback(
         }
     };
     let kind = driver.kind();
-    finish_federated_login(state, &identity.provider_id, &identity.subject, identity_nickname(&identity.claims), kind)
+    finish_federated_login(
+        state,
+        &identity.provider_id,
+        &identity.subject,
+        identity_nickname(&identity.claims),
+        kind,
+    )
 }
 
 /// Finish the cloud control-plane flow.
@@ -649,11 +675,8 @@ fn finish_federated_login(
     provider_kind: AuthProviderKind,
 ) -> Response {
     let user_id = federated_user_id(provider_id, subject);
-    let auth = pointer_core::local_auth::create_local_auth_manager_for_user(
-        &user_id,
-        nickname,
-        false,
-    );
+    let auth =
+        pointer_core::local_auth::create_local_auth_manager_for_user(&user_id, nickname, false);
     let creds = pointer_core::local_auth::empty_local_credentials();
     let mut resp = success_redirect();
     match issue_session(
@@ -906,7 +929,10 @@ mod tests {
 
         let entry = store.get(&issued.session_id).expect("session stored");
         assert_eq!(entry.kind, WebSessionAuthKind::Local);
-        assert_eq!(entry.auth.platform_user_id().as_deref(), Some("local-admin"));
+        assert_eq!(
+            entry.auth.platform_user_id().as_deref(),
+            Some("local-admin")
+        );
     }
 
     #[test]
@@ -991,7 +1017,10 @@ mod ticket_failure_tests {
         let cases = [
             ("auth provider `portal`: ticket is empty", "ticket_missing"),
             ("auth provider `portal`: ticket expired", "ticket_expired"),
-            ("auth provider `portal`: ticket was already used", "ticket_replayed"),
+            (
+                "auth provider `portal`: ticket was already used",
+                "ticket_replayed",
+            ),
             (
                 "auth provider `portal`: ticket signature is not valid",
                 "ticket_signature_invalid",
@@ -1012,7 +1041,10 @@ mod ticket_failure_tests {
                 "auth provider `portal`: ticket lookup failed (HTTP 502): bad gateway",
                 "upstream_error",
             ),
-            ("auth provider `oidc`: discovery document has no `token_endpoint`", "exchange_failed"),
+            (
+                "auth provider `oidc`: discovery document has no `token_endpoint`",
+                "exchange_failed",
+            ),
         ];
         for (message, expected) in cases {
             let code = classify_provider_failure(message).as_code();
@@ -1034,6 +1066,10 @@ mod ticket_failure_tests {
         let mut unique = codes.to_vec();
         unique.sort_unstable();
         unique.dedup();
-        assert_eq!(unique.len(), codes.len(), "duplicate login error codes: {codes:?}");
+        assert_eq!(
+            unique.len(),
+            codes.len(),
+            "duplicate login error codes: {codes:?}"
+        );
     }
 }

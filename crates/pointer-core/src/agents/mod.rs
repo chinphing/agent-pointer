@@ -1,6 +1,5 @@
 use crate::models::ComputerDelegation;
 use crate::skills::SkillRegistry;
-use crate::storage;
 use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
@@ -51,8 +50,7 @@ const MERMAID_DIAGRAMS: &str = include_str!("_shared/MERMAID_DIAGRAMS.md");
 const SVG_DIAGRAMS: &str = include_str!("_shared/SVG_DIAGRAMS.md");
 /// HTML table fence guidance for fixed column widths (assembled separately).
 const HTML_TABLES: &str = include_str!("_shared/HTML_TABLES.md");
-const COMPUTER_COMMUNICATION_PRIMARY: &str =
-    include_str!("computer/prompts/communication.md");
+const COMPUTER_COMMUNICATION_PRIMARY: &str = include_str!("computer/prompts/communication.md");
 const COMPUTER_UI_DISABLED_CONTROLS: &str =
     include_str!("computer/prompts/ui_disabled_controls.md");
 const COMPUTER_OS_PROMPT_MACOS: &str = include_str!("computer/prompts/os/macos.md");
@@ -606,10 +604,7 @@ pub fn normalize_allow_agents(raw: &[String]) -> Vec<String> {
 ///
 /// Order is preserved: `validate_run_subagent_target` binary-searches the list,
 /// so this must never reorder or dedupe — only remove.
-pub fn effective_allow_agents(
-    declared: &[String],
-    mode: ComputerDelegation,
-) -> Vec<String> {
+pub fn effective_allow_agents(declared: &[String], mode: ComputerDelegation) -> Vec<String> {
     if mode == ComputerDelegation::Off {
         declared
             .iter()
@@ -849,22 +844,22 @@ pub fn load_external_agents() -> Result<Vec<BaseAgent>> {
 }
 
 fn agent_roots() -> Result<Vec<PathBuf>> {
+    let Some(env) = crate::env::current_env() else {
+        log::info!("agent_roots: no user environment, skipping process-home agents");
+        return Ok(Vec::new());
+    };
+    if env.path_map().is_host_passthrough() {
+        log::info!("agent_roots: host environment is not a user session");
+        return Ok(Vec::new());
+    }
+    let root = env.home_root().join(".pointer").join(AGENTS_DIR);
     let mut roots = Vec::new();
-    let ws = crate::tools::file::workspace_root_from_override_or_settings();
-    let ws = ws.trim();
-    if !ws.is_empty() {
-        let root = PathBuf::from(ws);
-        if root.is_dir() && root.parent().is_some() {
-            roots.push(root.join(AGENTS_DIR));
-            roots.push(root.join(".agents").join(AGENTS_DIR));
+    for name in ["system", "user"] {
+        let dir = root.join(name);
+        if dir.is_dir() {
+            roots.push(dir);
         }
     }
-    if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(".agents").join(AGENTS_DIR));
-    }
-    let data_dir = storage::app_data_dir()?.join(AGENTS_DIR);
-    fs::create_dir_all(&data_dir)?;
-    roots.push(data_dir);
     Ok(roots)
 }
 
@@ -989,7 +984,11 @@ fn manifest_to_agent(
     };
 
     Ok(BaseAgent {
-        system_prompt: compose_system_prompt(&manifest.body, communication_public_md(), communication),
+        system_prompt: compose_system_prompt(
+            &manifest.body,
+            communication_public_md(),
+            communication,
+        ),
         def,
     })
 }
@@ -1209,7 +1208,11 @@ fn resolve_skill_ids(
         .get(ORG_OPT_OUT_KEY)
         .cloned()
         .unwrap_or_default();
-    merge_org_default_on(&mut ids, &crate::skills::org_sync::default_on_skill_ids(), &opted_out);
+    merge_org_default_on(
+        &mut ids,
+        &crate::skills::org_sync::default_on_skill_ids(),
+        &opted_out,
+    );
     finalize_skill_ids(&mut ids);
     ids
 }
@@ -1500,8 +1503,11 @@ mod builtin_agent_tests {
         let agent = load_builtin_agent("computer", raw, &comm).expect("load builtin computer");
         assert_eq!(agent.def.role, "worker");
         assert!(agent.def.enabled);
-        assert_eq!(agent.def.profile, AgentProfile::Computer);        assert!(
-            agent.system_prompt.contains("## Verify state (host — read only)"),
+        assert_eq!(agent.def.profile, AgentProfile::Computer);
+        assert!(
+            agent
+                .system_prompt
+                .contains("## Verify state (host — read only)"),
             "computer communication should keep the host verify section"
         );
         assert!(
@@ -1743,7 +1749,10 @@ mod builtin_agent_tests {
             "expected AGENT.md body → COMMUNICATION_PUBLIC → COMMUNICATION.md, got {body_at} / {public_at} / {details_at}"
         );
 
-        assert!(full.contains("100px"), "anchor distance limit must be visible");
+        assert!(
+            full.contains("100px"),
+            "anchor distance limit must be visible"
+        );
 
         // The overlay-label route is gone: every pointing tool takes
         // target_desc + bbox, so a prompt that still offers "a label on that
@@ -1923,8 +1932,13 @@ mod builtin_agent_tests {
             "the language rule must cover messages with no discernible language"
         );
         // The rule must stay language-agnostic: naming a concrete language biases the model.
-        let rule_start = s.find("User-visible language (mandatory)").expect("language rule");
-        let rule_end = s[rule_start..].find("\n- **").map(|i| rule_start + i).unwrap_or(s.len());
+        let rule_start = s
+            .find("User-visible language (mandatory)")
+            .expect("language rule");
+        let rule_end = s[rule_start..]
+            .find("\n- **")
+            .map(|i| rule_start + i)
+            .unwrap_or(s.len());
         let rule = &s[rule_start..rule_end];
         for named in ["Chinese", "English", "简体", "中文"] {
             assert!(
@@ -2076,9 +2090,6 @@ mod builtin_agent_tests {
         }
     }
 
-
-
-
     /// off 档拼出来的 lead 提示词里不允许出现 computer——用户看不到这个能力。
     ///
     /// 这里按 `session_inner` 的真实拼装顺序复现：角色提示词 → 可委派元数据块 →
@@ -2153,9 +2164,7 @@ mod builtin_agent_tests {
         assert!(confirm.ends_with(tail));
         assert!(auto.ends_with(tail));
         assert!(
-            confirm_flat.contains(
-                "unless they already declined or asked for instructions only"
-            ),
+            confirm_flat.contains("unless they already declined or asked for instructions only"),
             "手动步骤的豁免条件不能丢"
         );
         assert!(
@@ -2297,10 +2306,7 @@ mod builtin_agent_tests {
             "computer allowTools must not list the removed locate_element tool"
         );
         assert!(
-            !agent
-                .def
-                .tool_names
-                .contains(&"locate_element".to_string()),
+            !agent.def.tool_names.contains(&"locate_element".to_string()),
             "computer toolNames must not declare locate_element"
         );
     }
@@ -2643,5 +2649,3 @@ mod builtin_agent_tests {
         }
     }
 }
-
-

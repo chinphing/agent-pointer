@@ -83,11 +83,8 @@ Run spatial proof in reasoning_content only; then call exactly one submit_positi
 Leave message content empty.\n";
 
 fn build_position_single_screen(input: &PositionWireInput<'_>) -> Vec<Value> {
-    let mut user_text = tagged_operation_block(
-        TAG_POSITION,
-        input.operation_text,
-        POSITION_INSTRUCTION,
-    );
+    let mut user_text =
+        tagged_operation_block(TAG_POSITION, input.operation_text, POSITION_INSTRUCTION);
     if let Some(bbox) = input.bbox_text.filter(|s| !s.trim().is_empty()) {
         user_text.push_str("\n\n");
         user_text.push_str(bbox);

@@ -25,7 +25,7 @@ struct SecretFile {
 }
 
 fn store_path(session_user_id: &str) -> Result<PathBuf> {
-    let home = crate::user_data_paths::user_home_host_root(session_user_id)?;
+    let home = crate::user_data_paths::user_home_host_root(session_user_id, "")?;
     let dir = home.join(".pointer");
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     Ok(dir.join(STORE_FILE))
@@ -157,16 +157,10 @@ pub fn plugin_process_env(
             "POINTER_PLUGIN_ROOT".into(),
             plugin_root.display().to_string(),
         ),
-        (
-            "POINTER_PLUGIN_DATA".into(),
-            data.display().to_string(),
-        ),
+        ("POINTER_PLUGIN_DATA".into(), data.display().to_string()),
     ];
     if let Some(project) = project_dir {
-        env.push((
-            "POINTER_PROJECT_DIR".into(),
-            project.display().to_string(),
-        ));
+        env.push(("POINTER_PROJECT_DIR".into(), project.display().to_string()));
     }
     Ok(env)
 }
@@ -182,7 +176,9 @@ mod tests {
         crate::storage::set_test_app_data_dir(temp.path().to_path_buf());
         put_secret("alice", "com.example.p", "TOKEN", "s3cret").unwrap();
         assert_eq!(
-            get_secret("alice", "com.example.p", "TOKEN").unwrap().as_deref(),
+            get_secret("alice", "com.example.p", "TOKEN")
+                .unwrap()
+                .as_deref(),
             Some("s3cret")
         );
         assert!(delete_secret("alice", "com.example.p", "TOKEN").unwrap());

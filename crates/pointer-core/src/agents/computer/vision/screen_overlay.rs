@@ -27,7 +27,6 @@ pub const SLOT_SCREEN_MARKED_AFTER_ACTION: &str = "[Marked screen after action]"
 /// When false, skip drawing the synthetic pointer bitmap (for A/B against OS cursor in capture).
 pub const DRAW_SYNTHETIC_POINTER_OVERLAY: bool = true;
 
-
 /// Pointer vicinity crop side (before 4× magnification) for after- and before-action zoom slots.
 pub const ZOOM_POINTER_CROP_SIDE: u32 = 200;
 /// Nearest-neighbor upscale for `[Zoom pointer after action]` and `[Zoom pointer before action]`.
@@ -134,8 +133,22 @@ fn composite_pointer_crosshair(img: &mut RgbaImage, cx: i32, cy: i32) {
     }
 
     // 十字：白边铺底，红芯压上。
-    fill_rgba_rect(img, fx - arm - halo, fy - halo, fx + arm + halo, fy + halo, white);
-    fill_rgba_rect(img, fx - halo, fy - arm - halo, fx + halo, fy + arm + halo, white);
+    fill_rgba_rect(
+        img,
+        fx - arm - halo,
+        fy - halo,
+        fx + arm + halo,
+        fy + halo,
+        white,
+    );
+    fill_rgba_rect(
+        img,
+        fx - halo,
+        fy - arm - halo,
+        fx + halo,
+        fy + arm + halo,
+        white,
+    );
     fill_rgba_rect(img, fx - arm, fy - core, fx + arm, fy + core, red);
     fill_rgba_rect(img, fx - core, fy - arm, fx + core, fy + arm, red);
 }
@@ -175,7 +188,6 @@ fn set_px(img: &mut RgbaImage, x: i32, y: i32, c: Rgba<u8>) {
 }
 
 /// Vertices match Python fallback polygon / `cursor-pointer.svg` path.
-
 
 fn sample_luminance(img: &RgbaImage, cx: i32, cy: i32, radius: i32) -> f32 {
     let w = img.width() as i32;
@@ -274,7 +286,6 @@ fn apply_pointer_and_caret_overlays(
     }
 }
 
-
 fn decode_jpeg_to_rgba(bytes: &[u8]) -> Result<RgbaImage> {
     let img = image::load_from_memory(bytes).map_err(|e| anyhow!("decode jpeg: {}", e))?;
     Ok(img.to_rgba8())
@@ -352,7 +363,11 @@ mod tests {
             (cx, cy - ai + 2),
             (cx, cy + ai - 2),
         ] {
-            assert_eq!(img.get_pixel(x as u32, y as u32)[0], 220, "臂缺失于 ({x}, {y})");
+            assert_eq!(
+                img.get_pixel(x as u32, y as u32)[0],
+                220,
+                "臂缺失于 ({x}, {y})"
+            );
         }
         // 圆环：30° 落在虚线「段」内（16°段 / 8°空），且不在任何一条臂上
         let (a, r) = (30.0_f64.to_radians(), ring);
@@ -405,5 +420,4 @@ mod tests {
         assert_ne!(marked.get_pixel(32, 32), unmarked.get_pixel(32, 32));
         assert_ne!(marked.get_pixel(20, 40), unmarked.get_pixel(20, 40));
     }
-
 }

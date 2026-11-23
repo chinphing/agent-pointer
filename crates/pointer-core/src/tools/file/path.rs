@@ -108,8 +108,27 @@ pub(crate) fn build_glob_set(globs: Option<&[String]>) -> Result<Option<globset:
 }
 
 /// Expand `~` / `~/…` to the session user's home directory.
+fn session_home_for_tilde() -> Option<std::path::PathBuf> {
+    if let Some(session) = crate::env::current_session() {
+        let home = session.home_root().to_path_buf();
+        if !home.as_os_str().is_empty() {
+            return Some(home);
+        }
+    }
+    let ctx = crate::tools::context::current_tool_context()?;
+    let env = crate::env::session_env::env_for_conversation(ctx.conversation_id())?;
+    let home = env.home_root().to_path_buf();
+    if home.as_os_str().is_empty() {
+        None
+    } else {
+        Some(home)
+    }
+}
+
 pub(crate) fn expand_user_path_for_file(user_path: &str) -> Result<String> {
-    expand_user_path_for_file_at(user_path, dirs::home_dir().as_deref())
+    let session_home = session_home_for_tilde();
+    let os_home = dirs::home_dir();
+    expand_user_path_for_file_at(user_path, session_home.as_deref().or(os_home.as_deref()))
 }
 
 /// Same as [`expand_user_path_for_file`], with an explicit home for `~`.
@@ -232,13 +251,17 @@ impl Drop for AgentWorkspaceGuard {
 // 因此非 Local 档位一律走 `Environment`，且不再做宿主 canonicalize（沙箱路径已规范化）。
 // ---------------------------------------------------------------------------
 
-/// 本机路径在没绑环境时返回 `Ok(None)`（调用方按宿主读）。
-/// `/data/...` 在没绑环境时改用会话环境；会话环境也不在就报错。
+/// 本机路径在没有用户、也没有会话时返回 `Ok(None)`。
+/// 已经带上用户或会话，或者路径在沙箱里时，必须拿到该会话的环境。
 pub(super) fn runtime_env_for(path: &Path) -> Result<Option<Arc<dyn crate::env::Environment>>> {
     let tool_ctx = crate::tools::context::current_tool_context();
     let session_user_id = tool_ctx
         .as_ref()
         .map(|ctx| ctx.session_user_id().to_string())
+        .unwrap_or_default();
+    let conversation_id = tool_ctx
+        .as_ref()
+        .map(|ctx| ctx.conversation_id().to_string())
         .unwrap_or_default();
     let suits = |env: &Arc<dyn crate::env::Environment>| {
         session_user_id.is_empty()
@@ -253,13 +276,11 @@ pub(super) fn runtime_env_for(path: &Path) -> Result<Option<Arc<dyn crate::env::
         );
     }
     let text = path.to_string_lossy();
-    if !crate::workspace_resolve::looks_like_sandbox_guest_path(&text) {
+    let guest = crate::workspace_resolve::looks_like_sandbox_guest_path(&text);
+    let identified = !session_user_id.trim().is_empty() || !conversation_id.trim().is_empty();
+    if !guest && !identified {
         return Ok(None);
     }
-    let conversation_id = tool_ctx
-        .as_ref()
-        .map(|ctx| ctx.conversation_id().to_string())
-        .unwrap_or_default();
     if let Some(env) =
         crate::env::session_env::env_for_conversation(&conversation_id).filter(&suits)
     {
@@ -269,17 +290,24 @@ pub(super) fn runtime_env_for(path: &Path) -> Result<Option<Arc<dyn crate::env::
         );
         return Ok(Some(env));
     }
-    log::warn!(
-        "file tool: sandbox path has no session environment conversation={conversation_id} path={}",
-        path.display()
-    );
-    anyhow::bail!("工作区在沙箱内（{}），但当前没有会话环境", path.display())
+    if guest {
+        log::warn!(
+            "file tool: sandbox path has no session environment conversation={conversation_id} path={}",
+            path.display()
+        );
+        anyhow::bail!("工作区在沙箱内（{}），但当前没有会话环境", path.display())
+    } else {
+        log::warn!(
+            "file tool: host path has no session environment user={session_user_id} conversation={conversation_id} path={}",
+            path.display()
+        );
+        anyhow::bail!("文件工具缺少当前用户的执行环境")
+    }
 }
 
 fn env_is_dir(path: &Path) -> bool {
     match runtime_env_for(path) {
         Ok(None) => path.is_dir(),
-        Ok(Some(env)) if env.kind() == crate::env::EnvKind::Local => path.is_dir(),
         Ok(Some(env)) => env.metadata(path).map(|m| m.is_dir).unwrap_or(false),
         Err(error) => {
             log::warn!(
@@ -294,7 +322,6 @@ fn env_is_dir(path: &Path) -> bool {
 fn env_exists(path: &Path) -> bool {
     match runtime_env_for(path) {
         Ok(None) => path.exists(),
-        Ok(Some(env)) if env.kind() == crate::env::EnvKind::Local => path.exists(),
         Ok(Some(env)) => env.exists(path),
         Err(error) => {
             log::warn!(
@@ -307,21 +334,18 @@ fn env_exists(path: &Path) -> bool {
 }
 
 fn env_canonicalize(path: &Path) -> PathBuf {
-    let is_local = match runtime_env_for(path) {
-        Ok(Some(env)) => env.kind() == crate::env::EnvKind::Local,
-        Ok(None) => true,
+    match runtime_env_for(path) {
+        Ok(Some(env)) => env
+            .canonicalize(path)
+            .unwrap_or_else(|_| path.to_path_buf()),
+        Ok(None) => path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
         Err(error) => {
             log::warn!(
                 "file tool: canonicalize refused for {}: {error:#}",
                 path.display()
             );
-            return path.to_path_buf();
+            path.to_path_buf()
         }
-    };
-    if is_local {
-        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
-    } else {
-        path.to_path_buf()
     }
 }
 
@@ -422,12 +446,33 @@ pub fn writable_path_roots_at(workspace_root: &Path, home: Option<&Path>) -> Res
         WriteScope::None => return Err(anyhow!("当前环境不允许写文件")),
         WriteScope::Workspace => return Ok(vec![ws]),
         WriteScope::User => {
-            let mut scoped = vec![ws.clone()];
-            if let Some(home) = dirs::home_dir() {
-                let home = env_canonicalize(&home);
-                if !home.starts_with(&ws) {
-                    scoped.push(home);
+            let Some(env) = current_env() else {
+                log::warn!("file tool: user write scope without a session");
+                return Err(anyhow!("文件工具缺少当前用户的执行环境"));
+            };
+            if env.is_denied() || env.path_map().is_host_passthrough() {
+                log::warn!("file tool: user write scope refused a passthrough environment");
+                return Err(anyhow!("文件工具缺少当前用户的执行环境"));
+            }
+            let mut scoped = Vec::new();
+            for root in [env.home_root().to_path_buf(), env.data_root().to_path_buf()] {
+                if root.as_os_str().is_empty() {
+                    continue;
                 }
+                let canon = env_canonicalize(&root);
+                if scoped.iter().any(|existing| existing == &canon) {
+                    continue;
+                }
+                scoped.push(canon);
+            }
+            if (env.path_map().to_agent(&ws).is_ok() || env.path_map().to_host(&ws).is_ok())
+                && !scoped.iter().any(|root| ws.starts_with(root))
+            {
+                scoped.insert(0, ws);
+            }
+            if scoped.is_empty() {
+                log::warn!("file tool: user write scope has no roots");
+                return Err(anyhow!("当前环境不允许写文件"));
             }
             return Ok(scoped);
         }
@@ -765,8 +810,11 @@ fn collect_path_hints(workspace_root: &Path, user_path: &str) -> Vec<String> {
     // 就显式按宿主处理。不能用 `effective_env()`——沙箱部署下那是 `DeniedEnv`，
     // 连提示都列不出来，用户只看到一句干巴巴的「路径不存在」。
     let env = match runtime_env_for(workspace_root) {
-        Ok(Some(env)) => env,
-        Ok(None) => crate::env::host_env_at(workspace_root),
+        Ok(Some(env)) if !env.path_map().is_host_passthrough() && !env.is_denied() => env,
+        Ok(Some(_)) | Ok(None) => {
+            log::warn!("file tool: path hints skipped, no user environment");
+            return Vec::new();
+        }
         Err(error) => {
             log::warn!("file tool: path hints skipped: {error:#}");
             return Vec::new();
@@ -933,13 +981,15 @@ fn read_allowed(resolved: &Path, workspace_root: &Path) -> bool {
         ReadScope::None => false,
         ReadScope::Workspace => resolved.starts_with(workspace_root),
         ReadScope::User => {
-            if resolved.starts_with(workspace_root) {
-                return true;
+            let Some(env) = current_env() else {
+                log::warn!("file tool: user read scope without a session");
+                return false;
+            };
+            if env.is_denied() || env.path_map().is_host_passthrough() {
+                log::warn!("file tool: user read scope refused a passthrough environment");
+                return false;
             }
-            dirs::home_dir().is_some_and(|home| {
-                let home = home.canonicalize().unwrap_or(home);
-                resolved.starts_with(home)
-            })
+            env.path_map().to_agent(resolved).is_ok() || env.path_map().to_host(resolved).is_ok()
         }
     }
 }
@@ -947,11 +997,16 @@ fn read_allowed(resolved: &Path, workspace_root: &Path) -> bool {
 #[cfg(test)]
 mod resolve_root_tests {
     use super::*;
-    use crate::env::{Capabilities, Environment, EnvironmentGuard, LocalEnv};
-    use std::sync::Arc;
+    use crate::env::{Capabilities, EnvironmentGuard, SessionEnv};
 
-    fn bind(env: LocalEnv) -> EnvironmentGuard {
-        EnvironmentGuard::enter(Arc::new(env) as Arc<dyn Environment>)
+    fn bind_dir(dir: &std::path::Path) -> EnvironmentGuard {
+        EnvironmentGuard::enter(SessionEnv::open_roots("test", dir, dir, dir).expect("session"))
+    }
+
+    fn bind_caps(dir: &std::path::Path, caps: Capabilities) -> EnvironmentGuard {
+        EnvironmentGuard::enter(
+            SessionEnv::open_with("test", dir, dir, dir, Some(caps)).expect("session"),
+        )
     }
 
     #[test]
@@ -975,7 +1030,7 @@ mod resolve_root_tests {
     #[test]
     fn resolve_tool_workspace_root_prefers_bound_environment() {
         let dir = tempfile::tempdir().unwrap();
-        let _g = bind(LocalEnv::new(dir.path()));
+        let _g = bind_dir(dir.path());
         let got = resolve_tool_workspace_root().unwrap();
         assert_eq!(got, dir.path().canonicalize().unwrap());
     }
@@ -984,10 +1039,11 @@ mod resolve_root_tests {
     fn conversation_override_still_wins_over_bound_environment() {
         let env_dir = tempfile::tempdir().unwrap();
         let override_dir = tempfile::tempdir().unwrap();
-        let _env = bind(LocalEnv::new(env_dir.path()));
+        let _env = bind_dir(env_dir.path());
         let _g = ConversationWorkspaceGuard::enter(override_dir.path().display().to_string());
         let got = resolve_tool_workspace_root().unwrap();
-        assert_eq!(got, override_dir.path().canonicalize().unwrap());
+        let want = override_dir.path().canonicalize().unwrap();
+        assert_eq!(got.canonicalize().unwrap_or(got), want);
     }
 
     #[test]
@@ -999,25 +1055,35 @@ mod resolve_root_tests {
         let inside_file = ws.path().join("inside.txt");
         std::fs::write(&inside_file, b"y").unwrap();
 
-        let _g = bind(LocalEnv::new(ws.path()).with_capabilities(Capabilities {
-            read_scope: ReadScope::Workspace,
-            ..Capabilities::local()
-        }));
+        let _g = bind_caps(
+            ws.path(),
+            Capabilities {
+                read_scope: ReadScope::Workspace,
+                ..Capabilities::local()
+            },
+        );
 
         assert!(resolve_accessible_path(ws.path(), inside_file.to_str().unwrap()).is_ok());
         let err = resolve_accessible_path(ws.path(), outside_file.to_str().unwrap())
             .unwrap_err()
             .to_string();
-        assert!(err.contains("允许读取"), "{err}");
+        // 会话环境看不见用户树外的宿主文件，读请求在存在性检查就被拒绝。
+        assert!(
+            err.contains("路径无效或不存在") || err.contains("允许读取"),
+            "{err}"
+        );
     }
 
     #[test]
     fn workspace_write_scope_narrows_writable_roots_to_workspace() {
         let ws = tempfile::tempdir().unwrap();
-        let _g = bind(LocalEnv::new(ws.path()).with_capabilities(Capabilities {
-            write_scope: WriteScope::Workspace,
-            ..Capabilities::local()
-        }));
+        let _g = bind_caps(
+            ws.path(),
+            Capabilities {
+                write_scope: WriteScope::Workspace,
+                ..Capabilities::local()
+            },
+        );
         let roots = writable_path_roots(ws.path()).unwrap();
         assert_eq!(roots, vec![ws.path().canonicalize().unwrap()]);
         // 工作区外的绝对路径不再可写。
@@ -1029,10 +1095,13 @@ mod resolve_root_tests {
     #[test]
     fn write_scope_none_rejects_all_writes() {
         let ws = tempfile::tempdir().unwrap();
-        let _g = bind(LocalEnv::new(ws.path()).with_capabilities(Capabilities {
-            write_scope: WriteScope::None,
-            ..Capabilities::local()
-        }));
+        let _g = bind_caps(
+            ws.path(),
+            Capabilities {
+                write_scope: WriteScope::None,
+                ..Capabilities::local()
+            },
+        );
         let err = writable_path_roots(ws.path()).unwrap_err().to_string();
         assert!(err.contains("不允许写"), "{err}");
     }

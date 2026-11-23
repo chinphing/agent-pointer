@@ -11,8 +11,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use super::{
-    Capabilities, ChildHandle, DirEntry, EnvKind, Environment, ExecOptions, ExecOutput, FileMetadata,
-    PathMap, SpawnOptions, WalkEntry, WalkOptions,
+    Capabilities, ChildHandle, DirEntry, EnvKind, Environment, ExecOptions, ExecOutput,
+    FileMetadata, PathMap, SpawnOptions, WalkEntry, WalkOptions,
 };
 
 /// 宿主本机环境。路径映射恒等。
@@ -21,6 +21,7 @@ pub struct LocalEnv {
     workspace_root: PathBuf,
     skills_root: PathBuf,
     home_root: PathBuf,
+    data_root: PathBuf,
     path_map: PathMap,
     capabilities: Capabilities,
 }
@@ -42,8 +43,38 @@ impl LocalEnv {
             workspace_root: workspace_root.into(),
             skills_root: skills_root.into(),
             home_root: home_root.into(),
+            data_root: PathBuf::new(),
             path_map: PathMap::identity(),
             capabilities: Capabilities::local(),
+        }
+    }
+
+    /// 用户会话的本地环境。可见范围只有这个用户的 home 和 data。
+    ///
+    /// `home_root()` / `data_root()` 就是这两棵目录的宿主路径。路径表未命中即拒绝。
+    pub fn for_user(
+        home: impl Into<PathBuf>,
+        data: impl Into<PathBuf>,
+        workspace: impl Into<PathBuf>,
+    ) -> Self {
+        let home = existing_canonical(home.into());
+        let data = existing_canonical(data.into());
+        let workspace = existing_canonical(workspace.into());
+        let mounts = vec![
+            super::Mount::new(&home, &home, false),
+            super::Mount::new(&data, &data, false),
+        ];
+        Self {
+            skills_root: home.join(".pointer").join("skills"),
+            home_root: home,
+            data_root: data,
+            workspace_root: workspace,
+            path_map: PathMap::new(mounts),
+            capabilities: Capabilities {
+                read_scope: super::ReadScope::User,
+                write_scope: super::WriteScope::User,
+                ..Capabilities::local()
+            },
         }
     }
 
@@ -67,6 +98,47 @@ impl LocalEnv {
         } else {
             Self::new(raw)
         }
+    }
+
+    /// 整机恒等映射直接放行。用户会话先把路径收进 home/data，再执行。
+    fn visible(&self, path: &Path) -> Result<PathBuf> {
+        if self.path_map.is_host_passthrough() {
+            return Ok(path.to_path_buf());
+        }
+        self.path_map
+            .to_host(path)
+            .with_context(|| format!("路径不在当前用户的 home 或 data 内: {}", path.display()))
+    }
+
+    fn prepare_process(
+        &self,
+        argv: &[String],
+        cwd: Option<&Path>,
+    ) -> Result<(Vec<String>, PathBuf)> {
+        if self.path_map.is_host_passthrough() {
+            let cwd = cwd
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| self.workspace_root.clone());
+            return Ok((argv.to_vec(), cwd));
+        }
+        let requested = cwd
+            .map(Path::to_path_buf)
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| self.workspace_root.clone());
+        let cwd = self.visible(&requested)?;
+        let argv = confine_argv(&self.home_root, &self.data_root, &cwd, argv)?;
+        Ok((argv, cwd))
+    }
+
+    /// 用户会话里的进程使用这份 home，避免读到操作系统用户的家目录。
+    fn confined_env_pairs(&self) -> Vec<(String, String)> {
+        if self.path_map.is_host_passthrough() {
+            return Vec::new();
+        }
+        vec![
+            ("HOME".into(), self.home_root.display().to_string()),
+            ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+        ]
     }
 }
 
@@ -163,7 +235,12 @@ impl crate::env::PtyHandle for LocalPty {
         Ok(reader)
     }
     fn try_wait(&self) -> Result<Option<i32>> {
-        match self.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait() {
+        match self
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .try_wait()
+        {
             Ok(Some(status)) => Ok(Some(status.exit_code() as i32)),
             Ok(None) => Ok(None),
             Err(err) => Err(err.into()),
@@ -195,6 +272,10 @@ impl Environment for LocalEnv {
         &self.home_root
     }
 
+    fn data_root(&self) -> &Path {
+        &self.data_root
+    }
+
     fn capabilities(&self) -> Capabilities {
         self.capabilities
     }
@@ -204,6 +285,12 @@ impl Environment for LocalEnv {
     }
 
     fn exec(&self, argv: &[String], opts: ExecOptions) -> Result<ExecOutput> {
+        let (argv, cwd) = self.prepare_process(argv, opts.cwd.as_deref())?;
+        let mut opts = opts;
+        opts.cwd = Some(cwd);
+        for (key, value) in self.confined_env_pairs() {
+            opts.env.entry(key).or_insert(value);
+        }
         let (program, args) = argv
             .split_first()
             .ok_or_else(|| anyhow!("exec 需要非空 argv"))?;
@@ -233,12 +320,14 @@ impl Environment for LocalEnv {
 
         // 管道必须并发读，否则子进程写满缓冲区后永远不退出。
         let cap = opts.max_output_bytes;
-        let out_handle = child.stdout.take().map(|pipe| {
-            std::thread::spawn(move || copy_limited(pipe, cap))
-        });
-        let err_handle = child.stderr.take().map(|pipe| {
-            std::thread::spawn(move || copy_limited(pipe, cap))
-        });
+        let out_handle = child
+            .stdout
+            .take()
+            .map(|pipe| std::thread::spawn(move || copy_limited(pipe, cap)));
+        let err_handle = child
+            .stderr
+            .take()
+            .map(|pipe| std::thread::spawn(move || copy_limited(pipe, cap)));
         let stdin_handle = match (opts.stdin.clone(), child.stdin.take()) {
             (Some(data), Some(mut pipe)) => Some(std::thread::spawn(move || {
                 let _ = pipe.write_all(&data);
@@ -250,12 +339,8 @@ impl Environment for LocalEnv {
         if let Some(handle) = stdin_handle {
             let _ = handle.join();
         }
-        let (stdout, stdout_truncated) = out_handle
-            .and_then(|h| h.join().ok())
-            .unwrap_or_default();
-        let (stderr, stderr_truncated) = err_handle
-            .and_then(|h| h.join().ok())
-            .unwrap_or_default();
+        let (stdout, stdout_truncated) = out_handle.and_then(|h| h.join().ok()).unwrap_or_default();
+        let (stderr, stderr_truncated) = err_handle.and_then(|h| h.join().ok()).unwrap_or_default();
         Ok(ExecOutput {
             status,
             stdout,
@@ -267,6 +352,7 @@ impl Environment for LocalEnv {
     }
 
     fn spawn(&self, argv: &[String], opts: SpawnOptions) -> Result<Box<dyn ChildHandle>> {
+        let (argv, cwd) = self.prepare_process(argv, opts.cwd.as_deref())?;
         let program = argv
             .first()
             .ok_or_else(|| anyhow!("spawn 需要可执行文件"))?;
@@ -274,16 +360,15 @@ impl Environment for LocalEnv {
         cmd.args(&argv[1..])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if let Some(cwd) = &opts.cwd {
-            cmd.current_dir(cwd);
+            .stderr(Stdio::piped())
+            .current_dir(&cwd);
+        for (k, v) in self.confined_env_pairs() {
+            cmd.env(k, v);
         }
         for (k, v) in &opts.env {
             cmd.env(k, v);
         }
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("spawn {program}"))?;
+        let mut child = cmd.spawn().with_context(|| format!("spawn {program}"))?;
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         // stderr 在后台排空：不阻塞管道，也不会让子进程写 stderr 时拿到 EPIPE。
@@ -306,6 +391,13 @@ impl Environment for LocalEnv {
 
     fn pty_open(&self, spec: crate::env::PtySpec) -> Result<Box<dyn crate::env::PtyHandle>> {
         use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+        let (argv, cwd) = self.prepare_process(&spec.argv, spec.cwd.as_deref())?;
+        let mut spec = spec;
+        spec.argv = argv;
+        spec.cwd = Some(cwd);
+        for pair in self.confined_env_pairs() {
+            spec.env.push(pair);
+        }
         let program = spec
             .argv
             .first()
@@ -339,23 +431,26 @@ impl Environment for LocalEnv {
     }
 
     fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
-        std::fs::read(path).with_context(|| format!("读取失败: {}", path.display()))
+        let path = self.visible(path)?;
+        std::fs::read(&path).with_context(|| format!("读取失败: {}", path.display()))
     }
 
     /// 与现有 `file_write` 语义一致：父目录不存在时自动创建。
     fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+        let path = self.visible(path)?;
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent)
                     .with_context(|| format!("无法创建目录: {}", parent.display()))?;
             }
         }
-        std::fs::write(path, data).with_context(|| format!("写入失败: {}", path.display()))
+        std::fs::write(&path, data).with_context(|| format!("写入失败: {}", path.display()))
     }
 
     fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>> {
+        let path = self.visible(path)?;
         let mut out = Vec::new();
-        let entries = std::fs::read_dir(path)
+        let entries = std::fs::read_dir(&path)
             .with_context(|| format!("无法列出目录: {}", path.display()))?;
         for entry in entries.flatten() {
             let file_type = entry.file_type().ok();
@@ -371,12 +466,13 @@ impl Environment for LocalEnv {
     }
 
     fn metadata(&self, path: &Path) -> Result<FileMetadata> {
-        let meta = std::fs::symlink_metadata(path)
+        let path = self.visible(path)?;
+        let meta = std::fs::symlink_metadata(&path)
             .with_context(|| format!("读取元数据失败: {}", path.display()))?;
         let is_symlink = meta.file_type().is_symlink();
         // 符号链接按目标类型判定（与 `Path::is_file` / `is_dir` 一致）。
         let resolved = if is_symlink {
-            std::fs::metadata(path).ok()
+            std::fs::metadata(&path).ok()
         } else {
             None
         };
@@ -390,27 +486,30 @@ impl Environment for LocalEnv {
     }
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        std::fs::canonicalize(path)
-            .with_context(|| format!("无法解析路径: {}", path.display()))
+        let path = self.visible(path)?;
+        std::fs::canonicalize(&path).with_context(|| format!("无法解析路径: {}", path.display()))
     }
 
     fn create_dir_all(&self, path: &Path) -> Result<()> {
-        std::fs::create_dir_all(path)
-            .with_context(|| format!("无法创建目录: {}", path.display()))
+        let path = self.visible(path)?;
+        std::fs::create_dir_all(&path).with_context(|| format!("无法创建目录: {}", path.display()))
     }
 
     fn read_to_string(&self, path: &Path) -> Result<String> {
-        std::fs::read_to_string(path)
-            .with_context(|| format!("读取失败: {}", path.display()))
+        let path = self.visible(path)?;
+        std::fs::read_to_string(&path).with_context(|| format!("读取失败: {}", path.display()))
     }
 
     fn open_reader(&self, path: &Path) -> Result<Box<dyn std::io::Read + Send>> {
-        let file = std::fs::File::open(path)
-            .with_context(|| format!("读取失败: {}", path.display()))?;
+        let path = self.visible(path)?;
+        let file =
+            std::fs::File::open(&path).with_context(|| format!("读取失败: {}", path.display()))?;
         Ok(Box::new(file))
     }
 
-    fn walk(&self, root: &Path, opts: WalkOptions) -> Result<Vec<WalkEntry>> {        let mut builder = ignore::WalkBuilder::new(root);
+    fn walk(&self, root: &Path, opts: WalkOptions) -> Result<Vec<WalkEntry>> {
+        let root = self.visible(root)?;
+        let mut builder = ignore::WalkBuilder::new(&root);
         builder.max_depth(Some(opts.max_depth.max(1)));
         builder.hidden(!opts.include_hidden);
         // grep 需要 .gitignore 语义；glob 只需要目录遍历，关掉以免结果与既有行为不同。
@@ -427,10 +526,7 @@ impl Environment for LocalEnv {
             let path = entry.path();
             // `.git` 元数据目录：grep / glob 跳过，`file_list` 不跳（保持"列目录所见即所得"）。
             if opts.exclude_git_metadata
-                && path
-                    .to_string_lossy()
-                    .replace('\\', "/")
-                    .contains("/.git/")
+                && path.to_string_lossy().replace('\\', "/").contains("/.git/")
             {
                 continue;
             }
@@ -445,7 +541,8 @@ impl Environment for LocalEnv {
     }
 
     fn remove_file(&self, path: &Path) -> Result<()> {
-        match std::fs::remove_file(path) {
+        let path = self.visible(path)?;
+        match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(anyhow!("删除失败 {}: {e}", path.display())),
@@ -453,7 +550,8 @@ impl Environment for LocalEnv {
     }
 
     fn remove_dir_all(&self, path: &Path) -> Result<()> {
-        match std::fs::remove_dir_all(path) {
+        let path = self.visible(path)?;
+        match std::fs::remove_dir_all(&path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(anyhow!("删除目录失败 {}: {e}", path.display())),
@@ -461,10 +559,11 @@ impl Environment for LocalEnv {
     }
 
     fn set_executable(&self, path: &Path) -> Result<()> {
+        let path = self.visible(path)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
                 .with_context(|| format!("设置权限失败: {}", path.display()))?;
         }
         #[cfg(not(unix))]
@@ -473,6 +572,122 @@ impl Environment for LocalEnv {
         }
         Ok(())
     }
+}
+
+/// 把用户会话的命令包进只含 home 与 data 的视图。没有可用沙箱时拒绝执行。
+fn confine_argv(home: &Path, data: &Path, cwd: &Path, argv: &[String]) -> Result<Vec<String>> {
+    if argv.is_empty() {
+        bail_empty_exec();
+    }
+    if cfg!(target_os = "linux") && command_on_path("bwrap") {
+        let mut wrapped = vec!["bwrap".to_string(), "--die-with-parent".to_string()];
+        for spec in ["/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc", "/opt"] {
+            let path = Path::new(spec);
+            if path.is_dir() {
+                wrapped.push("--ro-bind".into());
+                wrapped.push(spec.into());
+                wrapped.push(spec.into());
+            }
+        }
+        wrapped.extend([
+            "--dev".into(),
+            "/dev".into(),
+            "--proc".into(),
+            "/proc".into(),
+            "--tmpfs".into(),
+            "/tmp".into(),
+            "--bind".into(),
+            home.display().to_string(),
+            home.display().to_string(),
+            "--bind".into(),
+            data.display().to_string(),
+            data.display().to_string(),
+            "--chdir".into(),
+            cwd.display().to_string(),
+            "--".into(),
+        ]);
+        wrapped.extend(argv.iter().cloned());
+        log::info!("local env: confined exec via bwrap cwd={}", cwd.display());
+        return Ok(wrapped);
+    }
+    if cfg!(target_os = "macos") && command_on_path("sandbox-exec") {
+        let profile = macos_profile(home, data);
+        let mut wrapped = vec!["sandbox-exec".to_string(), "-p".into(), profile];
+        wrapped.extend(argv.iter().cloned());
+        log::info!(
+            "local env: confined exec via sandbox-exec cwd={}",
+            cwd.display()
+        );
+        return Ok(wrapped);
+    }
+    anyhow::bail!("当前平台没有可用的目录沙箱，已拒绝在用户会话里执行命令")
+}
+
+fn existing_canonical(path: PathBuf) -> PathBuf {
+    path.canonicalize().unwrap_or(path)
+}
+
+fn bail_empty_exec() -> Result<Vec<String>> {
+    anyhow::bail!("exec 需要非空 argv")
+}
+
+fn command_on_path(name: &str) -> bool {
+    let Ok(path) = std::env::var("PATH") else {
+        return false;
+    };
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    path.split(sep).any(|dir| {
+        if dir.is_empty() {
+            return false;
+        }
+        Path::new(dir).join(name).is_file()
+    })
+}
+
+fn macos_profile(home: &Path, data: &Path) -> String {
+    let home = home.display();
+    let data = data.display();
+    // `(literal "/")` 只放行根目录这一项，用来解析 `/var`、`/tmp`、`/etc` 这些符号链接。
+    // `/var` 只给元数据：`/usr/bin/git` 要能发现 `/var/select/developer_dir` 不存在，
+    // 再读到 `/var/db/xcode_select_link`。不放行 `/var/folders` 的内容。
+    // `/dev/null` 需要读写，git 会打开它。
+    format!(
+        r#"(version 1)
+(deny default)
+(allow process*)
+(allow signal)
+(allow sysctl-read)
+(allow file-read* (literal "/"))
+(allow file-read-metadata
+    (subpath "/var")
+    (subpath "/private/var")
+    (subpath "/etc")
+    (subpath "/tmp"))
+(allow file-read*
+    (subpath "/usr")
+    (subpath "/bin")
+    (subpath "/sbin")
+    (subpath "/System")
+    (subpath "/Library")
+    (subpath "/opt")
+    (subpath "/dev")
+    (subpath "/private/etc")
+    (subpath "/etc")
+    (subpath "/.vol")
+    (subpath "/private/var/select")
+    (subpath "/var/select")
+    (literal "/var/db/xcode_select_link")
+    (literal "/private/var/db/xcode_select_link"))
+(allow file-read* file-write*
+    (subpath "{home}")
+    (subpath "{data}")
+    (subpath "/private/tmp")
+    (subpath "/tmp")
+    (literal "/dev/null"))
+(allow file-ioctl)
+(allow network*)
+"#
+    )
 }
 
 /// 读到上限就停，但继续把剩余字节读掉丢弃，避免子进程阻塞在写管道上。
@@ -697,8 +912,10 @@ mod tests {
         let env = env_for(dir.path());
         env.write_file(&dir.path().join("a.txt"), b"a").unwrap();
         env.write_file(&dir.path().join("sub/b.txt"), b"b").unwrap();
-        env.write_file(&dir.path().join(".hidden.txt"), b"h").unwrap();
-        env.write_file(&dir.path().join(".git/config"), b"g").unwrap();
+        env.write_file(&dir.path().join(".hidden.txt"), b"h")
+            .unwrap();
+        env.write_file(&dir.path().join(".git/config"), b"g")
+            .unwrap();
 
         let entries = env.walk(dir.path(), WalkOptions::new(4)).unwrap();
         let rel: Vec<String> = entries
@@ -752,7 +969,9 @@ mod tests {
             .iter()
             .map(|s| s.to_string())
             .collect();
-        let mut child = env.spawn(&argv, SpawnOptions::default()).expect("spawn cat");
+        let mut child = env
+            .spawn(&argv, SpawnOptions::default())
+            .expect("spawn cat");
         child.write_all(b"hello\n").expect("write");
         let mut reader = child.reader().expect("reader");
         let mut line = String::new();
@@ -782,7 +1001,13 @@ mod tests {
         assert_eq!(first.trim(), "probe-ok");
         let mut second = String::new();
         reader.read_line(&mut second).expect("read cwd line");
-        assert!(second.trim().ends_with(&dir.path().file_name().unwrap().to_string_lossy().to_string()));
+        assert!(second.trim().ends_with(
+            &dir.path()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        ));
         child.kill().expect("kill");
     }
 

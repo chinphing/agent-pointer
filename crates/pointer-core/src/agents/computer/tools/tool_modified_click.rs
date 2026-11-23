@@ -1,6 +1,4 @@
-use super::args_util::{
-    human_like_from_args, require_non_empty_str, value_to_f32_loose,
-};
+use super::args_util::{human_like_from_args, require_non_empty_str, value_to_f32_loose};
 use super::method_route::ModifiedClickBackend;
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::vision_state::VisionState;

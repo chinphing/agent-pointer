@@ -30,6 +30,8 @@ pub(super) async fn prepare_single_agent_round_prompts(
     let tools_system_appendix = ctx.tools_system_appendix;
     let _tools_appendix_enabled = ctx.tools_appendix_enabled;
     let round_prep = Instant::now();
+    let prompt_workspace_root =
+        crate::env::prompt_workspace_root(conversation_id, settings.workspace_root.trim());
     let mut injected_tail = Vec::new();
     let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
         computer_state: state.computer_state.as_ref(),
@@ -43,7 +45,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
         task_board_store: state.task_board_store.clone(),
         task_board_store_key: main_task_board_store_key,
         user_dynamic_inject_enabled: settings.user_dynamic_inject_enabled,
-        workspace_root: settings.workspace_root.trim(),
+        workspace_root: prompt_workspace_root.as_str(),
     };
     let t = Instant::now();
     state
@@ -54,9 +56,6 @@ pub(super) async fn prepare_single_agent_round_prompts(
 
     let t = Instant::now();
     let mut cacheable = Vec::new();
-    // `{{workspace_root}}` 的来源统一走 `env`（未绑定会话环境时等同 settings 值）。
-    let prompt_workspace_root =
-        crate::env::prompt_workspace_root(settings.workspace_root.trim());
     let session_vars = SessionInjectVars {
         workspace_root: &prompt_workspace_root,
     };
@@ -98,7 +97,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
         );
         crate::plugins::agents_md::push_agents_md_to_cacheable(
             &mut cacheable,
-            settings.workspace_root.trim(),
+            prompt_workspace_root.as_str(),
             conversation_id,
         );
     }

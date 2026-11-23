@@ -195,16 +195,20 @@ impl McpClient {
         Ok(client)
     }
 
-    /// 启动 stdio MCP server 并完成握手；失败时清理子进程。
-    ///
-    /// 插件加载时没有会话，用宿主环境发现工具。沙箱会话的调用另走
-    /// [`Self::connect_stdio_in`]。
+    /// 在当前用户的会话环境里启动 stdio MCP。没有会话环境就返回错误。
     pub fn connect_stdio(
         plugin_id: &str,
         plugin_dir: &Path,
         decl: &McpServerDecl,
     ) -> Result<Arc<McpClient>> {
-        Self::connect_stdio_in(plugin_id, plugin_dir, decl, &crate::env::host_env())
+        let Some(session) = crate::env::current_session() else {
+            anyhow::bail!("MCP 缺少当前用户的执行环境");
+        };
+        if session.is_denied() || session.path_map().is_host_passthrough() {
+            anyhow::bail!("MCP 缺少当前用户的执行环境");
+        }
+        log::info!("mcp: spawn stdio in session {}", session.scope().id);
+        Self::connect_stdio_in(plugin_id, plugin_dir, decl, &session.environment())
     }
 
     /// 连接远程 MCP 服务（streamable HTTP，客户端场景）。
@@ -931,6 +935,9 @@ fn activate_mcp_servers_with(
     for decl in decls {
         let client = if decl.transport == "http" {
             McpClient::connect_http(plugin_id, decl)
+        } else if plugin_id == GLOBAL_MCP_KEY {
+            log::info!("mcp: spawn global stdio server {}", decl.name);
+            McpClient::connect_stdio_in(plugin_id, base_dir, decl, &crate::env::process_io())
         } else {
             McpClient::connect_stdio(plugin_id, base_dir, decl)
         };
@@ -1054,9 +1061,7 @@ fn register_mcp_tool(
             .filter(&suits)
             .or_else(|| crate::env::session_env::env_for_conversation(&cid).filter(&suits));
         let sandbox = env.as_ref().is_some_and(|env| {
-            !env.is_denied()
-                && env.kind() != crate::env::EnvKind::Local
-                && !env.path_map().is_host_passthrough()
+            !env.is_denied() && !env.path_map().is_host_passthrough()
         });
         if sandbox && stdio {
             let env = env.expect("sandbox env checked above");
@@ -1151,6 +1156,9 @@ done
             headers: None,
         };
 
+        let _session = crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots("mcp-test", root, root, root).expect("session"),
+        );
         let client = McpClient::connect_stdio("com.example.mcp", &dir, &mcp_decl).expect("connect");
         let tools = client.list_tools().expect("list tools");
         assert_eq!(tools.len(), 1);

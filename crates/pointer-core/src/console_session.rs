@@ -342,7 +342,11 @@ fn console_env_with(
         );
     }
     match plan {
-        ConsoleEnvPlan::Host => Ok(crate::env::host_env_at(workspace_root)),
+        ConsoleEnvPlan::Host => crate::env::session_env::ensure_local_session(
+            conversation_id,
+            user_id,
+            workspace_root,
+        ),
         // 档位解析失败：不猜，也不按部署档位兜底（见 [`console_env_plan`] 的日志）。
         ConsoleEnvPlan::Fallback => Err(anyhow!(
             "无法解析会话 {conversation_id} 的执行环境档位，已拒绝创建终端会话"
@@ -356,7 +360,11 @@ fn console_env_with(
             ) {
                 Ok(Some(env)) => Ok(env),
                 // 判定说沙箱、解析却是 local 档位：按 local 处理。
-                Ok(None) => Ok(crate::env::host_env_at(workspace_root)),
+                Ok(None) => crate::env::session_env::ensure_local_session(
+                    conversation_id,
+                    user_id,
+                    workspace_root,
+                ),
                 Err(error) => {
                     // 沙箱建不出来也不能静默跑宿主：明确报错，别让用户看到
                     // 一个 `DeniedEnv` 吐出来的「工作区目录无效」。
@@ -781,22 +789,26 @@ mod tests {
     /// 回归：以前用空 uid 解析档位，admin 会被判成部署默认档位 → 被建沙箱。
     #[test]
     fn admin_console_env_is_host_not_sandbox() {
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let app = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(app.path().to_path_buf());
         let cfg = sandbox_deployment_cfg();
         let dir = tempfile::tempdir().unwrap();
-        // 唯一 id：避免进程级环境缓存在用例之间串味。
         let conversation = format!("conv-admin-console-{}", uuid::Uuid::new_v4());
         assert_eq!(
             console_env_plan(&cfg, &conversation, "admin"),
             ConsoleEnvPlan::Host
         );
         let env = console_env_with(&cfg, &conversation, dir.path(), "admin")
-            .expect("local 档位必须给宿主环境");
-        assert_eq!(
-            env.kind(),
-            crate::env::EnvKind::Local,
-            "admin 的终端必须开在宿主"
+            .expect("local 档位必须给用户环境");
+        assert_eq!(env.kind(), crate::env::EnvKind::Local);
+        assert!(
+            !env.path_map().is_host_passthrough(),
+            "admin 的终端也不能使用整机文件视图"
         );
-        assert_eq!(env.workspace_root(), dir.path());
+        assert!(env.workspace_root().starts_with(env.data_root()));
+        crate::env::session_env::release(&conversation);
+        crate::storage::clear_test_app_data_dir();
     }
 
     /// 同一份配置下普通用户仍是沙箱档位——身份修正不能把沙箱用户带回宿主。

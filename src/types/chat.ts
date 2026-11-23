@@ -339,7 +339,7 @@ export interface ChatMessage {
   agentInstanceId?: string
   agentName?: string
   agentTrace?: AgentTrace[]
-  /** Annotated PNG path under app `computer-captures/` (lazy load on preview); persisted when the stream emits it. */
+  /** Capture key `data:captures/...` (older date/conversation/file keys still load). */
   computerRoundScreenRelPath?: string
   /** UI mount hints (e.g. TaskBoard anchor). */
   uiBindings?: MessageUiBindings
@@ -711,7 +711,7 @@ export interface UserSettings {
   debugDumpLlmPrompts?: boolean
   terminalEnvOverrides?: Record<string, string>
   debugMenusEnabled?: boolean
-  /** Write every desktop screenshot bundle to app data `computer-captures/` (debug). */
+  /** Save each desktop screenshot into the user data directory (debug). */
   debugSaveComputerCaptures?: boolean
   taskBoardShowChildBoards?: boolean
   userDynamicInjectEnabled?: boolean
@@ -929,7 +929,7 @@ export interface ModelSettings {
   terminalEnvOverrides?: Record<string, string>
   /** Settings dialog debug sections toggle (independent of rawContentView / dump prompts) */
   debugMenusEnabled?: boolean
-  /** Write every desktop screenshot bundle to app data `computer-captures/` (debug). */
+  /** Save each desktop screenshot into the user data directory (debug). */
   debugSaveComputerCaptures?: boolean
   /** Debug: show child task boards under parent board panel. */
   taskBoardShowChildBoards?: boolean
@@ -1220,7 +1220,7 @@ export type StreamEvent =
       senderId: string
       issuedAt: number
     }
-  /** Annotated screen for one assistant message (path under computer-captures/). */
+  /** Annotated screen for one assistant message (`data:captures/...`). */
   | { kind: 'assistant_round_screen'; conversationId: string; messageId: string; annotatedRelPath: string }
   | { kind: 'task_board_updated'; conversationId: string; storeKey: string; anchorMessageId?: string; document: TaskBoardDocument }
   | { kind: 'skills_updated'; conversationId: string; importedIds: string[]; enabledIds?: string[] }

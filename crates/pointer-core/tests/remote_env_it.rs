@@ -66,7 +66,8 @@ fn remote_env_mounts_host_directories_bidirectionally() {
     std::fs::write(skills_host.join("SKILL.md"), "# demo\n").expect("skill file");
 
     let roots = vec![SkillRoot::new("skills", &skills_host)];
-    let mounts = MountPlan::for_session(&volumes, "it-user", "it-conv", &roots);
+    let mounts = MountPlan::for_session(&volumes, "it-user", "it-conv", &roots)
+        .expect("mount plan");
     let host_home = mounts[0].host.clone();
     let host_workspace = mounts[1].host.clone();
 
@@ -310,7 +311,9 @@ fn media_pipeline_runs_inside_sandbox() {
     // 3) 把视频写进沙箱，然后在沙箱里跑媒体管线
     env.write_file(Path::new("/workspace/in.mp4"), &video_bytes)
         .expect("upload video");
-    let _bound = EnvironmentGuard::enter(env.clone());
+    let _bound = EnvironmentGuard::enter(
+        pointer_core::env::SessionEnv::wrap("it-user", "it-conv", env.clone()).expect("session"),
+    );
 
     // 文件工具的路径判定必须走环境：宿主上根本没有 `/workspace`，
     // 用 Path::is_dir()/canonicalize() 会误判成"工作区不存在"。
@@ -413,90 +416,28 @@ impl Drop for Guard2<'_> {
 }
 
 #[test]
-#[ignore = "需要本地沙箱网关（scripts/dev-sandbox.sh up）"]
-fn plugin_hook_script_runs_from_mounted_plugins_dir() {
+fn plugin_hook_script_is_not_a_separate_mount() {
     use pointer_core::env::mounts::MountPlan;
-    use pointer_core::env::{ChildHandle, SpawnOptions};
-    use std::io::{BufRead, Write};
 
-    let Some(url) = control_url() else {
-        eprintln!("skip: POINTER_SANDBOX_URL 未设置");
-        return;
-    };
-    let volumes = std::env::var("E2B_LOCAL_VOLUMES_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::path::PathBuf::from(std::env::var("HOME").expect("HOME")).join(".e2b-local/volumes")
-        });
-    std::fs::create_dir_all(&volumes).expect("volume host path");
-    for stale in ["ph-user-home", "ph-user-ws-ph-conv", "ph-plugins"] {
-        let _ = std::fs::remove_dir_all(volumes.join(stale));
-    }
-
-    // 插件卷：先注册（网关建目录），再写 hook 脚本。
-    pointer_core::env::remote::ensure_volume(&url, "ph-plugins").expect("register plugins volume");
-    let plugins_host = volumes.join("ph-plugins");
-    std::fs::create_dir_all(plugins_host.join("demo/hooks")).expect("plugins dir");
-    let script_host = plugins_host.join("demo/hooks/echo.sh");
-    std::fs::write(
-        &script_host,
-        "#!/bin/sh\nread line\nprintf '{\"decision\":\"block\",\"reason\":\"%s\"}' \"$line\"\n",
-    )
-    .expect("write hook script");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_host, std::fs::Permissions::from_mode(0o755))
-            .expect("chmod hook");
-    }
-
+    let volumes = tempfile::tempdir().expect("volumes");
+    let plugins_host = volumes.path().join("plugins");
+    std::fs::create_dir_all(plugins_host.join("demo")).expect("plugins dir");
     let mounts = MountPlan::for_session_with_plugins(
-        &volumes,
+        volumes.path(),
         "ph-user",
         "ph-conv",
         &[],
         Some(&plugins_host),
         None,
-    );
+    )
+    .expect("mount plan");
     assert!(
-        mounts.iter().any(|m| m.read_only && m.guest == std::path::Path::new("/plugins")),
-        "插件根应只读挂到 /plugins：{mounts:?}"
+        mounts
+            .iter()
+            .all(|m| m.guest != std::path::Path::new("/plugins")),
+        "插件不再单独挂载，应位于用户 home：{mounts:?}"
     );
-
-    let spec = RemoteSpec {
-        control_url: url,
-        mounts,
-        volume_host_path: Some(volumes.clone()),
-        template: std::env::var("POINTER_SANDBOX_TEMPLATE")
-            .unwrap_or_else(|_| "pointer-sandbox-headless:latest".to_string()),
-        ..Default::default()
-    };
-    let env = RemoteEnv::create(&spec).expect("create sandbox with plugins");
-    let cleanup = Guard2(&env);
-
-    // 宿主插件路径 → 沙箱路径
-    let guest = env
-        .path_map()
-        .to_agent(&script_host)
-        .expect("map plugin path");
-    assert_eq!(guest, std::path::Path::new("/plugins/demo/hooks/echo.sh"));
-
-    // 真的在沙箱里执行一次 hook：写事件 → 关 stdin → 读决策
-    let argv = vec!["/bin/sh".to_string(), "/plugins/demo/hooks/echo.sh".to_string()];
-    let mut child = env.spawn(&argv, SpawnOptions::default()).expect("spawn hook");
-    child
-        .write_all(br#"{"hook_event_name":"PreToolUse","tool_name":"shell"}"#)
-        .expect("write event");
-    child.close_stdin().expect("close stdin");
-    let mut reader = child.reader().expect("reader");
-    let mut out = String::new();
-    reader.read_to_string(&mut out).expect("read decision");
-    let code = child.wait().expect("wait");
-    assert_eq!(code, 0, "hook 退出码");
-    assert!(out.contains("\"block\""), "决策应为 block：{out}");
-    assert!(out.contains("PreToolUse"), "应收到事件内容：{out}");
-
-    let _ = &cleanup;
+    assert_eq!(mounts.len(), 2);
 }
 
 #[test]
@@ -555,7 +496,14 @@ fn terminal_tool_runs_inside_sandbox() {
     };
     let env = std::sync::Arc::new(RemoteEnv::create(&spec).expect("create sandbox"));
     let cleanup = Guard2(&env);
-    let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
+    let _guard = pointer_core::env::EnvironmentGuard::enter(
+        pointer_core::env::SessionEnv::wrap(
+            "it-user",
+            "it-conv",
+            env.clone() as std::sync::Arc<dyn pointer_core::env::Environment>,
+        )
+        .expect("session"),
+    );
 
     // 工具分派用这个函数拿工作区：headless 下必须给沙箱路径，不能回落到宿主 settings。
     assert_eq!(

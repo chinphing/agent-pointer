@@ -199,8 +199,55 @@ fn strip_utf8_bom(content: &[u8]) -> &[u8] {
     content.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(content)
 }
 
-/// Default user env file under the app data directory (`PointerApp/.env`).
+fn session_env_present() -> bool {
+    if crate::env::current_session().is_some() {
+        return true;
+    }
+    crate::tools::context::current_tool_context()
+        .and_then(|ctx| crate::env::session_env::env_for_conversation(ctx.conversation_id()))
+        .is_some()
+}
+
+fn session_pointer_env_file() -> Option<PathBuf> {
+    let env = crate::env::current_env().or_else(|| {
+        crate::tools::context::current_tool_context()
+            .and_then(|ctx| crate::env::session_env::env_for_conversation(ctx.conversation_id()))
+    })?;
+    if env.is_denied() || env.path_map().is_host_passthrough() {
+        log::warn!("dotenv: session env refused for .env");
+        return None;
+    }
+    let guest = env.home_root().join(".pointer").join(".env");
+    if guest.as_os_str().is_empty() {
+        return None;
+    }
+    let host = match env.path_map().to_host(&guest) {
+        Ok(path) => path,
+        Err(error) => {
+            log::warn!("dotenv: session .env not mapped: {error:#}");
+            guest
+        }
+    };
+    if host.is_file() {
+        log::info!("dotenv: using session .pointer/.env");
+        Some(host)
+    } else {
+        None
+    }
+}
+
+/// Default user env file.
+///
+/// A bound session uses `~/.pointer/.env` inside that session.
+/// Without a session, the process-level app data `.env` remains.
 pub fn default_user_env_file() -> Option<PathBuf> {
+    if let Some(path) = session_pointer_env_file() {
+        return Some(path);
+    }
+    if session_env_present() {
+        log::info!("dotenv: session .pointer/.env not present");
+        return None;
+    }
     match crate::storage::user_env_file_path() {
         Ok(path) if path.is_file() => Some(path),
         Ok(_) => None,

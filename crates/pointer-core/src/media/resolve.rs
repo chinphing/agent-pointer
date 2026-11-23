@@ -45,7 +45,7 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
     if is_user_filesystem_path(trimmed) {
         let path = normalize_user_path(trimmed)?;
         if path.is_file() || path.is_dir() {
-            return Ok(path);
+            return accept_host_media_path(path);
         }
         if let Some(nested) = recover_nested_absolute_path(&path) {
             log::warn!(
@@ -53,7 +53,7 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
                 nested.display(),
                 path.display()
             );
-            return Ok(nested);
+            return accept_host_media_path(nested);
         }
         anyhow::bail!("media file not found: {trimmed}");
     }
@@ -62,7 +62,7 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
         let rel = trimmed.trim_start_matches('/');
         let path = app_data_dir()?.join(rel);
         if path.is_file() || path.is_dir() {
-            return Ok(path);
+            return accept_stored_media_path(path);
         }
         anyhow::bail!("media file not found under app data: {}", path.display());
     }
@@ -88,7 +88,7 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
             }
         };
         if path.is_file() || path.is_dir() {
-            return Ok(path);
+            return accept_stored_media_path(path);
         }
         log::warn!(
             "resolve_local_media_path file NOT FOUND: trimmed={trimmed} resolved={}",
@@ -100,7 +100,7 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
     if trimmed.starts_with("./") || trimmed.starts_with("../") {
         let path = normalize_user_path(trimmed)?;
         if path.is_file() || path.is_dir() {
-            return Ok(path);
+            return accept_host_media_path(path);
         }
         anyhow::bail!("media file not found: {trimmed}");
     }
@@ -108,17 +108,31 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
     if let Ok(data_dir) = app_data_dir() {
         let under_data = data_dir.join(trimmed.trim_start_matches('/'));
         if under_data.is_file() || under_data.is_dir() {
-            return Ok(under_data);
+            return accept_stored_media_path(under_data);
         }
         let under_media = data_dir
             .join(CONVERSATION_MEDIA_DIR)
             .join(trimmed.trim_start_matches('/'));
         if under_media.is_file() || under_media.is_dir() {
-            return Ok(under_media);
+            return accept_stored_media_path(under_media);
         }
     }
 
     anyhow::bail!("media file not found: {trimmed}")
+}
+
+/// 已经按库存相对路径解析过的文件。有会话时仍必须落在该会话的路径表里。
+fn accept_stored_media_path(path: PathBuf) -> Result<PathBuf> {
+    if let Some(session) = crate::env::current_session() {
+        crate::media::media_ref::session_host_file(session.environment().as_ref(), &path)?;
+    }
+    Ok(path)
+}
+
+/// 调用方直接给出的宿主路径。没有会话，或路径不在会话的 home / data 里，就拒绝。
+fn accept_host_media_path(path: PathBuf) -> Result<PathBuf> {
+    crate::media::media_ref::ensure_inside_user_env(&path)?;
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -200,8 +214,13 @@ mod tests {
         let doubled = format!(
             "/Users/alice/Library/Application Support/PointerApp/session-sandboxes/00000000-0000-0000-0000-000000000000/{suffix}"
         );
-        let path = resolve_local_media_path(&doubled).expect("recover nested media path");
-        assert_eq!(path, real);
+        let err = resolve_local_media_path(&doubled)
+            .expect_err("nested host path must not open without a session");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("缺少当前用户的执行环境") || msg.contains("PATH_NOT_MAPPED"),
+            "{msg}"
+        );
         let _ = fs::remove_file(&real);
     }
 }

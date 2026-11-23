@@ -288,7 +288,10 @@ fn install_prompt_override(args: &RunArgs) -> Result<&'static str> {
         let text = std::fs::read_to_string(path).map_err(|err| {
             cli_error(
                 EXIT_USAGE,
-                format!("failed to read system prompt file {}: {err}", path.display()),
+                format!(
+                    "failed to read system prompt file {}: {err}",
+                    path.display()
+                ),
             )
         })?;
         if text.trim().is_empty() {
@@ -309,10 +312,7 @@ fn resolve_instruction(args: &RunArgs) -> Result<String> {
         (None, Some(path)) => std::fs::read_to_string(path).map_err(|err| {
             cli_error(
                 EXIT_USAGE,
-                format!(
-                    "failed to read instruction file {}: {err}",
-                    path.display()
-                ),
+                format!("failed to read instruction file {}: {err}", path.display()),
             )
         })?,
         (None, None) => {
@@ -335,7 +335,11 @@ fn resolve_instruction(args: &RunArgs) -> Result<String> {
 /// tools that are still registered (and `ToolRegistry::invoke` looks up the
 /// same map), this filters both visibility and invocation.
 fn apply_tool_whitelist(registry: &ToolRegistry, allowed: &[String]) -> (Vec<String>, Vec<String>) {
-    let registered: Vec<String> = registry.list_defs().into_iter().map(|def| def.name).collect();
+    let registered: Vec<String> = registry
+        .list_defs()
+        .into_iter()
+        .map(|def| def.name)
+        .collect();
     let mut kept = Vec::new();
     let mut removed = Vec::new();
     for name in registered {
@@ -392,10 +396,7 @@ async fn run_async(args: RunArgs) -> Result<i32> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let out_dir = args
-        .out_dir
-        .clone()
-        .unwrap_or_else(|| data_dir.clone());
+    let out_dir = args.out_dir.clone().unwrap_or_else(|| data_dir.clone());
     std::fs::create_dir_all(&out_dir)
         .with_context(|| format!("failed to create out dir {}", out_dir.display()))?;
 
@@ -462,11 +463,15 @@ async fn run_async(args: RunArgs) -> Result<i32> {
         // `maxToolRounds` is the per-turn tool-call cap enforced by the agent loop.
         user_settings["maxToolRounds"] = serde_json::json!(max_turns);
     }
-    std::fs::write(
-        data_dir.join("user_settings.json"),
-        serde_json::to_vec_pretty(&user_settings)?,
-    )
-    .context("failed to write user_settings.json")?;
+    let settings_path =
+        pointer_core::user_tree::UserTree::open(pointer_core::platform_auth::LOCAL_USER_ID, "")?
+            .path_in_home(std::path::Path::new(".pointer/settings.json"))?;
+    if let Some(parent) = settings_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    std::fs::write(&settings_path, serde_json::to_vec_pretty(&user_settings)?)
+        .with_context(|| format!("failed to write {}", settings_path.display()))?;
 
     let state = Arc::new(AppState::new());
     {
@@ -827,7 +832,10 @@ mod tests {
     fn parse_run(extra: &[&str]) -> RunArgs {
         let mut argv: Vec<&str> = vec!["pointer-cli", "run", "--instruction", "hello"];
         argv.extend_from_slice(extra);
-        match Cli::try_parse_from(argv).expect("args should parse").command {
+        match Cli::try_parse_from(argv)
+            .expect("args should parse")
+            .command
+        {
             Some(Command::Run(args)) => args,
             None => panic!("expected the run subcommand"),
         }
@@ -921,7 +929,9 @@ mod tests {
     fn install_prompt_override_rejects_missing_or_empty_files() {
         let args = parse_run(&["--system-prompt-file", "/nonexistent/pointer-prompt.md"]);
         let err = install_prompt_override(&args).expect_err("missing file must fail");
-        assert!(err.to_string().contains("failed to read system prompt file"));
+        assert!(err
+            .to_string()
+            .contains("failed to read system prompt file"));
 
         let dir = tempfile::tempdir().expect("temp dir");
         let empty = dir.path().join("empty.md");
@@ -939,10 +949,7 @@ mod tests {
         let args = parse_run(&["--system-prompt-file", prompt.to_str().unwrap()]);
         let profile = install_prompt_override(&args).expect("override installs");
         assert_eq!(profile, "minimal");
-        assert_eq!(
-            std::env::var(ENV_PROMPT_PROFILE).as_deref(),
-            Ok("minimal")
-        );
+        assert_eq!(std::env::var(ENV_PROMPT_PROFILE).as_deref(), Ok("minimal"));
         let exported = std::env::var(ENV_SYSTEM_PROMPT_FILE).expect("file env exported");
         assert!(std::path::Path::new(&exported).is_absolute());
         assert_eq!(

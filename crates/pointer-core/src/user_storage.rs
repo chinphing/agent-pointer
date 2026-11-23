@@ -27,7 +27,7 @@ pub fn memories_root_dir() -> anyhow::Result<PathBuf> {
 }
 
 pub fn memories_dir_for(session_user_id: &str) -> anyhow::Result<PathBuf> {
-    Ok(memories_root_dir()?.join(user_storage_segment(session_user_id)))
+    crate::user_data_paths::memories_host_dir(session_user_id, "")
 }
 
 /// Persist platform `session_user_id` on a conversation before attachment save or chat.

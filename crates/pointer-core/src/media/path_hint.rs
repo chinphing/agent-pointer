@@ -1,7 +1,6 @@
 //! Inject saved attachment locations into model context when recovery is needed.
 
 use super::filename::RecoveryPathMode;
-use super::store::media_abs_path;
 
 pub const MEDIA_URI_SCHEME: &str = "pointer-media://";
 
@@ -14,7 +13,7 @@ pub fn attachment_recovery_path_lines(
         return String::new();
     };
     let uri = format!("{MEDIA_URI_SCHEME}{rel}");
-    match media_abs_path(rel) {
+    match super::store::session_display_path(rel) {
         Ok(abs) => {
             let guidance = match mode {
                 RecoveryPathMode::Binary => {
@@ -25,10 +24,7 @@ Do not use file_read on binary files."
                     "If this is UTF-8 plain text, you may try file_read; otherwise use a Skill or terminal."
                 }
             };
-            format!(
-                "Saved attachment:\n- URI: {uri}\n- Local path: {}\n{guidance}",
-                abs.display()
-            )
+            format!("Saved attachment:\n- URI: {uri}\n- Local path: {abs}\n{guidance}")
         }
         Err(e) => {
             log::warn!("media path_hint: resolve abs path for {rel}: {e:#}");

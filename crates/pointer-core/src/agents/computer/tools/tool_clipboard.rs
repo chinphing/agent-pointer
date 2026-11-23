@@ -233,7 +233,10 @@ mod tests {
         .expect("写容器剪贴板");
 
         let reply = tool
-            .execute("read", &json!({"goal": "读回", "_conversation_id": "it-clip-tool"}))
+            .execute(
+                "read",
+                &json!({"goal": "读回", "_conversation_id": "it-clip-tool"}),
+            )
             .expect("读容器剪贴板");
         assert!(reply.contains(text), "读回来的不是刚写的内容：{reply}");
 

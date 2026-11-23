@@ -46,8 +46,14 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
     // user-owned providers over the platform list below (so the real qwen
     // would win and the mock never gets used). An explicit empty
     // user_settings.json keeps the mock platform provider active.
+    let settings_path =
+        pointer_core::user_tree::UserTree::open(pointer_core::platform_auth::LOCAL_USER_ID, "")
+            .unwrap()
+            .path_in_home(std::path::Path::new(".pointer/settings.json"))
+            .unwrap();
+    std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
     std::fs::write(
-        dir.join("user_settings.json"),
+        &settings_path,
         r#"{"providers":[],"activeProviderId":"qwen"}"#,
     )
     .unwrap();

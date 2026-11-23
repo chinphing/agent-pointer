@@ -73,13 +73,22 @@ pub(crate) struct AuthStore {
 
 #[derive(Default)]
 pub struct PluginRegistry {
-    inner: RwLock<HashMap<String, PluginRecord>>,
+    /// 范围 id → 插件 id → 记录。扫描只替换当前用户这一桶。
+    inner: RwLock<HashMap<String, HashMap<String, PluginRecord>>>,
     /// 授权状态文件路径覆盖（测试用；默认 app data `plugin-auth.json`）。
     auth_path_override: Option<PathBuf>,
-    /// 上次扫描见过的插件 id 集合（检测目录被外部删除）。
-    seen_ids: RwLock<HashSet<String>>,
-    /// 最近一次扫描中消失的插件 id（消费制：`take_disappeared` 后清空）。
-    disappeared: RwLock<Vec<String>>,
+    /// 每个范围上次扫描见过的插件 id。
+    seen_ids: RwLock<HashMap<String, HashSet<String>>>,
+    /// 每个范围最近一次扫描中消失的插件 id。
+    disappeared: RwLock<HashMap<String, Vec<String>>>,
+}
+
+fn current_plugin_scope() -> Option<String> {
+    crate::env::current_session().map(|session| session.scope().id.clone())
+}
+
+fn require_plugin_scope() -> Result<String> {
+    current_plugin_scope().ok_or_else(|| anyhow!("插件注册表缺少当前用户的执行环境"))
 }
 
 impl PluginRegistry {
@@ -92,8 +101,8 @@ impl PluginRegistry {
         Self {
             inner: RwLock::new(HashMap::new()),
             auth_path_override: Some(path),
-            seen_ids: RwLock::new(HashSet::new()),
-            disappeared: RwLock::new(Vec::new()),
+            seen_ids: RwLock::new(HashMap::new()),
+            disappeared: RwLock::new(HashMap::new()),
         }
     }
 
@@ -107,29 +116,15 @@ impl PluginRegistry {
                 Ok(p.clone())
             }
             None => {
-                // PluginRegistry is process-global. A per-request home file would
-                // split one in-memory registry across users. Keep auth outside the
-                // plugin code tree, in app data.
-                let path = crate::storage::app_data_dir()?.join("plugin-auth.json");
+                let Some(env) = crate::env::current_env() else {
+                    anyhow::bail!("plugin auth requires the current user environment");
+                };
+                if env.path_map().is_host_passthrough() {
+                    anyhow::bail!("plugin auth requires the current user environment");
+                }
+                let path = env.home_root().join(".pointer").join("plugin-auth.json");
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent)?;
-                }
-                if !path.is_file() {
-                    if let Ok(legacy) = crate::plugins::user_plugins_dir() {
-                        let legacy = legacy.join(".auth.json");
-                        if legacy.is_file() {
-                            match std::fs::copy(&legacy, &path) {
-                                Ok(_) => log::info!(
-                                    "plugins: migrated auth store to {}",
-                                    path.display()
-                                ),
-                                Err(e) => {
-                                    log::warn!("plugins: failed to migrate auth store: {e:#}");
-                                    return Ok(legacy);
-                                }
-                            }
-                        }
-                    }
                 }
                 Ok(path)
             }
@@ -164,14 +159,23 @@ impl PluginRegistry {
         Ok(())
     }
 
-    /// 全量扫描：发现目录 → 解析 → 校验 → 与授权记录对比得出状态。
+    /// 扫描当前用户的插件目录。没有会话环境时不写入任何记录。
     pub fn scan(&self) -> Result<usize> {
+        let Some(scope) = current_plugin_scope() else {
+            log::info!("plugins: skip scan before a user environment is bound");
+            return Ok(0);
+        };
         let roots = discover_plugin_dirs()?;
-        self.scan_roots(&roots)
+        self.scan_roots_in(&scope, &roots)
     }
 
     /// 扫描给定插件根列表（`(dir, is_user_level)`）。测试可用临时目录注入。
     pub fn scan_roots(&self, roots: &[(PathBuf, bool)]) -> Result<usize> {
+        let scope = require_plugin_scope()?;
+        self.scan_roots_in(&scope, roots)
+    }
+
+    fn scan_roots_in(&self, scope: &str, roots: &[(PathBuf, bool)]) -> Result<usize> {
         let auth = self.load_auth();
         let mut records = HashMap::new();
         let mut count = 0usize;
@@ -200,43 +204,58 @@ impl PluginRegistry {
         // 检测本次扫描「上次见过、本次消失」的插件（目录被外部删除 / 工作区清理），
         // 供上层注销其残留能力（skills/tools/agents/extensions）。
         let new_ids: HashSet<String> = records.keys().cloned().collect();
-        {
-            let mut seen = self.seen_ids.write();
-            let mut gone: Vec<String> = seen
-                .iter()
-                .filter(|id| !new_ids.contains(*id))
-                .cloned()
-                .collect();
-            gone.sort();
-            *self.disappeared.write() = gone;
-            *seen = new_ids;
-        }
-
-        *self.inner.write() = records;
+        let previous = self.seen_ids.read().get(scope).cloned().unwrap_or_default();
+        let mut gone: Vec<String> = previous
+            .iter()
+            .filter(|id| !new_ids.contains(*id))
+            .cloned()
+            .collect();
+        gone.sort();
+        self.seen_ids.write().insert(scope.to_string(), new_ids);
+        self.disappeared.write().insert(scope.to_string(), gone);
+        log::info!(
+            "plugins: scanned scope={scope} count={count} roots={}",
+            roots.len()
+        );
+        self.inner.write().insert(scope.to_string(), records);
         Ok(count)
     }
 
     /// 取出最近一次扫描中消失的插件 id（消费制；调用方负责注销残留能力）。
     pub fn take_disappeared(&self) -> Vec<String> {
-        std::mem::take(&mut *self.disappeared.write())
+        let Some(scope) = current_plugin_scope() else {
+            return Vec::new();
+        };
+        self.disappeared.write().remove(&scope).unwrap_or_default()
     }
 
     pub fn list(&self) -> Vec<PluginRecord> {
+        let Some(scope) = current_plugin_scope() else {
+            log::warn!("plugins: list skipped, no user environment");
+            return Vec::new();
+        };
         let g = self.inner.read();
-        let mut v: Vec<PluginRecord> = g.values().cloned().collect();
+        let Some(bucket) = g.get(&scope) else {
+            return Vec::new();
+        };
+        let mut v: Vec<PluginRecord> = bucket.values().cloned().collect();
         v.sort_by(|a, b| a.id.cmp(&b.id));
         v
     }
 
     pub fn get(&self, id: &str) -> Option<PluginRecord> {
-        self.inner.read().get(id).cloned()
+        let scope = current_plugin_scope()?;
+        self.inner
+            .read()
+            .get(&scope)
+            .and_then(|bucket| bucket.get(id))
+            .cloned()
     }
 
     /// 授权当前哈希（首次启用或重新授权）。哈希变化后调用方应提示用户确认。
     pub fn authorize(&self, id: &str) -> Result<()> {
         let (dir, manifest_hash, fingerprint) = {
-            let g = self.inner.read();
-            let rec = g.get(id).ok_or_else(|| anyhow!("插件不存在: {id}"))?;
+            let rec = self.record(id)?;
             if matches!(rec.status, PluginStatus::Rejected(_)) {
                 return Err(anyhow!("插件 {id} 校验失败，不能授权"));
             }
@@ -291,9 +310,9 @@ impl PluginRegistry {
 
     /// 卸载：删除插件目录 + 清除授权记录。
     pub fn uninstall(&self, id: &str) -> Result<()> {
+        let scope = require_plugin_scope()?;
         let dir = {
-            let g = self.inner.read();
-            let rec = g.get(id).ok_or_else(|| anyhow!("插件不存在: {id}"))?;
+            let rec = self.record(id)?;
             rec.dir.clone()
         };
         if dir.exists() {
@@ -302,23 +321,39 @@ impl PluginRegistry {
         let mut auth = self.load_auth();
         auth.plugins.remove(&dir.to_string_lossy().to_string());
         self.save_auth(&auth)?;
-        self.inner.write().remove(id);
-        // 已由卸载流程注销能力；从 seen 移除避免下次 scan 误判为「外部消失」。
-        self.seen_ids.write().remove(id);
+        self.inner
+            .write()
+            .get_mut(&scope)
+            .map(|bucket| bucket.remove(id));
+        if let Some(seen) = self.seen_ids.write().get_mut(&scope) {
+            seen.remove(id);
+        }
         Ok(())
+    }
+
+    fn record(&self, id: &str) -> Result<PluginRecord> {
+        let scope = require_plugin_scope()?;
+        self.inner
+            .read()
+            .get(&scope)
+            .and_then(|bucket| bucket.get(id))
+            .cloned()
+            .ok_or_else(|| anyhow!("插件不存在: {id}"))
     }
 
     /// 查询插件授权记录 key（= 插件目录字符串）。
     fn auth_key_for(&self, id: &str) -> Result<String> {
-        let g = self.inner.read();
-        let rec = g.get(id).ok_or_else(|| anyhow!("插件不存在: {id}"))?;
-        Ok(rec.dir.to_string_lossy().to_string())
+        Ok(self.record(id)?.dir.to_string_lossy().to_string())
     }
 
     fn refresh_record_status(&self, id: &str) {
+        let Ok(scope) = require_plugin_scope() else {
+            log::warn!("plugins: refresh skipped, no user environment");
+            return;
+        };
         let auth = self.load_auth();
         let mut g = self.inner.write();
-        if let Some(rec) = g.get_mut(id) {
+        if let Some(rec) = g.get_mut(&scope).and_then(|bucket| bucket.get_mut(id)) {
             let dir_key = rec.dir.to_string_lossy().to_string();
             rec.status = resolve_status(rec, &auth);
             rec.authorized = auth.plugins.contains_key(&dir_key);
@@ -490,6 +525,12 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
 
     /// 在临时目录搭一个用户级插件根（monkey-patch 目录不可行，因此用环境变量
     /// 覆盖 `~/.pointer` 不可行；测试改为直接扫描临时目录并断言 build_record）。
+    fn bind_scope(root: &Path) -> crate::env::EnvironmentGuard {
+        crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots("plugin-test", root, root, root).expect("session"),
+        )
+    }
+
     fn write_plugin(root: &Path, manifest_text: &str) -> PathBuf {
         let dir = root.join("com.example.demo");
         fs::create_dir_all(dir.join("skills")).unwrap();
@@ -513,6 +554,7 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         }
 
         let auth = user_root.path().join(".auth.json");
+        let _scope = bind_scope(user_root.path());
         let reg = PluginRegistry::with_auth_path(auth);
         let scanned = reg
             .scan_roots(&[(user_dir.clone(), true), (ws_dir.clone(), false)])
@@ -617,6 +659,7 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         let root = tmp.path().join("plugins");
         let dir = write_plugin(&root, VALID);
         let auth_file = tmp.path().join("auth.json");
+        let _scope = bind_scope(tmp.path());
         let reg = PluginRegistry::with_auth_path(auth_file);
 
         // 初始扫描：未授权 → Discovered
@@ -691,6 +734,7 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let reg = PluginRegistry::with_auth_path(tmp.path().join("auth.json"));
+        let _scope = bind_scope(root);
         let dir = write_plugin(root, VALID);
         reg.scan_roots(&[(dir.clone(), true)]).unwrap();
         assert!(reg.get("com.example.demo").is_some());
@@ -710,6 +754,7 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let reg = PluginRegistry::with_auth_path(tmp.path().join("auth.json"));
+        let _scope = bind_scope(root);
         let dir = write_plugin(root, VALID);
         reg.scan_roots(&[(dir.clone(), true)]).unwrap();
         reg.authorize("com.example.demo").unwrap();
@@ -735,6 +780,7 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         let dir_b_key = dir_b.to_string_lossy().to_string();
 
         let reg = PluginRegistry::with_auth_path(tmp.path().join("auth.json"));
+        let _scope = bind_scope(tmp.path());
         // 仅 a 在场：授权 + 启用 → 记录 key 是 dir_a
         reg.scan_roots(&[(dir_a.clone(), true)]).unwrap();
         reg.authorize("com.example.demo").unwrap();
@@ -757,5 +803,25 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         assert!(auth.plugins.contains_key(&dir_b_key));
         assert_eq!(auth.plugins.len(), 2);
         assert!(auth.plugins.get(&dir_b_key).unwrap().enabled);
+    }
+
+    #[test]
+    fn scan_buckets_do_not_cross_users() {
+        let tmp = tempfile::tempdir().unwrap();
+        let reg = PluginRegistry::with_auth_path(tmp.path().join("auth.json"));
+        let dir = write_plugin(tmp.path(), VALID);
+        let first = crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots("plugin-a", tmp.path(), tmp.path(), tmp.path())
+                .expect("session a"),
+        );
+        reg.scan_roots(&[(dir, true)]).unwrap();
+        assert!(reg.get("com.example.demo").is_some());
+        drop(first);
+        let _second = crate::env::EnvironmentGuard::enter(
+            crate::env::SessionEnv::open_roots("plugin-b", tmp.path(), tmp.path(), tmp.path())
+                .expect("session b"),
+        );
+        assert!(reg.get("com.example.demo").is_none());
+        assert!(reg.list().is_empty());
     }
 }

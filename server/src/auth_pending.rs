@@ -226,7 +226,11 @@ mod tests {
     use super::*;
 
     fn pending(provider_id: &str) -> PendingLogin {
-        PendingLogin::new(provider_id, "verifier-1".into(), "https://pointer.example/cb".into())
+        PendingLogin::new(
+            provider_id,
+            "verifier-1".into(),
+            "https://pointer.example/cb".into(),
+        )
     }
 
     #[test]
@@ -234,7 +238,9 @@ mod tests {
         let store = PendingLogins::default();
         store.start("state-1", pending("platform"));
 
-        let taken = store.take("state-1", "platform").expect("first redeem works");
+        let taken = store
+            .take("state-1", "platform")
+            .expect("first redeem works");
         assert_eq!(taken.verifier, "verifier-1");
         assert_eq!(taken.provider_id, "platform");
 
@@ -265,7 +271,10 @@ mod tests {
             store.take("nope", "platform"),
             Err(PendingError::InvalidState)
         );
-        assert_eq!(store.take("   ", "platform"), Err(PendingError::InvalidState));
+        assert_eq!(
+            store.take("   ", "platform"),
+            Err(PendingError::InvalidState)
+        );
     }
 
     #[test]

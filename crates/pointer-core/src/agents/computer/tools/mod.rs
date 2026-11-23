@@ -2,9 +2,9 @@
 //!
 //! Sibling modules (`actions`, `screen`, [`crate::agents::computer::ComputerState`], etc.) live in the parent [`crate::agents::computer`] package.
 
+mod app_access_container;
 pub mod args_util;
 pub mod method_route;
-mod app_access_container;
 pub(crate) mod tool_app_access;
 mod tool_clipboard;
 mod tool_hotkey;
@@ -23,7 +23,8 @@ pub use tool_clipboard::{clipboard_host_verify_kind, ClipboardHostVerifyKind};
 use crate::agents::computer::ComputerState;
 use crate::platform::run_synthetic_input;
 use crate::tools::tool_doc::load_tools_from_schema_yaml;
-use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};pub(crate) use method_route::{InputBackend, ModifiedClickBackend, MouseBackend};
+use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
+pub(crate) use method_route::{InputBackend, ModifiedClickBackend, MouseBackend};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tool_input::InputTool;
@@ -68,7 +69,9 @@ pub fn inject_action_field(schema: &mut serde_json::Value) {
             }),
         );
     }
-    let required = obj.entry("required").or_insert_with(|| serde_json::json!([]));
+    let required = obj
+        .entry("required")
+        .or_insert_with(|| serde_json::json!([]));
     if !required.is_array() {
         *required = serde_json::json!([]);
     }
@@ -96,7 +99,10 @@ pub fn load_desktop_tool_set(yaml: &str) -> anyhow::Result<DesktopToolSet> {
         // `description` 是工具的一句话用途（进 native `function.description`），
         // 不是 JSON Schema 的字段说明，不能留在 `parameters` 里。
         if let Some(obj) = schema.as_object_mut() {
-            if let Some(d) = obj.remove("description").and_then(|v| v.as_str().map(str::to_string)) {
+            if let Some(d) = obj
+                .remove("description")
+                .and_then(|v| v.as_str().map(str::to_string))
+            {
                 let d = d.trim().to_string();
                 if !d.is_empty() {
                     descriptions.insert(name.clone(), d);
@@ -123,8 +129,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     {
         const MOUSE_DOC_SOURCE: &str = "agents/computer/tools/prompts/mouse.md";
         const MOUSE_SCHEMA_YAML: &str = include_str!("prompts/mouse.schema.yaml");
-        let mouse_tools = load_desktop_tool_set(MOUSE_SCHEMA_YAML)
-            .expect("mouse.schema.yaml must be valid");
+        let mouse_tools =
+            load_desktop_tool_set(MOUSE_SCHEMA_YAML).expect("mouse.schema.yaml must be valid");
         let mouse_schemas = mouse_tools.parameters;
         let mouse_descriptions = mouse_tools.descriptions;
 
@@ -183,11 +189,10 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     // fallback. Note that scrolling takes `notches_x` /
                     // `notches_y` — wheel notches, not pixel deltas.
                     let control = crate::agents::computer::control::control_for_conversation(
-                        &ms.control, &cid,
+                        &ms.control,
+                        &cid,
                     )?;
-                    run_synthetic_computer_tool(move || {
-                        tool_mouse::scroll_current(&control, &args)
-                    })
+                    run_synthetic_computer_tool(move || tool_mouse::scroll_current(&control, &args))
                 }
             });
 
@@ -223,11 +228,10 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                         let cid = crate::tools::context::current_tool_context()
                             .map(|ctx| ctx.conversation_id().to_string())
                             .unwrap_or_default();
-                        let control =
-                            crate::agents::computer::control::control_for_conversation(
-                                &hotkey_state.control,
-                                &cid,
-                            )?;
+                        let control = crate::agents::computer::control::control_for_conversation(
+                            &hotkey_state.control,
+                            &cid,
+                        )?;
                         let tool = tool_hotkey::HotkeyTool::new(control);
                         tool.execute("hotkey", &args)
                     })
@@ -242,8 +246,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     {
         const INPUT_DOC_SOURCE: &str = "agents/computer/tools/prompts/input.md";
         const INPUT_SCHEMA_YAML: &str = include_str!("prompts/input.schema.yaml");
-        let input_tools = load_desktop_tool_set(INPUT_SCHEMA_YAML)
-            .expect("input.schema.yaml must be valid");
+        let input_tools =
+            load_desktop_tool_set(INPUT_SCHEMA_YAML).expect("input.schema.yaml must be valid");
         let input_schemas = input_tools.parameters;
         let input_descriptions = input_tools.descriptions;
 
@@ -281,7 +285,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     InputBackend::Focused => {
                         let vision = st.vision_state_for_conversation(&cid);
                         let control = crate::agents::computer::control::control_for_conversation(
-                            &st.control, &cid,
+                            &st.control,
+                            &cid,
                         )?;
                         let tool = InputTool::new(control, vision);
                         run_synthetic_computer_tool(move || tool.execute_with(backend, &args))
@@ -292,12 +297,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             reg.register(
                 ToolEntry::new(tool_name, INPUT_DOC_SOURCE, "low", false, prompt, handler)
                     .with_schema(schema)
-                    .with_description(
-                        input_descriptions
-                            .get(*name)
-                            .cloned()
-                            .unwrap_or_default(),
-                    )
+                    .with_description(input_descriptions.get(*name).cloned().unwrap_or_default())
                     .with_subagent_inheritance(false),
             );
         }
@@ -313,8 +313,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         let keyboard_descriptions = keyboard_tools.descriptions;
 
         let doc = include_str!("prompts/keyboard.md").trim().to_string();
-        let keyboard_handlers: &[&str] =
-            &["key_press", "key_down", "key_up", "keyboard_type"];
+        let keyboard_handlers: &[&str] = &["key_press", "key_down", "key_up", "keyboard_type"];
 
         for name in keyboard_handlers {
             let st = state.clone();
@@ -326,9 +325,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 let cid = crate::tools::context::current_tool_context()
                     .map(|ctx| ctx.conversation_id().to_string())
                     .unwrap_or_default();
-                let control = crate::agents::computer::control::control_for_conversation(
-                    &st.control, &cid,
-                )?;
+                let control =
+                    crate::agents::computer::control::control_for_conversation(&st.control, &cid)?;
                 let tool = tool_keyboard::KeyboardTool::new(control);
                 let method = method.clone();
                 run_synthetic_computer_tool(move || tool.execute(&method, &args))
@@ -349,7 +347,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     handler,
                 )
                 .with_schema(schema)
-                .with_description(keyboard_descriptions.get(*name).cloned().unwrap_or_default())
+                .with_description(
+                    keyboard_descriptions
+                        .get(*name)
+                        .cloned()
+                        .unwrap_or_default(),
+                )
                 .with_subagent_inheritance(false),
             );
         }
@@ -484,7 +487,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     handler,
                 )
                 .with_schema(schema)
-                .with_description(clipboard_descriptions.get(*name).cloned().unwrap_or_default())
+                .with_description(
+                    clipboard_descriptions
+                        .get(*name)
+                        .cloned()
+                        .unwrap_or_default(),
+                )
                 .with_subagent_inheritance(false),
             );
         }
@@ -614,7 +622,10 @@ mod tests {
 
         let mut missing: Vec<String> = Vec::new();
         for t in &tools {
-            let name = t["function"]["name"].as_str().unwrap_or_default().to_string();
+            let name = t["function"]["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
             let desc = t["function"]["description"].as_str().unwrap_or_default();
             let placeholder = desc.contains("full usage in system Tools appendix");
             if desc.trim().is_empty() || placeholder {
@@ -630,7 +641,10 @@ mod tests {
         // 后者是 JSON Schema，"这个工具做什么"和"参数是什么形状"是两件事。
         let mut leaked: Vec<String> = Vec::new();
         for t in &tools {
-            let name = t["function"]["name"].as_str().unwrap_or_default().to_string();
+            let name = t["function"]["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
             if t["function"]["parameters"].get("description").is_some() {
                 leaked.push(name);
             }
@@ -770,10 +784,7 @@ mod tests {
         );
         // `action` 与 `goal` 一起必填：verify 判的是单次调用的可见效果，
         // 滚动没有 target_desc，`action` 是它唯一能拿到手的操作描述。
-        assert_eq!(
-            params["required"],
-            serde_json::json!(["action"])
-        );
+        assert_eq!(params["required"], serde_json::json!(["action"]));
     }
 
     #[test]
@@ -797,11 +808,7 @@ mod tests {
                 props.get("target_desc").is_none(),
                 "{name} must not take a target description: {props}"
             );
-            assert_eq!(
-                params["required"],
-                serde_json::json!(["action"])
-            );
+            assert_eq!(params["required"], serde_json::json!(["action"]));
         }
     }
 }
-

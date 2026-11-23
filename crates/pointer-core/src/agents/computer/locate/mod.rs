@@ -402,7 +402,9 @@ mod tests {
 
     #[test]
     fn parses_one_to_three_elements() {
-        let reqs = parse_requests(&json!({"goal":"点击它","elements":[el("保存按钮"), el("地址栏")]})).unwrap();
+        let reqs =
+            parse_requests(&json!({"goal":"点击它","elements":[el("保存按钮"), el("地址栏")]}))
+                .unwrap();
         assert_eq!(reqs.len(), 2);
         assert_eq!(reqs[0].target_desc, "保存按钮");
         assert!(reqs[0].hint_px.is_none());
@@ -410,8 +412,10 @@ mod tests {
 
     #[test]
     fn rejects_more_than_three_elements_without_truncating() {
-        let err = parse_requests(&json!({"goal":"点击它","elements":[el("a"), el("b"), el("c"), el("d")]}))
-            .expect_err("four elements must fail");
+        let err = parse_requests(
+            &json!({"goal":"点击它","elements":[el("a"), el("b"), el("c"), el("d")]}),
+        )
+        .expect_err("four elements must fail");
         let msg = err.to_string();
         assert!(msg.contains("最多 3 项"), "{msg}");
         assert!(msg.contains("收到 4 项"), "{msg}");
@@ -425,7 +429,9 @@ mod tests {
 
     #[test]
     fn rejects_blank_description() {
-        assert!(parse_requests(&json!({"goal":"点击它","elements":[{"target_desc":"   "}]})).is_err());
+        assert!(
+            parse_requests(&json!({"goal":"点击它","elements":[{"target_desc":"   "}]})).is_err()
+        );
     }
 
     #[test]

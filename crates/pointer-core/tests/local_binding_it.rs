@@ -23,6 +23,8 @@ fn admin_on_desktop_deployment_binds_a_replayable_host_env() {
     std::env::set_var("POINTER_SERVER_ADMIN_ACCOUNTS", "admin");
     std::env::remove_var("POINTER_SERVER_ENVIRONMENT_ACCOUNTS");
 
+    let app = tempfile::tempdir().expect("app data");
+    std::env::set_var("POINTER_APP_DATA_DIR", app.path());
     let dir = tempfile::tempdir().expect("tempdir");
     let conv = "conv-local-binding-it";
 
@@ -31,10 +33,13 @@ fn admin_on_desktop_deployment_binds_a_replayable_host_env() {
             .expect("bind admin session");
 
     assert!(guard.is_some(), "local 档位也必须绑定环境");
-    assert_eq!(
-        workspace,
-        dir.path().display().to_string(),
-        "local 档位的工作区是宿主路径"
+    assert!(
+        workspace.contains("workspaces"),
+        "宿主项目路径不在用户目录内时，工作区落到该用户 data/workspaces：{workspace}"
+    );
+    assert!(
+        !workspace.starts_with(&dir.path().display().to_string()),
+        "不应把任意宿主目录当成用户工作区：{workspace}"
     );
     assert_eq!(effective_env().kind(), EnvKind::Local);
     assert!(!effective_env().is_denied(), "local 档位不是「环境未绑定」");

@@ -6,13 +6,15 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::models::ChatMediaPreview;
-use crate::session_sandbox::{SessionSandbox, ANONYMOUS_SEGMENT};
+use crate::session_sandbox::ANONYMOUS_SEGMENT;
 use crate::storage::app_data_dir;
 use crate::user_storage::session_user_id_for_conversation;
 
 use super::access::{assert_app_media_preview_allowed, path_has_traversal};
 use super::filename::safe_attachment_basename;
-use super::layout::{build_v2_storage_rel, parse_storage_rel, resolve_v2_host_path, verify_storage_rel_access, LAYOUT_VERSION_PREFIX};
+use super::layout::{
+    parse_storage_rel, resolve_v2_host_path, verify_storage_rel_access, LAYOUT_VERSION_PREFIX,
+};
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
 
@@ -67,34 +69,22 @@ pub fn short_attachment_id_from_sandbox_rel(raw: &str) -> Option<String> {
 
 fn sandbox_attachment_rel(conversation_id: &str) -> Result<(PathBuf, String)> {
     let session_user_id = session_user_id_for_conversation(conversation_id);
-    // Prefer the user data volume layout (`/data/attachments/...`). Fall back to
-    // the legacy per-conversation sandbox only when the data volume is unavailable.
-    match crate::user_data_paths::attachments_host_dir(&session_user_id, conversation_id) {
-        Ok(dir) => {
-            let placeholder = build_v2_storage_rel(
-                &session_user_id,
-                conversation_id,
-                "attachments",
-                "__dir__",
-            );
-            let rel_base = placeholder.rsplit_once('/').map(|(b, _)| b.to_string()).unwrap_or(placeholder);
-            Ok((dir, rel_base))
-        }
-        Err(error) => {
-            log::warn!(
-                "media: user data attachments dir unavailable ({error:#}); falling back to session sandbox"
-            );
-            let sandbox = SessionSandbox::ensure_default(conversation_id, &session_user_id)?;
-            let dir = sandbox.join(SANDBOX_ATTACHMENTS_DIR);
-            fs::create_dir_all(&dir).context("create sandbox attachment directory")?;
-            let rel = dir
-                .strip_prefix(app_data_dir()?)
-                .context("sandbox attachment outside app data")?
-                .to_string_lossy()
-                .replace('\\', "/");
-            Ok((dir, rel))
-        }
-    }
+    let dir = crate::user_data_paths::attachments_host_dir(&session_user_id, conversation_id)?;
+    let conv = crate::storage::sanitize_storage_dir_segment(conversation_id.trim());
+    let stored = crate::user_data_paths::UserRelPath::new(
+        crate::user_data_paths::UserRootKind::Data,
+        format!("attachments/{conv}/file"),
+    )?;
+    let encoded = stored.encode();
+    let rel_base = encoded
+        .rsplit_once('/')
+        .map(|(base, _)| base.to_string())
+        .unwrap_or(encoded);
+    log::info!(
+        "attachment dir conv={conversation_id} user={} rel_base={rel_base}",
+        session_user_id
+    );
+    Ok((dir, rel_base))
 }
 
 fn sandbox_attachment_dir_for_path(path: &Path) -> Result<Option<PathBuf>> {
@@ -198,11 +188,177 @@ fn create_sandbox_attachment_file(
     anyhow::bail!("unable to allocate a unique 12-character attachment ID")
 }
 
+fn conversation_segment_from_user_rel(rel: &crate::user_data_paths::UserRelPath) -> String {
+    let parts: Vec<&str> = rel
+        .rel
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect();
+    match parts.as_slice() {
+        ["attachments", conv, ..]
+        | ["media", "chat", conv, ..]
+        | ["media", "generated", conv, ..]
+        | ["turn-baselines", conv, ..] => conv.to_string(),
+        ["captures", _, conv, ..] => conv.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Host file for a stored `home:` / `data:` path. The user comes from the
+/// bound session, otherwise from the conversation id inside the relative segment.
+fn resolve_user_rel_host(stored: &crate::user_data_paths::UserRelPath) -> Result<PathBuf> {
+    let (home, data) = if let Some(session) = crate::env::current_session() {
+        (
+            session.scope().home_host.clone(),
+            session.scope().data_host.clone(),
+        )
+    } else {
+        let conv = conversation_segment_from_user_rel(stored);
+        let uid = if conv.is_empty() {
+            crate::session_user_env::current_session_user_id().unwrap_or_default()
+        } else {
+            session_user_id_for_conversation(&conv)
+        };
+        if uid.is_empty() && conv.is_empty() {
+            log::warn!("media: user relative path has no session user");
+            anyhow::bail!("媒体路径缺少当前用户");
+        }
+        let users = crate::user_data_paths::users_root()?;
+        (
+            crate::user_data_paths::user_home_host(&users, &uid, &conv)?,
+            crate::user_data_paths::user_data_host(&users, &uid, &conv)?,
+        )
+    };
+    let root = match stored.root {
+        crate::user_data_paths::UserRootKind::Home => &home,
+        crate::user_data_paths::UserRootKind::Data => &data,
+    };
+    let path = stored.join_host(&home, &data);
+    if !path.starts_with(root) {
+        log::warn!(
+            "media: user relative path escaped {} -> {}",
+            root.display(),
+            path.display()
+        );
+        anyhow::bail!("媒体文件不在当前用户目录内");
+    }
+    if path.is_file() {
+        let canonical = path
+            .canonicalize()
+            .with_context(|| format!("canonicalize {}", path.display()))?;
+        let root_canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        if !canonical.starts_with(&root_canonical) {
+            log::warn!(
+                "media: canonical path left user tree {}",
+                canonical.display()
+            );
+            anyhow::bail!("媒体文件不在当前用户目录内");
+        }
+        return Ok(canonical);
+    }
+    log::warn!("media: user file missing {}", path.display());
+    anyhow::bail!("media file not found under user data: {}", path.display())
+}
+
+/// Path the model should see for a stored key or an on-disk file.
+///
+/// Stored keys join the session root. A path already inside the session is
+/// returned unchanged. A host path is translated into the session. Anything
+/// that does not map is refused, so a host absolute path is not shown.
+pub fn model_visible_path(conversation_id: &str, raw: &str) -> Result<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        anyhow::bail!("媒体路径为空");
+    }
+    let env = crate::env::current_env()
+        .or_else(|| crate::env::session_env::env_for_conversation(conversation_id))
+        .context("媒体路径缺少当前用户的执行环境")?;
+    if env.is_denied() || env.path_map().is_host_passthrough() {
+        log::warn!(
+            "media: model path refused passthrough conversation={}",
+            conversation_id.trim()
+        );
+        anyhow::bail!("缺少当前用户的执行环境");
+    }
+    if let Ok(stored) = crate::user_data_paths::UserRelPath::decode(raw) {
+        let root = match stored.root {
+            crate::user_data_paths::UserRootKind::Home => env.home_root(),
+            crate::user_data_paths::UserRootKind::Data => env.data_root(),
+        };
+        if root.as_os_str().is_empty() {
+            log::warn!(
+                "media: model path missing session root conversation={}",
+                conversation_id.trim()
+            );
+            anyhow::bail!("会话环境缺少目录根");
+        }
+        let path = root.join(&stored.rel);
+        log::info!(
+            "media: model path conversation={} path={}",
+            conversation_id.trim(),
+            path.display()
+        );
+        return Ok(path.display().to_string());
+    }
+    let path = Path::new(raw);
+    if !path.is_absolute() {
+        return Ok(raw.to_string());
+    }
+    if env.path_map().to_host(path).is_ok() {
+        return Ok(raw.to_string());
+    }
+    match env.path_map().to_agent(path) {
+        Ok(guest) => {
+            log::info!(
+                "media: model path mapped conversation={} path={}",
+                conversation_id.trim(),
+                guest.display()
+            );
+            Ok(guest.display().to_string())
+        }
+        Err(error) => {
+            log::warn!(
+                "media: model path refused unmapped host path conversation={}: {error:#}",
+                conversation_id.trim()
+            );
+            Err(error)
+        }
+    }
+}
+
+/// Path the model should see: the current session root plus the relative segment.
+pub fn session_display_path(storage_rel_path: &str) -> Result<String> {
+    if crate::user_data_paths::is_host_absolute(storage_rel_path) {
+        log::warn!("media: model path refused host absolute path");
+        anyhow::bail!("宿主绝对路径不能打开");
+    }
+    let session = crate::env::current_session().context("媒体路径缺少当前用户的执行环境")?;
+    if let Ok(stored) = crate::user_data_paths::UserRelPath::decode(storage_rel_path) {
+        let root = match stored.root {
+            crate::user_data_paths::UserRootKind::Home => session.home_root(),
+            crate::user_data_paths::UserRootKind::Data => session.data_root(),
+        };
+        return Ok(root.join(&stored.rel).display().to_string());
+    }
+    let host = media_abs_path(storage_rel_path)?;
+    session
+        .path_map()
+        .to_agent(&host)
+        .map(|path| path.display().to_string())
+}
+
 pub fn conversation_media_root() -> Result<PathBuf> {
     Ok(app_data_dir()?.join(CONVERSATION_MEDIA_DIR))
 }
 
 pub fn media_abs_path(storage_rel_path: &str) -> Result<PathBuf> {
+    if crate::user_data_paths::is_host_absolute(storage_rel_path) {
+        log::warn!("media: refuse host absolute path {}", storage_rel_path);
+        anyhow::bail!("宿主绝对路径不能打开");
+    }
+    if let Ok(stored) = crate::user_data_paths::UserRelPath::decode(storage_rel_path) {
+        return resolve_user_rel_host(&stored);
+    }
     let rel = storage_rel_path.trim().trim_start_matches('/');
     if rel.starts_with(&format!("{LAYOUT_VERSION_PREFIX}/")) {
         if let Err(e) = verify_storage_rel_access(storage_rel_path) {
@@ -231,6 +387,13 @@ pub fn media_abs_path(storage_rel_path: &str) -> Result<PathBuf> {
 
 /// Resolve a storage rel path without session-user scoping (server outbound / allowlisted reads).
 pub fn media_abs_path_unscoped(storage_rel_path: &str) -> Result<PathBuf> {
+    if crate::user_data_paths::is_host_absolute(storage_rel_path) {
+        log::warn!("media: refuse host absolute path {}", storage_rel_path);
+        anyhow::bail!("宿主绝对路径不能打开");
+    }
+    if let Ok(stored) = crate::user_data_paths::UserRelPath::decode(storage_rel_path) {
+        return resolve_user_rel_host(&stored);
+    }
     let rel = storage_rel_path.trim().trim_start_matches('/');
     if rel.is_empty() || rel.contains("..") {
         anyhow::bail!("invalid media rel path");
@@ -523,9 +686,7 @@ pub fn read_chat_media_preview_in_env(
     storage_rel_path: &str,
     env: Option<std::sync::Arc<dyn crate::env::Environment>>,
 ) -> Result<ChatMediaPreview> {
-    let sandbox = env
-        .as_ref()
-        .filter(|env| is_sandbox_data_env(env.as_ref()));
+    let sandbox = env.as_ref().filter(|env| is_sandbox_data_env(env.as_ref()));
     if let Some(env) = sandbox {
         if let Ok(guest) = v2_guest_data_path(storage_rel_path) {
             let path = wav_sibling_in_env(env.as_ref(), &guest);
@@ -538,9 +699,7 @@ pub fn read_chat_media_preview_in_env(
                 &path,
                 MEDIA_REF_ENV_PREVIEW_MAX_BYTES,
             )
-            .with_context(|| {
-                format!("read chat media {storage_rel_path} via environment")
-            })?;
+            .with_context(|| format!("read chat media {storage_rel_path} via environment"))?;
             let bytes = read_media_body(body)?;
             let file_name = path
                 .file_name()
@@ -573,12 +732,11 @@ pub fn chat_media_body_in_env(
                         "chat media body via environment rel={storage_rel_path} guest={}",
                         guest.display()
                     );
-                    let body = crate::workspace_read::media_body_for_streaming(
-                        env, &guest, max_bytes,
-                    )
-                    .with_context(|| {
-                        format!("read chat media {storage_rel_path} via environment")
-                    })?;
+                    let body =
+                        crate::workspace_read::media_body_for_streaming(env, &guest, max_bytes)
+                            .with_context(|| {
+                                format!("read chat media {storage_rel_path} via environment")
+                            })?;
                     let file_name = guest
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -656,8 +814,9 @@ fn wav_sibling_in_env(env: &dyn crate::env::Environment, path: &Path) -> PathBuf
 
 fn read_media_body(body: crate::workspace_read::WorkspaceMediaBody) -> Result<Vec<u8>> {
     match body {
-        crate::workspace_read::WorkspaceMediaBody::HostPath(host) => fs::read(&host)
-            .with_context(|| format!("read media file {}", host.display())),
+        crate::workspace_read::WorkspaceMediaBody::HostPath(host) => {
+            fs::read(&host).with_context(|| format!("read media file {}", host.display()))
+        }
         crate::workspace_read::WorkspaceMediaBody::Inline(bytes) => Ok(bytes),
     }
 }
@@ -792,9 +951,16 @@ pub fn read_media_ref_preview_in_env(
     }
 }
 
+fn ensure_preview_stays_in_session(path: &Path) -> Result<()> {
+    let Some(session) = crate::env::current_session() else {
+        return Ok(());
+    };
+    crate::media::media_ref::session_host_file(session.environment().as_ref(), path).map(|_| ())
+}
+
 fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
     assert_app_media_preview_allowed(path)?;
-    let env = crate::env::host_env();
+    ensure_preview_stays_in_session(path)?;
     if let Some(wav_path) = wav_sibling_abs_path(path) {
         let bytes = fs::read(&wav_path)
             .with_context(|| format!("read persisted wav {}", wav_path.display()))?;
@@ -816,6 +982,9 @@ fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
         .unwrap_or("attachment")
         .to_string();
     let mime_type = mime_from_path(path);
+    let env = crate::env::current_session()
+        .map(|session| session.environment())
+        .unwrap_or_else(crate::env::process_io);
     finish_media_preview(bytes, &file_name, &mime_type, Some(path), &env)
 }
 
@@ -830,15 +999,17 @@ fn finish_media_preview(
     let needs_audio_transcode = mime_lower.starts_with("audio/") && mime_lower != "audio/wav"
         || file_name.to_ascii_lowercase().ends_with(".bin");
     if needs_audio_transcode && crate::media::ffmpeg::ffmpeg_available(env) {
-        let storage_ctx = storage_abs.and_then(conversation_media_abs_to_rel).map(|rel| {
-            let (conv, id) =
-                parse_conversation_media_ids(&rel).unwrap_or((String::new(), String::new()));
-            crate::media::audio::AudioStorageContext {
-                storage_rel_path: Some(rel),
-                conversation_id: conv,
-                attachment_id: id,
-            }
-        });
+        let storage_ctx = storage_abs
+            .and_then(conversation_media_abs_to_rel)
+            .map(|rel| {
+                let (conv, id) =
+                    parse_conversation_media_ids(&rel).unwrap_or((String::new(), String::new()));
+                crate::media::audio::AudioStorageContext {
+                    storage_rel_path: Some(rel),
+                    conversation_id: conv,
+                    attachment_id: id,
+                }
+            });
         match crate::media::audio::prepare_audio_bytes_for_asr_cached(
             env,
             &bytes,
@@ -956,8 +1127,8 @@ mod tests {
 
         let rel = save_attachment_from_path("conv-path-copy", &src, "photo.png").expect("copy");
         assert!(
-            rel.starts_with("v2/") || rel.contains("session-sandboxes/"),
-            "expected v2 or legacy sandbox rel, got {rel}"
+            rel.starts_with("data:attachments/"),
+            "expected user data rel, got {rel}"
         );
         assert!(rel.contains("attachments/"));
         assert!(rel.ends_with("_photo.png") || rel.contains("_photo.png"));
@@ -975,11 +1146,22 @@ mod tests {
         crate::storage::set_test_app_data_dir(data.path().to_path_buf());
         let rel = save_attachment_bytes("conv-v2-read", "ignored", b"hello-v2", "note.txt")
             .expect("save");
-        assert!(rel.starts_with("v2/"), "{rel}");
+        assert!(rel.starts_with("data:attachments/"), "{rel}");
         let path = crate::media::resolve::resolve_local_media_path(&rel).expect("resolve v2");
         assert_eq!(fs::read(&path).expect("read"), b"hello-v2");
         let mistaken = data.path().join(rel.trim_start_matches('/'));
         assert_ne!(path, mistaken);
         assert!(!mistaken.exists());
+    }
+
+    #[test]
+    fn absolute_storage_rel_is_not_opened() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, b"host-secret").expect("write");
+        let err = media_abs_path(&secret.display().to_string()).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("宿主绝对路径不能打开"), "{msg}");
+        assert!(!msg.contains("host-secret"), "{msg}");
     }
 }

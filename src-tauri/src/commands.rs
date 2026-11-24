@@ -75,14 +75,14 @@ pub async fn list_workspace_directory(
     workspace_root: String,
     relative_path: Option<String>,
 ) -> Result<Vec<pointer_core::workspace_read::WorkspaceEntry>, String> {
-    let env = {
+    let session = {
         let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
-        bound.env_arc()
+        bound.session()
     };
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
+        let _guard = pointer_core::env::EnvironmentGuard::enter(session.clone());
         pointer_core::workspace_read::list_directory(
-            env.as_ref(),
+            &*session,
             Path::new(&workspace_root),
             relative_path.as_deref(),
         )
@@ -117,14 +117,14 @@ pub async fn read_workspace_file(
     workspace_root: String,
     relative_path: String,
 ) -> Result<pointer_core::workspace_read::WorkspaceFilePreview, String> {
-    let env = {
+    let session = {
         let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
-        bound.env_arc()
+        bound.session()
     };
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
+        let _guard = pointer_core::env::EnvironmentGuard::enter(session.clone());
         pointer_core::workspace_read::read_file(
-            env.as_ref(),
+            &*session,
             Path::new(&workspace_root),
             &relative_path,
         )
@@ -356,14 +356,17 @@ pub async fn get_workspace_git_status(
     conversation_id: Option<String>,
     workspace_root: String,
 ) -> Result<pointer_core::workspace_read::GitStatusResponse, String> {
-    let env = {
+    let session = {
         let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
-        bound.env_arc()
+        bound.session()
     };
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
-        pointer_core::workspace_read::git_status_response(env.as_ref(), Path::new(&workspace_root))
-            .map_err(|e| e.to_string())
+        let _guard = pointer_core::env::EnvironmentGuard::enter(session.clone());
+        pointer_core::workspace_read::git_status_response(
+            &*session,
+            Path::new(&workspace_root),
+        )
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?;
@@ -377,14 +380,14 @@ pub async fn get_workspace_git_diff(
     relative_path: String,
     status: Option<String>,
 ) -> Result<pointer_core::workspace_read::GitDiff, String> {
-    let env = {
+    let session = {
         let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
-        bound.env_arc()
+        bound.session()
     };
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
+        let _guard = pointer_core::env::EnvironmentGuard::enter(session.clone());
         pointer_core::workspace_read::git_diff(
-            env.as_ref(),
+            &*session,
             Path::new(&workspace_root),
             &relative_path,
             status.as_deref(),

@@ -359,9 +359,30 @@ class TestRun(unittest.IsolatedAsyncioTestCase):
         self.assertIn("--out-dir /logs/agent", call["command"])
         self.assertIn('--workspace "$PWD"', call["command"])
         self.assertIn("--model gpt-4o-mini", call["command"])
-        self.assertIn("--base-url https://api.openai.com/v1", call["command"])
+        # Harbor ≥0.27 keeps inferred provider URLs off the client argv;
+        # only an explicit option / execution_base_url becomes --base-url.
+        self.assertNotIn("--base-url", call["command"])
         self.assertIn(f"--allowed-tools {DEFAULT_ALLOWED_TOOLS}", call["command"])
         self.assertTrue(call["command"].startswith("set -o pipefail; "))
+
+    async def test_explicit_base_url_is_forwarded(self):
+        environment = FakeEnvironment()
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = make_agent(
+                Path(tmp),
+                extra_env={"OPENAI_API_KEY": "sk-test"},
+                base_url="https://example.test/v1",
+            )
+            await agent.run("do the task", environment, AgentContext())
+
+        run_calls = [call for call in environment.calls if " run " in call["command"]]
+        self.assertEqual(len(run_calls), 1)
+        self.assertEqual(
+            run_calls[0]["command"].count("--base-url"),
+            1,
+            run_calls[0]["command"],
+        )
+        self.assertIn("--base-url https://example.test/v1", run_calls[0]["command"])
 
     async def test_run_command_has_no_duplicated_option_flags(self):
         # Regression: ``run`` used to pass ``build_cli_flags()`` *and* the
@@ -377,9 +398,10 @@ class TestRun(unittest.IsolatedAsyncioTestCase):
             self.assertLessEqual(
                 command.count(flag), 1, f"{flag} duplicated in: {command}"
             )
-        # The defaults are always rendered exactly once.
-        for flag in ("--approval", "--allowed-tools", "--timeout", "--base-url"):
+        # Defaults that pointer-cli always gets (base-url only when explicit).
+        for flag in ("--approval", "--allowed-tools", "--timeout"):
             self.assertEqual(command.count(flag), 1, f"{flag} missing in: {command}")
+        self.assertEqual(command.count("--base-url"), 0, command)
 
     async def test_turn_limit_exit_code_is_tolerated(self):
         environment = FakeEnvironment(results=[FakeResult(return_code=14)])

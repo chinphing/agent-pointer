@@ -735,6 +735,11 @@ impl WorkspaceRequestEnv {
         &*self.env
     }
 
+    /// 克隆会话环境（`spawn_blocking` 里再 `EnvironmentGuard::enter`）。
+    pub fn session(&self) -> SessionEnv {
+        self.env.clone()
+    }
+
     /// 共享所有权（`spawn_blocking` 里继续用同一份环境）。
     pub fn env_arc(&self) -> Arc<dyn Environment> {
         self.env.environment()

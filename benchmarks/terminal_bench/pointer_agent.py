@@ -29,15 +29,16 @@ from typing import Annotated, override
 
 from pydantic import Field
 
+from harbor.agents.agent_auth_resolution import ModelConnectionSpec, ProviderAccess
 from harbor.agents.capabilities import AgentCapabilities
 from harbor.agents.installed.base import (
     BaseInstalledAgent,
     with_prompt_template,
 )
-from harbor.agents.model_connection import ModelConnectionSpec
 from harbor.agents.options import Cli, InstalledAgentOptions
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
+from harbor.models.model_api_format import ModelApiFormat
 from harbor.models.trial.paths import EnvironmentPaths
 
 #: Agent name reported in trial metadata.
@@ -277,8 +278,21 @@ class PointerCliOptions(InstalledAgentOptions):
 class PointerAgent(BaseInstalledAgent):
     """Install and run ``pointer-cli`` inside a Harbor task container."""
 
-    capabilities = AgentCapabilities(atif=True)
-    MODEL_CONNECTION = ModelConnectionSpec(passthrough=True)
+    capabilities = AgentCapabilities(atif=True, base_url=True)
+    # Harbor ≥0.27 dropped ``passthrough``; declare OpenAI-compatible access so
+    # ``model_connection.api_key`` / ``execution_base_url`` still resolve.
+    MODEL_CONNECTION = ModelConnectionSpec(
+        agent_provider_access=ProviderAccess(
+            api_key_candidate_names=[
+                POINTER_API_KEY_ENV,
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+            ],
+            base_url_candidate_names=["OPENAI_BASE_URL", "OPENAI_API_BASE"],
+        ),
+        supported_api_formats=[ModelApiFormat.OPENAI_CHAT_COMPLETIONS],
+        base_url_destination_names={"default": None},
+    )
     options_model = PointerCliOptions
 
     @staticmethod
@@ -401,7 +415,7 @@ class PointerAgent(BaseInstalledAgent):
             api_key_env=api_key_env,
             out_dir=str(EnvironmentPaths.agent_dir),
             workspace=options.workspace,
-            base_url=options.base_url or access.base_url,
+            base_url=options.base_url or access.execution_base_url,
             allowed_tools=options.allowed_tools,
             approval=options.approval,
             timeout_sec=options.timeout_sec,

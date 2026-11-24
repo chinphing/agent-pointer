@@ -14,7 +14,16 @@
  *
  * Pin the number here so every suite sees the same host. A test that needs a
  * different value stubs it itself (`vi.stubGlobal('navigator', …)`).
+ *
+ * UI locale is likewise ambient (`navigator.language` / LANG). CI runners are
+ * English, so suites that assert zh-CN copy must not depend on the host. Pin
+ * zh-CN before every test; suites that exercise English switch the locale
+ * themselves and restore it.
  */
+
+import { beforeEach } from 'vitest'
+import '../i18n'
+import { applyUiLocale } from '../lib/uiLocale'
 
 /** Fixed logical-core count reported to every test. */
 export const TEST_LOGICAL_CORES = 8
@@ -32,4 +41,14 @@ Object.defineProperty(globalThis.navigator, 'hardwareConcurrency', {
   value: TEST_LOGICAL_CORES,
   configurable: true,
   writable: true
+})
+
+Object.defineProperty(globalThis.navigator, 'language', {
+  value: 'zh-CN',
+  configurable: true,
+  writable: true
+})
+
+beforeEach(() => {
+  applyUiLocale('zh-CN')
 })

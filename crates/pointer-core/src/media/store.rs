@@ -852,8 +852,8 @@ pub const MEDIA_REF_ENV_PREVIEW_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
 /// 沙箱档位下媒体引用**下载**的整段读上限（256 MB）。
 ///
-/// 远端后端（envd）宿主上没有文件句柄，只能整段读进内存；超过上限明确报错，
-/// 不静默截断。容器后端有宿主挂载，走宿主流式，不受这个上限影响。
+/// 沙箱档位（docker / envd）字节一律经 Environment 整段读进内存；超过上限明确报错，
+/// 不静默截断。local 恒等映射仍走宿主流式，不受此上限约束。
 pub const MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES: u64 = 256 * 1024 * 1024;
 
 /// 媒体引用在**会话环境内**的路径。
@@ -881,12 +881,12 @@ pub fn media_ref_env_path(media_ref: &str) -> Result<PathBuf> {
 
 /// 媒体引用的字节来源：宿主上找不到时按**会话环境**再解析一次。
 ///
-/// 沙箱档位下 `MEDIA:` 引用是**环境内路径**（`/workspace/x.png`），宿主上没有这个
+/// 沙箱档位下 `MEDIA:` 引用是**环境内路径**（`/data/...`），宿主上没有这个
 /// 文件，只有取到该会话的环境才读得到。`env = None` 时直接返回宿主错误——这条
 /// 路由的调用方可能来自非工作区场景，缺会话参数**不 fail-closed**，维持宿主读取。
 ///
 /// 字节来源判定复用 [`crate::workspace_read::media_body_for_streaming`]：
-/// 宿主挂载（local / docker）→ 宿主流式；远端后端 → 整段读（有上限）。
+/// local 恒等 → 宿主流式；沙箱档位一律经环境读（有上限）。
 pub fn media_ref_body_in_env(
     media_ref: &str,
     env: Option<&dyn crate::env::Environment>,

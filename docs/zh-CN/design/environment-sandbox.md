@@ -120,7 +120,7 @@ template.replace("{{workspace_root}}", vars.workspace_root)
 
 1. **性能不构成理由**。工具调用本身以秒计（LLM 决策占大头），一次路径翻译或几十毫秒往返是噪声。
 2. **抽象层 100% 覆盖**。所有 IO 一律走 `Environment` trait，`file_*` 也走 API，**不使用"宿主能直接读"的捷径**。这样换后端时工具层零改动。
-3. **容器内路径更干净**。agent 看到 `/workspace`、`/skills`、`/home/pointer`，不暴露宿主目录结构，可移植性更好。
+3. **容器内路径更干净**。agent 看到 `/data`、`/home/pointer`（技能与插件在 home 下），不暴露宿主目录结构，可移植性更好。
 4. **保真挂载会把宿主目录树塞进容器**，边界模糊，且 `~` 展开、大小写敏感差异都会变成坑。
 
 **唯一的性能约束是批量操作**（实测依据见 §2.4）：
@@ -205,9 +205,9 @@ docker:
 
 | 宿主 | 容器内 | 权限 |
 |---|---|---|
-| `{app_data}/session-sandboxes/{user}/` | `/home/pointer` | rw |
-| `{app_data}/session-sandboxes/{conv}/` | `/workspace` | rw |
-| `~/.pointer/skills/`（+ org / 内置根） | `/skills` | ro |
+| `{app_data}/users/{user_key}/home` | `/home/pointer` | rw |
+| `{app_data}/users/{user_key}/data` | `/data` | rw |
+| （技能 / 插件落在 home 下，不再单独挂 `/skills` / `/plugins`） | — | — |
 | `/tmp` | `/tmp` | rw |
 
 **翻译规则**：先 `realpath` 解析符号链接，再匹配前缀；未命中一律拒绝（`PATH_NOT_MAPPED`）。工具**输出**的路径必须反向翻译，否则模型认知漂移。
@@ -508,12 +508,11 @@ Web 端多用户并发，满足：
 
 | 宿主路径 | 容器内 | 权限 | Cube 挂载方式 |
 |---|---|---|---|
-| `{app_data}/session-sandboxes/{user}/` | `/home/pointer` | `rw` | Volume |
-| `{app_data}/session-sandboxes/{conv}/` | `/workspace` | `rw` | Volume |
-| `~/.pointer/skills/`（+ org / `~/.agents/skills` / 内置根） | `/skills/<root>` | `ro` | Host Mount（`readOnly: true`） |
+| `{app_data}/users/{user_key}/home` | `/home/pointer` | `rw` | Volume |
+| `{app_data}/users/{user_key}/data` | `/data` | `rw` | Volume |
 | `/tmp` | `/tmp` | `rw` | tmpfs |
 
-agent 只看到 `/workspace`、`/home/pointer`、`/skills`，不暴露宿主目录结构。
+agent 只看到 `/data`、`/home/pointer`（技能与插件在 home 内），不暴露宿主目录结构。
 
 ### 5.4 启动方式（Cube）
 
@@ -533,7 +532,7 @@ mounts = json.dumps([
 
 with Sandbox.create(
     template=TEMPLATE_ID,
-    volume_mounts={"/workspace": vol, "/home/pointer": vol},
+    volume_mounts={"/data": vol, "/home/pointer": vol},
     metadata={"host-mount": mounts},
     env={"HOME": "/home/pointer", "PIP_USER": "1",
          "PYTHONUSERBASE": "/home/pointer/.local"},
@@ -610,7 +609,7 @@ find ~/.pointer/skills -maxdepth 3 \
 sandbox exec <id> -- ls /home/pointer/../../{other_tenant}   # 期望：No such file or directory
 
 # 2. 路径逃逸无效
-sandbox exec <id> -- cat /workspace/../../etc/passwd   # 期望：不存在
+sandbox exec <id> -- cat /data/../../etc/passwd   # 期望：不存在
 
 # 3. skills 只读
 sandbox exec <id> -- touch /skills/x                   # 期望：Read-only file system
@@ -950,10 +949,10 @@ scripts/dev-sandbox.sh down
 |---|---|---|
 | `RemoteEnv`：薄 REST 客户端（不引 e2b SDK），files API + Connect 帧执行 + find/rg 批量遍历 | `env/remote.rs`（新增） | ✅ |
 | provider 三层解析（账号覆盖 → admin 默认 local → 部署默认）+ headless 缺 `sandbox_url` 即报错 | `env/provider.rs`（新增） | ✅ |
-| 挂载表：`/home/pointer`、`/workspace`（按会话隔离）、`/skills/<name>`（ro） | `env/mounts.rs`（新增） | ✅ |
+| 挂载表：`/home/pointer`、`/data`（按用户隔离；技能在 home 下） | `env/mounts.rs` | ✅ |
 | 会话绑定：按会话缓存沙箱 + 30min 空闲回收 + `release` / `release_all`；挂载前凭证扫描 | `env/session_env.rs`（新增） | ✅ |
 | `[environment]` / `[auth] admins` 配置段 + 4 个访问器；`POINTER_SKILLS_DIR` 可覆盖技能根 | `server_config.rs`、`skills/external.rs` | ✅ |
-| 三处 thread-local 重放（headless 下工作区根改 guest `/workspace`） | `chat_service/session_inner.rs`、`dispatch/registry.rs`、`chat_service/sub_agent.rs` | ✅ |
+| 三处 thread-local 重放（沙箱档位工作区根为 guest `/data/workspaces…`） | `chat_service/session_inner.rs`、`dispatch/registry.rs`、`chat_service/sub_agent.rs` | ✅ |
 | 会话删除时回收远端沙箱 | `conversation_store/mod.rs`（2 个删除钩子） | ✅ |
 | §5.6 七条验收脚本（含后端能力探测，缺能力标 SKIP 而非 PASS） | `scripts/verify-sandbox-isolation.py`（新增） | ✅ |
 | `RemoteEnv` 双挂载后端：有 `volume_host_path` → `volumeMounts`（含 `readOnly`）；无 → Cube 的 `metadata["host-mount"]` | `env/remote.rs` | ✅ |
@@ -962,7 +961,7 @@ scripts/dev-sandbox.sh down
 | 插件 hooks 迁到 `Environment::spawn`（写 stdin → 关 stdin → 读 stdout，超时显式 kill） | `plugins/hooks.rs` | ✅ |
 | 用户插件根只读挂载 `/plugins` + hook 脚本路径宿主→沙箱映射 | `env/mounts.rs`、`env/session_env.rs`、`plugins/hooks.rs` | ✅ e2b-local 实测通过 |
 | 沙箱镜像 `docker/{base,runtime,desktop}.Dockerfile`（工具层 / python 层 / 桌面层，见 §7.5.2） | `docker/`、`[environment] template` | ✅ |
-| 路径判定环境感知（headless 下 `/workspace` 不再被宿主 `is_dir()` 误判） | `tools/file/path.rs` | ✅ |
+| 路径判定环境感知（沙箱下 `/data/...` 不再被宿主 `is_dir()` 误判） | `tools/file/path.rs` | ✅ |
 | `[environment] volume_host_path` 配置 + 网关侧 `docker.volume_host_path` 与 `~/.e2b-local` 挂载 | `server_config.rs`、`scripts/dev-sandbox.sh` | ✅ |
 
 **e2b-local 实测到的协议事实**（写进 `env/remote.rs` 头注释）：
@@ -975,7 +974,7 @@ scripts/dev-sandbox.sh down
    - `metadata["host-mount"]` 是 **Cube 语义**，e2b-local 直接忽略；
    - e2b-local 用 **`volumeMounts` + `docker.volume_host_path`**：卷目录必须落在**宿主可见路径**
      （默认是网关容器内 `/root/.e2b-local/volumes`，docker daemon 看不到 → 必 500）。
-     配好之后实测 `/workspace` 为 `type virtiofs (rw)`，**沙箱写 → 宿主可见、宿主写 → 沙箱可见**，双向通。
+     配好之后实测 `/data` 为 `type virtiofs (rw)`，**沙箱写 → 宿主可见、宿主写 → 沙箱可见**，双向通。
      `scripts/dev-sandbox.sh` 已补 `volume_host_path` 与同路径 `-v` 挂载。
    - **只读语义**：E2B 官方明确「API 与 SDK 不支持只读挂载」；Cube 用扩展
      `volumeMounts[].readOnly: true`；**e2b-local 忽略该字段**（实测 `readOnly:true` 仍是 `rw`，`touch` 成功）。
@@ -995,14 +994,14 @@ scripts/dev-sandbox.sh down
 | `cargo test -p pointer-core --test tool_dispatch_smoke` | 1 passed |
 | `POINTER_SANDBOX_URL=… cargo test -p pointer-core --test remote_env_it -- --ignored` | 1 passed（2.7s） |
 | `POINTER_SANDBOX_URL=… cargo test -p pointer-core --test headless_binding_it -- --ignored` | 1 passed |
-| `python3 scripts/verify-sandbox-isolation.py`（e2b-local，挂载感知版） | **PASS 3 / FAIL 0 / SKIP 4**（1 跨用户、2 路径逃逸、5 出网 PASS；3/4/6 只读、7 uid SKIP） |
+| `python3 scripts/verify-sandbox-isolation.py`（e2b-local，home/data 双卷） | 挂载相关项依赖网关 `volumeMounts`；无 user namespace 时 uid 项 SKIP |
 
 **新增的债**
 
 1. **只读语义 / uid 隔离待 Cube 验收**：Cube 用 `volumeMounts[].readOnly: true`；e2b-local 忽略该字段（实测 rw），
    且以 root 跑、无 user namespace。本地已验证的是**挂载双向可见**（沙箱写 → 宿主可见、宿主写 → 沙箱可见）。
 2. **worktree 在 headless 下不生效（设计如此，不是缺陷）**：`worktree_create` 是 Tauri 命令（会话运行之外，没有环境绑定），
-   删除走会话删除钩子，两者都跑在宿主上、行为正确；但 headless 下工作区被固定成 `/workspace`，
+   删除走会话删除钩子，两者都跑在宿主上、行为正确；但沙箱档位下工作区落在 `/data/workspaces…`，
    所以 worktree 配置被忽略。可选改进：headless + managed worktree 时打一条 warn，或在 UI 上提示。
 3. ~~`open_reader` 整文件下载~~ **已解决**：envd 的 `/files` 支持 `Range`（实测 206 + `Content-Range`），
    `RangeReader` 按 4 MiB 分块拉取；集成测试用 9 MiB 文件验证字节数一致。
@@ -1071,7 +1070,7 @@ scripts/dev-sandbox.sh down
 | 断言 | 结果 |
 |---|---|
 | 是真 tty（不是管道） | `stty size` → `30 100` ✅ |
-| 命令落在沙箱内 | `pwd` → `/workspace` ✅ |
+| 命令落在沙箱内 | `pwd` → `/data/workspaces`（或选中的 `/data/...`） ✅ |
 | resize 传到容器内 tty | `40 120` ✅ |
 
 **修掉的缺陷**：容器 PTY 的 resize 之前**只改宿主 pty**，`docker exec` 内层 tty 不变
@@ -1128,7 +1127,7 @@ message ProcessEvent.DataEvent { oneof output { bytes stdout = 1; bytes stderr =
 4. 限制（必须写进 UI 提示）：依赖 `isatty` 的提权/密码交互（sudo/ssh）仍不建议在面板里用；
    全屏程序重绘需前端按 `data.pty` 做终端仿真（xterm.js 级别），不要自己拼 ANSI。
 
-**验收**：真机在沙箱会话打开终端 → `tty` 返回 `/dev/pts/N`、`pwd` 为 `/workspace`、
+**验收**：真机在沙箱会话打开终端 → `tty` 返回 `/dev/pts/N`、`pwd` 在 `/data` 下、
 `echo $((1+1))` 正常；宿主 `ps` 里看不到该 shell。
 
 **估时**：接口 + LocalEnv 1 天；RemoteEnv `script` 包装 + 流对接 0.5 天；
@@ -1150,7 +1149,7 @@ pub enum EnvProvider { Local, Isolated }
 - 开发只有 e2b-local（envd 协议 + 卷目录）
 - 而 e2b-local 的卷只能是 `~/.e2b-local/volumes/` 下的真实目录，**挂不了用户的项目目录**
 
-于是开发环境里 `/workspace` 是每会话空卷：agent 在空目录干活、`git status` 无内容、
+于是开发环境里若仍按旧 e2b 空卷挂工作区：agent 在空目录干活、`git status` 无内容、
 diff 无基线、文件树面板空。开发和生产的**语义一致但能力残缺**，验出来的东西对不上。
 
 实测过的三条路都不通（2026-11-15）：
@@ -1162,7 +1161,7 @@ diff 无基线、文件树面板空。开发和生产的**语义一致但能力�
 | 网关配置加 bind | 配置只有 `traffic` / `docker.envd_binary` / `docker.volume_host_path` |
 
 参考实现（Hermes / OpenClaw）都不走"卷"抽象，直接 bind 宿主目录：
-Hermes `-v {host_cwd}:/workspace`（另有沙箱目录 / tmpfs 两级回落），
+Hermes 旧做法 `-v {host_cwd}:/workspace`（另有沙箱目录 / tmpfs 两级回落）；Pointer 现为 home/data，
 OpenClaw `-v {workspaceDir}:{workdir}`（`workspaceAccess: rw/ro/none`）。
 
 #### 7.4.2 目标与不变式
@@ -1280,11 +1279,12 @@ Envd 与 Docker 两条后端共享同一份挂载计算，不各写一套。
 
 ```bash
 docker run -d --name pointer-sbx-<conv> \
-  -v <host_workspace>:/workspace \
-  -v <host_home>:/home/pointer \
-  -v <skills_user>:/skills/user:ro \
-  -v <plugins>:/plugins:ro \
-  --workdir /workspace <template> sleep infinity
+  -v <user_data_host>:/data \
+  -v <user_home_host>:/home/pointer \
+  -v <envd_bin_host>:/usr/local/bin/pointer-envd:ro \
+  -p 127.0.0.1::49983 \
+  --workdir /data/workspaces <template> sleep infinity
+# 容器内另起 pointer-envd -isnotfc；文件读写走 envd /files
 
 docker rm -f pointer-sbx-<conv>   # destroy，幂等
 ```
@@ -1321,11 +1321,12 @@ pub fn for_session_with_plugins(
 ) -> Vec<Mount>
 ```
 
-`/workspace` 来源二选一：有项目目录且**不是 session-sandbox 目录** → 挂项目目录；
-否则退回每会话空卷（"从零开始"语义）。
+工作区 cwd 在 guest 的 `/data/workspaces/...`（或用户选中的 `/data/...` 路径）。
+**不再**把任意宿主项目目录 bind 成单独的 `/workspace` 卷；用户数据统一落在
+home/data 双卷里（见 `user-directory-isolation.md`）。
 
-> 已部分落地（`mounts.rs` / `session_env.rs` / `commands.rs::panel_env` 已加参数，待全量测试）；
-> 由于 e2b-local 的限制，该改动在开发环境仍表现为空卷，需要 Docker 后端才能真正生效。
+> 已落地：`mounts.rs` 只挂 `/home/pointer` + `/data`；`session_env` / 面板路径按
+> `data_root` 解析。Docker 与 envd 后端共用同一份挂载计划。
 
 #### 7.4.7 测试计划
 
@@ -1334,7 +1335,7 @@ pub fn for_session_with_plugins(
 | 单测 | `tier_backend_resolution_matrix` | 9 种组合 + 旧配置兼容（`provider=headless` + url → Envd） |
 | 单测 | `workspace_mount_uses_project_dir` / `falls_back_to_volume` | 项目目录进挂载 / 无项目退回卷 |
 | 单测 | `docker_env_maps_paths_both_ways` | 宿主↔guest 双向映射，含越界拒绝 |
-| 集成（`--ignored`，需 docker） | `exec_runs_in_container` | `pwd` = `/workspace`，`uname` 是 Linux |
+| 集成（`--ignored`，需 docker） | `exec_runs_in_container` | `pwd` 在 `/data` 下，`uname` 是 Linux |
 | 集成 | `host_sees_container_writes` | 容器内写文件 → 宿主立即可见（bind 验证） |
 | 集成 | `pty_gets_tty` | `tty` = `/dev/pts/N`，`stty size` 生效 |
 | 集成 | `destroy_removes_container` | `docker ps` 中不再出现 |
@@ -1370,9 +1371,9 @@ P0 完成后旧配置行为完全不变，可随时停。
 | P0 档位/后端模型 | ✅ | `provider.rs`：`Tier` / `Backend` / `ResolvedEnv`；`resolve()` 返回二元组；后端缺省按档位推导；档位与后端不自洽时报错 |
 | P0 配置 | ✅ | 新增 `POINTER_SERVER_ENVIRONMENT_BACKEND`（`host`/`envd`/`docker`）；旧配置 `provider=headless` + `sandbox_url` 行为不变 |
 | P0 配置（增量） | ✅ | `[environment.backends]` 按档位配后端（`POINTER_SERVER_ENVIRONMENT_BACKENDS`）；`admin_tier` 收敛名单账号档位；`desktop` 改为**档位推导 + 显式覆盖**（矛盾只 WARN）。语义见 §7.4.3 |
-| P1 DockerEnv | ✅ | `env/docker.rs`：exec / spawn / pty_open / 文件 IO（复用 LocalEnv）/ 容器生命周期 |
+| P1 DockerEnv | ✅ | `env/docker.rs`：exec / spawn / pty_open / 文件 IO（`EnvdFs` `/files`）/ 容器生命周期；`SPEC_VERSION`≥10 |
 | P2 分派与缓存 | ✅ | `session_env::acquire_docker` + 会话级缓存 + 单飞锁；`env_for_conversation` 同时查两份缓存 |
-| P3 开发环境切换 | ✅ | `pointer.local.env` 加 `BACKEND=docker`；真机 `uname -s` → `Linux`，`pwd` → `/workspace` |
+| P3 开发环境切换 | ✅ | `pointer.local.env` 加 `BACKEND=docker`；真机 `uname -s` → `Linux`，`pwd` → `/data/workspaces` |
 | P4 文档 | ✅ | 本节 |
 
 **真机验证（开发版 DEV 窗口）**：
@@ -1381,15 +1382,15 @@ P0 完成后旧配置行为完全不变，可随时停。
 $ uname -s
 Linux
 $ pwd
-/workspace
+/data/workspaces
 ```
 
-容器挂载实测：
+容器挂载实测（现行 home/data 模型）：
 
 ```
-/Users/starliu/.agents/skills/agent-browser -> /workspace (rw=true)   ← 项目目录直接 bind
-/Users/starliu/.pointer/plugins            -> /plugins  (ro)
-/Users/starliu/.e2b-local/volumes/_anonymous-home -> /home/pointer
+{app_data}/users/{user_key}/data -> /data         (rw)
+{app_data}/users/{user_key}/home -> /home/pointer (rw)
+# 另 bind pointer-envd → /usr/local/bin/pointer-envd，映射 127.0.0.1::49983
 ```
 
 **踩过的坑（已修）**：`env_for_conversation` 最初只查 envd 缓存，docker 后端的会话在工具线程重放时查不到环境，退到 `DeniedEnv`，
@@ -1898,7 +1899,7 @@ scripts/dev-sandbox.sh down     # 停止网关
 | 快照 / 回滚（CubeCoW） | 无 |
 | 多租户 uid + mount namespace 隔离 | 单用户 VM，验不了 |
 
-**最大缺口是 Volume 语义**——映射表（`/workspace`→Volume、`/skills`→Host Mount）在本地跑的是 Docker volume，验不出 Cube 的 `hostPath` 行为。
+**最大缺口是 Volume 语义**——映射表（`/data`/`/home/pointer`→Volume）在本地跑的是 Docker volume，验不出 Cube 的 `hostPath` 行为。
 
 ### 9.3 开发机限制
 

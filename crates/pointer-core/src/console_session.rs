@@ -445,7 +445,7 @@ fn normalize_directory(input: &str, description: &str) -> Result<String> {
 /// 环境感知的目录校验：宿主用 `is_dir` + canonicalize，沙箱用 env.metadata。
 ///
 /// 沙箱会话里前端传的仍是宿主工作区路径，在沙箱里不存在——这种情况下退回
-/// 环境工作区根（`/workspace`），而不是报错或静默去开宿主目录。
+/// 环境工作区根（`/data/workspaces…`），而不是报错或静默去开宿主目录。
 fn normalize_directory_in(
     env: &dyn crate::env::Environment,
     input: &str,

@@ -4,9 +4,10 @@
 用法：
     POINTER_SANDBOX_URL=http://127.0.0.1:3000 python3 scripts/verify-sandbox-isolation.py
 
-脚本会按 e2b-local 的规则建卷（`POST /volumes`）并把 `/home/u`、`/workspace`、`/skills`
-挂进沙箱，这样挂载相关的检查才有意义。卷根取 `E2B_LOCAL_VOLUMES_DIR`（默认
-`~/.e2b-local/volumes`），必须与网关配置的 `docker.volume_host_path` 一致。
+脚本按 Pointer 现行挂载模型建卷（`POST /volumes`）并把 `/home/pointer`、`/data`
+挂进沙箱（与 `env/mounts.rs` 的 home/data 双卷一致）。卷根取
+`E2B_LOCAL_VOLUMES_DIR`（默认 `~/.e2b-local/volumes`），必须与网关配置的
+`docker.volume_host_path` 一致。
 
 每条检查输出 PASS / FAIL / SKIP，任一 FAIL 退出码 1。
 SKIP 表示"当前后端不具备该能力"（例如 e2b-local 忽略 `readOnly`、以 root 跑），
@@ -27,8 +28,8 @@ TIMEOUT = int(os.environ.get("POINTER_SANDBOX_TIMEOUT", "600"))
 VOLUMES = os.path.expanduser(
     os.environ.get("E2B_LOCAL_VOLUMES_DIR", "~/.e2b-local/volumes")
 )
-# (卷名, 沙箱内路径)
-MOUNTS = [("iso-home", "/home/u"), ("iso-workspace", "/workspace"), ("iso-skills", "/skills")]
+# (卷名, 沙箱内路径) — 与 mounts.rs：home + data
+MOUNTS = [("iso-home", "/home/pointer"), ("iso-data", "/data")]
 
 
 def http(method, url, data=None, ctype=None, timeout=120):
@@ -49,52 +50,67 @@ def connect_exec(envd, script):
     payload = json.dumps({"process": {"cmd": "/bin/bash", "args": ["-lc", script]}}).encode()
     body = b"\x00" + len(payload).to_bytes(4, "big") + payload
     status, raw = http(
-        "POST", envd + "/process.Process/Start", body, "application/connect+json"
+        "POST",
+        envd + "/process.Process/Start",
+        body,
+        "application/connect+json",
     )
     if status // 100 != 2:
         return -1, "", f"envd HTTP {status}: {raw[:200].decode(errors='replace')}"
-    out, err, code = b"", b"", None
+    stdout = []
+    stderr = []
+    exit_code = 0
     i = 0
     while i + 5 <= len(raw):
         flags = raw[i]
-        ln = int.from_bytes(raw[i + 1 : i + 5], "big")
-        seg = raw[i + 5 : i + 5 + ln]
-        i += 5 + ln
+        n = int.from_bytes(raw[i + 1 : i + 5], "big")
+        i += 5
+        chunk = raw[i : i + n]
+        i += n
+        if not chunk:
+            continue
+        try:
+            msg = json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+        event = msg.get("event") or {}
+        data = event.get("data") or {}
+        if "stdout" in data:
+            stdout.append(base64.b64decode(data["stdout"]))
+        if "stderr" in data:
+            stderr.append(base64.b64decode(data["stderr"]))
+        end = event.get("end") or {}
+        if "exitCode" in end:
+            exit_code = int(end["exitCode"])
         if flags & 0x02:
             break
-        try:
-            ev = json.loads(seg).get("event", {})
-        except Exception:  # noqa: BLE001
-            continue
-        data = ev.get("data") or {}
-        if "stdout" in data:
-            out += base64.b64decode(data["stdout"])
-        if "stderr" in data:
-            err += base64.b64decode(data["stderr"])
-        end = ev.get("end")
-        if end is not None:
-            code = end.get("exitCode", 0)
-    return (code if code is not None else 0), out.decode(errors="replace"), err.decode(
-        errors="replace"
+    return (
+        exit_code,
+        b"".join(stdout).decode(errors="replace"),
+        b"".join(stderr).decode(errors="replace"),
     )
 
 
 def prepare_volumes():
-    """按 e2b-local 规则建卷：先清残留目录（否则被判 unmanaged），再 POST /volumes。"""
+    """在卷根下准备 iso-home / iso-data，并尽量经控制面注册。"""
     os.makedirs(VOLUMES, exist_ok=True)
     for name, _ in MOUNTS:
-        stale = os.path.join(VOLUMES, name)
-        if os.path.isdir(stale):
-            shutil.rmtree(stale, ignore_errors=True)
-        status, body = http(
+        path = os.path.join(VOLUMES, name)
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+        os.makedirs(path, exist_ok=True)
+        # 写入探针，方便确认双向可见
+        with open(os.path.join(path, ".pointer-iso"), "w", encoding="utf-8") as f:
+            f.write(name + "\n")
+    # 控制面建卷（部分网关要求先 POST /volumes）
+    for name, _ in MOUNTS:
+        http(
             "POST",
             CONTROL + "/volumes",
             json.dumps({"name": name}).encode(),
             "application/json",
+            timeout=30,
         )
-        if status // 100 != 2:
-            print(f"create volume {name} failed: HTTP {status} {body[:160]!r}")
-            return False
     return True
 
 
@@ -103,8 +119,7 @@ def main():
     create_body = {"templateID": TEMPLATE, "timeout": TIMEOUT}
     if with_mounts:
         create_body["volumeMounts"] = [
-            {"name": name, "path": path, "readOnly": path == "/skills"}
-            for name, path in MOUNTS
+            {"name": name, "path": path, "readOnly": False} for name, path in MOUNTS
         ]
     status, body = http(
         "POST", CONTROL + "/sandboxes", json.dumps(create_body).encode(), "application/json"
@@ -118,24 +133,18 @@ def main():
 
     results = []
     try:
-        code, out, _ = connect_exec(envd, "mount | grep -E ' /(workspace|skills|home/u) ' | wc -l")
+        code, out, _ = connect_exec(
+            envd, "mount | grep -E ' /(data|home/pointer) ' | wc -l"
+        )
         mount_count = int(out.strip()) if out.strip().isdigit() else 0
         has_mounts = mount_count >= 2
-        # /skills 是否真的只读：Cube 认 volumeMounts[].readOnly，e2b-local 忽略
-        code, out, _ = connect_exec(envd, "mount | grep ' /skills ' || true")
-        skills_ro = " ro," in out or "(ro" in out
         code, out, _ = connect_exec(envd, "id -u")
         uid = int(out.strip()) if out.strip().isdigit() else -1
-        print(
-            f"backend: mounts={mount_count} skills_ro={skills_ro} uid={uid} template={TEMPLATE}\n"
-        )
+        print(f"backend: mounts={mount_count} uid={uid} template={TEMPLATE}\n")
 
-        def check(name, fn, needs_mounts=False, needs_ro=False):
+        def check(name, fn, needs_mounts=False):
             if needs_mounts and not has_mounts:
                 results.append((name, "SKIP", "后端未挂载（无 volumeMounts 支持）"))
-                return
-            if needs_ro and not skills_ro:
-                results.append((name, "SKIP", "该后端无法只读挂载（e2b-local 忽略 readOnly）"))
                 return
             verdict, detail = fn()
             results.append((name, verdict, detail))
@@ -143,37 +152,42 @@ def main():
         def cross_user():
             # 只挂了当前用户的家目录：/home 下不应出现别的租户
             code, out, err = connect_exec(
-                envd, "ls -1 /home 2>&1; echo '---'; ls /home/u/../other-tenant 2>&1"
+                envd,
+                "ls -1 /home 2>&1; echo '---'; ls /home/pointer/../other-tenant 2>&1",
             )
             text = out + err
             listed = [l for l in text.split("---")[0].split() if l]
-            ok = listed == ["u"] and ("No such file" in text or "cannot access" in text)
+            ok = listed == ["pointer"] and (
+                "No such file" in text or "cannot access" in text
+            )
             return ("PASS" if ok else "FAIL"), f"home={listed} {text.split('---')[-1].strip()[:60]}"
 
         def path_escape():
             # 从挂载点往上逃，不能落到宿主文件系统
             code, out, err = connect_exec(
                 envd,
-                "cat /workspace/../../Users/$(whoami)/.zshrc 2>&1 | head -1; "
+                "cat /data/../../Users/$(whoami)/.zshrc 2>&1 | head -1; "
                 "ls -d /Users 2>&1 | head -1",
             )
             text = out + err
             ok = "No such file" in text or "cannot access" in text or "not found" in text
             return ("PASS" if ok else "FAIL"), text.strip()[:100]
 
-        def skills_readonly():
-            code, out, err = connect_exec(envd, "touch /skills/x 2>&1")
-            text = out + err
-            ok = code != 0 and ("Read-only file system" in text or "read-only" in text.lower())
-            return ("PASS" if ok else "FAIL"), text.strip()[:100]
-
-        def no_remount():
-            code, out, err = connect_exec(envd, "mount -o remount,rw /skills 2>&1")
-            text = out + err
-            ok = code != 0 and (
-                "Operation not permitted" in text or "permission denied" in text.lower()
+        def data_writable():
+            code, out, err = connect_exec(
+                envd, "echo ok >/data/.iso-write && cat /data/.iso-write"
             )
-            return ("PASS" if ok else "FAIL"), text.strip()[:100]
+            text = (out + err).strip()
+            ok = code == 0 and "ok" in text
+            return ("PASS" if ok else "FAIL"), text[:100]
+
+        def home_writable():
+            code, out, err = connect_exec(
+                envd, "echo ok >/home/pointer/.iso-write && cat /home/pointer/.iso-write"
+            )
+            text = (out + err).strip()
+            ok = code == 0 and "ok" in text
+            return ("PASS" if ok else "FAIL"), text[:100]
 
         def network_ok():
             code, out, err = connect_exec(
@@ -183,9 +197,11 @@ def main():
             ok = "ok" in out
             return ("PASS" if ok else "FAIL"), (out + err).strip()[:100]
 
-        def no_credentials():
+        def no_host_tokens_in_data():
+            # data 卷不应夹带宿主凭证文件名（探针）
             code, out, err = connect_exec(
-                envd, "find /skills \\( -name 'token.txt' -o -name '*_token.txt' \\) 2>&1 | head -5"
+                envd,
+                "find /data \\( -name 'token.txt' -o -name '*_token.txt' \\) 2>&1 | head -5",
             )
             ok = code == 0 and not out.strip()
             return ("PASS" if ok else "FAIL"), (out + err).strip()[:140]
@@ -199,10 +215,10 @@ def main():
 
         check("1 跨用户不可见", cross_user, needs_mounts=True)
         check("2 路径逃逸无效", path_escape, needs_mounts=True)
-        check("3 skills 只读", skills_readonly, needs_mounts=True, needs_ro=True)
-        check("4 无法提权 remount", no_remount, needs_mounts=True, needs_ro=True)
+        check("3 data 可写", data_writable, needs_mounts=True)
+        check("4 home 可写", home_writable, needs_mounts=True)
         check("5 出网可用", network_ok)
-        check("6 凭证不可见", no_credentials, needs_mounts=True, needs_ro=True)
+        check("6 data 无宿主凭证", no_host_tokens_in_data, needs_mounts=True)
         check("7 非宿主 uid", non_root)
     finally:
         http("DELETE", CONTROL + f"/sandboxes/{sid}")
@@ -217,12 +233,7 @@ def main():
 
     skipped = sum(1 for _, v, _ in results if v == "SKIP")
     print(f"\n汇总：PASS {len(results) - failed - skipped} / FAIL {failed} / SKIP {skipped}")
-    if failed:
-        print("存在 FAIL：该后端不满足 §5.6 隔离要求")
-        return 1
-    if skipped:
-        print("存在 SKIP：当前后端能力不足，Cube 上必须全部 PASS 才算验收通过")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

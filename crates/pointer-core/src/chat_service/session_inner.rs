@@ -323,7 +323,7 @@ pub(super) async fn run_chat_inner(
         &format!("root={effective_workspace}"),
     );
 
-    // 执行环境绑定（§3.4）：headless 档位下工作区根是 guest 路径 `/workspace`，
+    // 执行环境绑定：沙箱档位下工作区根是 guest 路径 `/data/workspaces…`，
     // 宿主路径在沙箱里不存在；local 档位原样沿用。
     let (_env_guard, tool_workspace) = crate::env::session_env::bind_and_resolve_workspace(
         conversation_id,

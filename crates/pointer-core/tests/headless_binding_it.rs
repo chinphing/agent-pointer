@@ -5,7 +5,7 @@
 //! ```
 //!
 //! 覆盖 §3.4 / §7.1 B3 的三条主线：
-//! 1. 部署默认 headless → 会话绑到远端，工作区根变成 guest `/workspace`；
+//! 1. 部署默认 headless → 会话绑到远端，工作区根变成 guest `/data/workspaces`；
 //! 2. admin 账号默认 local → 不建沙箱、工作区根保持宿主路径；
 //! 3. 会话回收 → 沙箱销毁、缓存清空。
 
@@ -56,7 +56,7 @@ fn headless_binding_end_to_end() {
     )
     .expect("bind headless session");
     assert!(guard.is_some(), "headless 档位必须绑定环境");
-    assert_eq!(workspace, "/workspace", "headless 下工作区根是 guest 路径");
+    assert_eq!(workspace, "/data/workspaces", "headless 下工作区根是 guest 路径");
     assert_eq!(effective_env().kind(), EnvKind::Headless);
     assert!(current_env().is_some());
 
@@ -65,7 +65,7 @@ fn headless_binding_end_to_end() {
 
     // 文件写入真的落在沙箱里
     let env = effective_env();
-    let path = std::path::Path::new("/workspace/binding.txt");
+    let path = std::path::Path::new("/data/workspaces/binding.txt");
     env.write_file(path, b"from-headless").expect("write in sandbox");
     assert_eq!(env.read_file(path).expect("read back"), b"from-headless");
 
@@ -75,7 +75,7 @@ fn headless_binding_end_to_end() {
             .expect("rebind");
     // 已经绑过 → 不新建、不报错
     assert!(guard2.is_none(), "已有绑定不应重复进入");
-    assert_eq!(workspace2, "/workspace");
+    assert_eq!(workspace2, "/data/workspaces");
     assert_eq!(
         session_env::cached_sandbox_id(conv).as_deref(),
         Some(sandbox_id.as_str()),

@@ -1,9 +1,9 @@
 //! 媒体引用（`MEDIA:` / 附件 ref）在**会话环境**里的预览 / 下载解析。
 //!
-//! 沙箱档位下引用是环境内路径（`/workspace/x.png`），宿主上没有这个文件：
+//! 沙箱档位下引用是环境内路径（`/data/workspaces/x.png`），宿主上没有这个文件：
 //! 不带会话环境时必须维持原来的宿主错误（不 fail-closed、不静默回落），
 //! 带环境时按环境读——字节来源仍由 `workspace_read::media_body_for_streaming`
-//! 决定（宿主挂载 → 宿主流式；远端后端 → 整段读）。
+//! 决定（local 恒等 → 宿主流式；沙箱档位一律经环境读）。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -22,10 +22,9 @@ use pointer_core::media::{
 };
 use pointer_core::workspace_read::WorkspaceMediaBody;
 
-/// 沙箱风格环境：路径是环境内路径（`/workspace/...`），IO 走内存假文件系统。
+/// 沙箱风格环境：路径是环境内路径（`/data/workspaces/...`），IO 走内存假文件系统。
 ///
-/// `mounts` 由用例决定：容器后端有「guest `/workspace` → 宿主目录」的挂载表，
-/// 云端 envd 的挂载点只是模板（宿主上没有文件）。
+/// `mounts` 由用例决定：挂载表仅用于路径翻译；媒体字节一律经 Environment（Docker 走 envd）。
 struct SandboxEnv {
     workspace: PathBuf,
     map: PathMap,
@@ -35,7 +34,7 @@ struct SandboxEnv {
 impl SandboxEnv {
     fn new(mounts: Vec<Mount>) -> Self {
         Self {
-            workspace: PathBuf::from("/workspace"),
+            workspace: PathBuf::from("/data/workspaces"),
             map: PathMap::new(mounts),
             files: Mutex::new(BTreeMap::new()),
         }
@@ -69,6 +68,9 @@ impl Environment for SandboxEnv {
     }
     fn home_root(&self) -> &Path {
         Path::new("/home/pointer")
+    }
+    fn data_root(&self) -> &Path {
+        Path::new("/data")
     }
     fn capabilities(&self) -> Capabilities {
         Capabilities::headless()
@@ -140,12 +142,12 @@ fn decode(preview: &pointer_core::models::ChatMediaPreview) -> Vec<u8> {
 
 #[test]
 fn sandbox_media_ref_preview_reads_from_session_env() {
-    // 云端 envd：宿主上没有 `/workspace/pic.png`，只有环境里有。
+    // 云端 envd：宿主上没有 `/data/workspaces/pic.png`，只有环境里有。
     let env = SandboxEnv::new(Vec::new());
-    env.put("/workspace/pic.png", PNG_BYTES);
+    env.put("/data/workspaces/pic.png", PNG_BYTES);
 
     let preview =
-        read_media_ref_preview_in_env("/workspace/pic.png", Some(&env)).expect("env preview");
+        read_media_ref_preview_in_env("/data/workspaces/pic.png", Some(&env)).expect("env preview");
 
     assert_eq!(decode(&preview), PNG_BYTES);
     assert_eq!(preview.mime_type, "image/png");
@@ -155,40 +157,32 @@ fn sandbox_media_ref_preview_reads_from_session_env() {
 #[test]
 fn sandbox_media_ref_preview_strips_pointer_media_scheme() {
     let env = SandboxEnv::new(Vec::new());
-    env.put("/workspace/pic.png", PNG_BYTES);
+    env.put("/data/workspaces/pic.png", PNG_BYTES);
 
-    let preview = read_media_ref_preview_in_env("pointer-media:///workspace/pic.png", Some(&env))
+    let preview = read_media_ref_preview_in_env("pointer-media:///data/workspaces/pic.png", Some(&env))
         .expect("env preview with scheme");
 
     assert_eq!(decode(&preview), PNG_BYTES);
 }
 
 #[test]
-fn sandbox_media_ref_body_uses_host_mount_when_present() {
-    // 容器后端：`/workspace` 是宿主目录的 bind mount → 宿主流式，不进内存。
+fn sandbox_media_ref_body_uses_env_even_when_host_mount_present() {
+    // Docker 也经 Environment（envd `/files`），有 bind mount 也不走宿主 fs。
     let host_ws = tempfile::tempdir().expect("temp workspace");
-    let host_file = host_ws.path().join("pic.png");
+    let host_file = host_ws.path().join("workspaces").join("pic.png");
+    std::fs::create_dir_all(host_file.parent().expect("parent")).expect("mkdir workspaces");
     std::fs::write(&host_file, PNG_BYTES).expect("write host file");
-    let env = SandboxEnv::new(vec![Mount::new(host_ws.path(), "/workspace", false)]);
-    env.put("/workspace/pic.png", PNG_BYTES);
+    let env = SandboxEnv::new(vec![Mount::new(host_ws.path(), "/data", false)]);
+    env.put("/data/workspaces/pic.png", PNG_BYTES);
 
     let (body, mime, name) = media_ref_body_in_env(
-        "/workspace/pic.png",
+        "/data/workspaces/pic.png",
         Some(&env),
         MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES,
     )
     .expect("env body");
 
-    match body {
-        WorkspaceMediaBody::HostPath(path) => {
-            assert_eq!(
-                path.canonicalize().expect("canonical host path"),
-                host_file.canonicalize().expect("canonical file"),
-                "映射成功就走宿主流式"
-            );
-        }
-        WorkspaceMediaBody::Inline(_) => panic!("有宿主挂载时不该整段读进内存"),
-    }
+    assert_eq!(body, WorkspaceMediaBody::Inline(PNG_BYTES.to_vec()));
     assert_eq!(mime, "image/png");
     assert_eq!(name, "pic.png");
 }
@@ -196,11 +190,11 @@ fn sandbox_media_ref_body_uses_host_mount_when_present() {
 #[test]
 fn sandbox_media_ref_body_reads_env_bytes_when_host_has_no_file() {
     let host_ws = tempfile::tempdir().expect("temp workspace");
-    let env = SandboxEnv::new(vec![Mount::new(host_ws.path(), "/workspace", false)]);
-    env.put("/workspace/pic.png", PNG_BYTES);
+    let env = SandboxEnv::new(vec![Mount::new(host_ws.path(), "/data", false)]);
+    env.put("/data/workspaces/pic.png", PNG_BYTES);
 
     let (body, _, _) = media_ref_body_in_env(
-        "/workspace/pic.png",
+        "/data/workspaces/pic.png",
         Some(&env),
         MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES,
     )
@@ -212,14 +206,14 @@ fn sandbox_media_ref_body_reads_env_bytes_when_host_has_no_file() {
 #[test]
 fn media_ref_without_env_keeps_host_error() {
     // 没有会话环境（缺 conversationId / 环境没建）：维持宿主读取，报宿主错误。
-    let err = read_media_ref_preview_in_env("/workspace/pic.png", None)
+    let err = read_media_ref_preview_in_env("/data/workspaces/pic.png", None)
         .expect_err("host has no such file");
     assert!(
         err.to_string().contains("media file not found"),
         "unexpected error: {err:#}"
     );
 
-    let err = media_ref_body_in_env("/workspace/pic.png", None, MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES)
+    let err = media_ref_body_in_env("/data/workspaces/pic.png", None, MEDIA_REF_ENV_DOWNLOAD_MAX_BYTES)
         .expect_err("host has no such file");
     assert!(
         err.to_string().contains("media file not found"),
@@ -243,14 +237,22 @@ fn relative_media_ref_is_not_resolved_inside_env() {
 
 #[test]
 fn host_media_ref_still_previews_with_env() {
-    // 宿主路径（附件本体 / local 档位工作区）优先，行为与以前一致。
+    // local 档位：宿主路径优先；同时传入沙箱 env 也不该抢走宿主命中。
     let dir = tempfile::tempdir().expect("temp dir");
     let file = dir.path().join("shot.png");
     std::fs::write(&file, PNG_BYTES).expect("write file");
-    let env = SandboxEnv::new(Vec::new());
+    let session = pointer_core::env::SessionEnv::open_roots(
+        "test",
+        dir.path(),
+        dir.path(),
+        dir.path(),
+    )
+    .expect("local session");
+    let _guard = pointer_core::env::EnvironmentGuard::enter(session);
+    let sandbox = SandboxEnv::new(Vec::new());
 
-    let preview =
-        read_media_ref_preview_in_env(&file.to_string_lossy(), Some(&env)).expect("host preview");
+    let preview = read_media_ref_preview_in_env(&file.to_string_lossy(), Some(&sandbox))
+        .expect("host preview");
     assert_eq!(decode(&preview), PNG_BYTES);
     assert_eq!(preview.file_name, "shot.png");
 }
@@ -259,10 +261,10 @@ fn host_media_ref_still_previews_with_env() {
 fn reference_image_resolves_sandbox_workspace_path() {
     // `image_generate` / `video_generate` 的参考图可以是工作区路径。
     let env = SandboxEnv::new(Vec::new());
-    env.put("/workspace/ref.png", PNG_BYTES);
+    env.put("/data/workspaces/ref.png", PNG_BYTES);
 
     let out = pointer_core::media_generation::resolve_reference_image_for_api_in_env(
-        "/workspace/ref.png",
+        "/data/workspaces/ref.png",
         Some(&env),
     )
     .expect("env reference image");
@@ -313,12 +315,13 @@ fn sandbox_chat_media_body_reads_env_when_host_mount_has_no_file() {
 }
 
 #[test]
-fn sandbox_chat_media_body_streams_host_mount_when_present() {
+fn sandbox_chat_media_body_uses_env_even_when_host_mount_present() {
     let host = tempfile::tempdir().expect("temp data");
     let host_file = host.path().join("attachments").join("conv1").join("pic.png");
     std::fs::create_dir_all(host_file.parent().expect("parent")).expect("dirs");
     std::fs::write(&host_file, PNG_BYTES).expect("write host file");
     let env = SandboxEnv::new(vec![Mount::new(host.path(), "/data", false)]);
+    env.put("/data/attachments/conv1/pic.png", PNG_BYTES);
 
     let (body, _, _) = chat_media_body_in_env(
         "v2/uabc/attachments/conv1/pic.png",
@@ -327,15 +330,7 @@ fn sandbox_chat_media_body_streams_host_mount_when_present() {
     )
     .expect("mounted body");
 
-    match body {
-        WorkspaceMediaBody::HostPath(path) => {
-            assert_eq!(
-                path.canonicalize().expect("canonical host path"),
-                host_file.canonicalize().expect("canonical file")
-            );
-        }
-        WorkspaceMediaBody::Inline(_) => panic!("有宿主挂载时不该整段读进内存"),
-    }
+    assert_eq!(body, WorkspaceMediaBody::Inline(PNG_BYTES.to_vec()));
 }
 
 #[test]

@@ -166,7 +166,7 @@ pub(crate) fn effective_terminal_cwd(
     let trimmed = session_workspace.trim();
     if !trimmed.is_empty() {
         let p = PathBuf::from(trimmed);
-        // headless/desktop：工作区是沙箱路径（`/workspace`），宿主上不存在，
+        // headless/desktop：工作区是沙箱路径（`/data/...`），宿主上不存在，
         // 判定必须走 Environment，否则每次 terminal 都报"工作区不存在"。
         //
         // 三种失败必须分开报：环境没绑定 ≠ 沙箱里没这个路径 ≠ 宿主目录不存在。

@@ -325,11 +325,11 @@ mod tests {
     use std::path::PathBuf;
 
     /// 回归：部署默认档位是 desktop、但本线程没有绑定环境（local 账号）时，
-    /// 工作区必须用宿主路径，不能因为 `effective_env()` 返回 DeniedEnv 而变成 `/workspace`。
+    /// 工作区必须用宿主路径，不能因为 `effective_env()` 返回 DeniedEnv 而变成 guest cwd。
     #[test]
     fn unbound_thread_keeps_host_workspace_even_when_deployment_is_remote() {
         // 把部署默认设成 desktop；若实现里还读 `effective_env()`，这里就会返回
-        // `/workspace`，测试失败。
+        // guest cwd（如 `/data/workspaces`），测试失败。
         std::env::set_var("POINTER_SERVER_ENVIRONMENT_PROVIDER", "desktop");
         let host = std::env::temp_dir().join("pointer-ws-regression");
         let got = resolve_tool_workspace("conv-x", Some("user-x"), &host.display().to_string(), "test");

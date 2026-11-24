@@ -167,10 +167,10 @@ async fn read_workspace_file(
 
 /// Stream workspace file bytes for inline image/PDF preview in the web UI.
 ///
-/// 沙箱档位下 `resolve_file_for_media` 返回的是**环境内路径**（`/workspace/x.png`），
+/// 沙箱档位下 `resolve_file_for_media` 返回的是**环境内路径**（`/data/...`），
 /// 宿主上没有这个文件，直接 `File::open` 必然失败——图片 / 视频预览就没了。
-/// 所以先让核心层决定字节来源：有宿主挂载（local / docker）照旧流式打开，
-/// 远端后端（envd 云端）才整段读进内存（有上限）。
+/// 所以先让核心层决定字节来源：local 恒等映射流式打开宿主路径，
+/// 沙箱档位（docker / envd）一律经环境整段读进内存（有上限）。
 async fn stream_workspace_file_media(
     State(state): State<ServerState>,
     Query(q): Query<WorkspacePathQuery>,
@@ -1639,7 +1639,7 @@ struct MediaRefQuery {
     /// Optional display name for Content-Disposition (UTF-8 via filename*).
     #[serde(default, rename = "fileName")]
     file_name: Option<String>,
-    /// 会话 id。沙箱档位下媒体引用是**环境内路径**（`/workspace/...`），宿主上没有
+    /// 会话 id。沙箱档位下媒体引用是**环境内路径**（`/data/...`），宿主上没有
     /// 这个文件，只有按会话取到环境才读得到。缺省维持宿主读取（非工作区调用方）。
     #[serde(default, rename = "conversationId")]
     conversation_id: Option<String>,

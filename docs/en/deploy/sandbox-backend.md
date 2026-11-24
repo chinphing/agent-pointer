@@ -138,14 +138,22 @@ silently — which looked like it worked.
 > filesystem snapshot, running it needs a daemon.
 
 **envd (file dataplane):** Docker-backend `read_file` / `write_file` / `open_reader`
-share the same `/files` client as the `envd` backend. Provide a Linux static binary:
+share the same `/files` client (`EnvdFs`) as the `envd` backend. **Sandbox images do
+not ship envd.** Provide a Linux static binary:
 
-1. `POINTER_ENVD_BINARY` (absolute path; preferred in production)
+1. `POINTER_ENVD_BINARY` (absolute path; **required in production**)
 2. Auto-discover `.dev-sandbox/envd-bin/envd-linux-{arm64,amd64}` (extracted by `scripts/dev-sandbox.sh up`)
 
-On `docker run`, the binary is bind-mounted and `127.0.0.1::<ephemeral>→49983` is published;
-envd starts with `-isnotfc`. **Do not expose 49983 publicly** (no auth in that mode).
-Exec still uses `docker exec`; the control plane stays Docker, unrelated to `backend=envd`.
+On `docker run`, the binary is bind-mounted to `/usr/local/bin/pointer-envd` and
+`127.0.0.1::<ephemeral>→49983` is published; envd starts with `-isnotfc`. Container
+specs include `SPEC_VERSION` (currently **≥10** for the envd port); older containers
+are recreated. **Do not expose 49983 publicly** (no auth in that mode). Exec and
+directory listing still use `docker exec`; the control plane stays Docker, unrelated
+to `backend=envd`.
+
+Session mounts are only two volumes: `{users}/{key}/home` → `/home/pointer` and
+`{users}/{key}/data` → `/data`. Default cwd is `/data/workspaces` (or a selected
+`/data/...` path).
 
 ### 2.2 Where the image comes from
 
@@ -214,7 +222,8 @@ docker exec sbx-smoke sh -lc 'DISPLAY=:99 xdpyinfo | grep dimensions'
 docker rm -f sbx-smoke
 ```
 
-Then open a session and have the agent run `pwd`; `/workspace` means it works.
+Then open a session and have the agent run `pwd`; `/data/workspaces` (or a selected
+`/data/...` path) means it works.
 
 **Ports used by desktop takeover**: the desktop tier publishes two extra host ports,
 both bound to `127.0.0.1` with a random host port — **no firewall opening needed**:
@@ -236,9 +245,9 @@ docker exec sbx-vnc sh -lc 'pgrep -af websockify'                               
 docker rm -f sbx-vnc
 ```
 
-Containers created before the image upgrade will not have 6080 (the spec fingerprint
-includes `SPEC_VERSION`, bumped for this contract change, so they are recreated
-automatically). If you kept an old container by hand, `docker rm -f` it.
+After image or IO-contract upgrades, old containers will not pick up new ports
+automatically (the spec fingerprint includes `SPEC_VERSION`: desktop 6080, file-plane
+envd 49983, etc.). If you kept an old container by hand, `docker rm -f` it.
 
 ### 2.5 Capacity
 
@@ -380,9 +389,8 @@ so multi-node scheduling fails.
 
 | Data | Location | Cross-node |
 |---|---|---|
-| Workspace `/workspace` | host dir (single) / shared volume (cluster) | depends on storage |
-| Home `/home/pointer` (browser logins, pip/npm caches) | Volume mount | yes, when backed by S3 / JuiceFS / NFS |
-| Skills `/skills` | identical read-only copy on every node | distributed at deploy time |
+| User data `/data` (workspaces, attachments, media) | host dir (single) / shared volume (cluster) | depends on storage |
+| Home `/home/pointer` (browser logins, pip/npm caches, skills, plugins) | Volume mount | yes, when backed by S3 / JuiceFS / NFS |
 
 **Browser login state** lives in the home volume: the Chromium profile sits at
 `$HOME/.config/chromium`, so it survives container/VM recreation.

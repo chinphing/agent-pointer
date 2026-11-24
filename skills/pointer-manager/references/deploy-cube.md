@@ -139,7 +139,7 @@ template    = "tpl-xxxxxxxx"
 
 | 数据 | 放哪 | 跨节点 |
 |---|---|---|
-| 工作区 `/workspace` | 宿主目录（单机）/ 共享卷（多机） | 看存储 |
+| data `/data`（工作区在 `/data/workspaces…`） | 宿主目录（单机）/ 共享卷（多机） | 看存储 |
 | home `/home/pointer`（浏览器登录态、pip/npm 缓存） | Volume 挂载 | S3 / JuiceFS / NFS 才跨 |
 | 技能 `/skills` | 每节点本地同一份，只读挂载 | 部署时分发 |
 

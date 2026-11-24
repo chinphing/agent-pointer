@@ -1555,12 +1555,12 @@ mod tests {
 
     #[test]
     fn find_output_parses_type_and_path_pairs() {
-        let raw = b"d\0/workspace/sub\0f\0/workspace/sub/a.txt\0l\0/workspace/link\0";
+        let raw = b"d\0/data/workspaces/sub\0f\0/data/workspaces/sub/a.txt\0l\0/data/workspaces/link\0";
         let parsed = parse_find_nul(raw);
         assert_eq!(parsed.len(), 3);
-        assert_eq!(parsed[0], ('d', PathBuf::from("/workspace/sub")));
-        assert_eq!(parsed[1], ('f', PathBuf::from("/workspace/sub/a.txt")));
-        assert_eq!(parsed[2], ('l', PathBuf::from("/workspace/link")));
+        assert_eq!(parsed[0], ('d', PathBuf::from("/data/workspaces/sub")));
+        assert_eq!(parsed[1], ('f', PathBuf::from("/data/workspaces/sub/a.txt")));
+        assert_eq!(parsed[2], ('l', PathBuf::from("/data/workspaces/link")));
     }
 
     #[test]

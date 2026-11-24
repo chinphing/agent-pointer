@@ -19,8 +19,8 @@ use anyhow::{Context, Result};
 use super::pathmap::Mount;
 use crate::user_data_paths::{user_data_host, user_home_host};
 
-/// Deprecated guest alias. New mounts use [`GUEST_DATA`]; keep the constant so
-/// older call sites that still mention `/workspace` fail loudly in tests.
+/// Deprecated guest alias (old single-volume layout). New mounts use
+/// [`GUEST_DATA`]; keep the constant so tests can assert it is **not** mounted.
 pub const GUEST_WORKSPACE: &str = "/workspace";
 pub const GUEST_DATA: &str = "/data";
 pub const GUEST_HOME: &str = "/home/pointer";

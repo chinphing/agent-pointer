@@ -1203,7 +1203,7 @@ fn acquire_docker(
 }
 
 /// 同一会话的沙箱创建必须单飞：面板与对话几乎同时首次进入时，
-/// 两个线程都 cache miss 会各建一个沙箱，导致面板看到的 `/workspace`
+/// 两个线程都 cache miss 会各建一个沙箱，导致面板看到的 `/data`
 /// 和智能体实际用的不是同一个。
 fn conversation_creation_lock(conversation_id: &str) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();

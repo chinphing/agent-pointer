@@ -171,7 +171,7 @@ pub(crate) async fn run_sub_agent(
     let mut length_output_override: Option<u32> = None;
 
     // Set thread-local for this sub-agent's tool calls; restore parent on exit.
-    // 执行环境绑定（§3.4）：headless 档位下工作区根是 guest 路径 `/workspace`。
+    // 执行环境绑定：沙箱档位下工作区根是 guest 路径 `/data/workspaces…`。
     let session_user_id = state
         .session_index
         .session_user_id(conversation_id)

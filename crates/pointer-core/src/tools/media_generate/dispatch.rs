@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{build_image_request, build_video_request};
 
-/// 参考图可能是沙箱里的工作区路径（`/workspace/ref.png`）：按会话取**已建好的**
+/// 参考图可能是沙箱里的工作区路径（`/data/.../ref.png`）：按会话取**已建好的**
 /// 环境，先把本地路径换成 `data:` URL（远端 API 只认 URL）。
 ///
 /// http(s) / `data:` 原样返回；取不到会话环境时按宿主读（与以前一致）。

@@ -129,13 +129,19 @@ desktop = "docker"
 > **镜像 ≠ 运行时**。有镜像还必须装 Docker——镜像是文件系统快照，跑起来要守护进程。
 
 **envd（文件数据面）**：Docker 后端的 `read_file` / `write_file` / `open_reader`
-与 `envd` 后端共用同一套 `/files` 客户端。宿主需提供 Linux 静态二进制，按优先级：
+与 `envd` 后端共用同一套 `/files` 客户端（`EnvdFs`）。**沙箱镜像不内置 envd**，
+宿主需提供 Linux 静态二进制，按优先级：
 
-1. 环境变量 `POINTER_ENVD_BINARY`（绝对路径，推荐生产）
+1. 环境变量 `POINTER_ENVD_BINARY`（绝对路径，**生产必配**）
 2. 自动查找 `.dev-sandbox/envd-bin/envd-linux-{arm64,amd64}`（`scripts/dev-sandbox.sh up` 会从 e2b-local 镜像抽出）
 
-`docker run` 时 bind 进容器并映射 `127.0.0.1::<随机>→49983`，以 `-isnotfc` 启动。
-**不要把 49983 暴露到公网**（该模式无鉴权）。命令执行仍走 `docker exec`，控制面与 `backend=envd`（Cube / e2b-local）无关。
+`docker run` 时 bind 到 `/usr/local/bin/pointer-envd`，映射 `127.0.0.1::<随机>→49983`，
+以 `-isnotfc` 启动。容器规格指纹含 `SPEC_VERSION`（当前 **≥10** 才有 envd 端口）；
+旧容器会被强制重建。**不要把 49983 暴露到公网**（该模式无鉴权）。
+命令执行与列目录仍走 `docker exec`；控制面与 `backend=envd`（Cube / e2b-local）无关。
+
+会话挂载只有两卷：`{users}/{key}/home` → `/home/pointer`，`{users}/{key}/data` → `/data`。
+默认 cwd 为 `/data/workspaces`（或用户选中的 `/data/...`）。
 
 ### 2.2 镜像从哪来
 
@@ -235,7 +241,7 @@ docker exec sbx-smoke sh -lc 'DISPLAY=:99 xdpyinfo | grep dimensions'
 docker rm -f sbx-smoke
 ```
 
-服务端侧再确认一次：开一个会话让 agent 跑 `pwd`，能返回 `/workspace` 即通。
+服务端侧再确认一次：开一个会话让 agent 跑 `pwd`，能返回 `/data/workspaces`（或选中的 `/data/...`）即通。
 
 **接管电脑的端口**：desktop 档位会额外映射两个宿主端口，都只绑 `127.0.0.1`、由 Docker
 随机分配，**不需要在防火墙上开任何口**：
@@ -257,8 +263,8 @@ docker exec sbx-vnc sh -lc 'pgrep -af websockify'                               
 docker rm -f sbx-vnc
 ```
 
-镜像升级后老容器不会自动带 6080（规格指纹含 `SPEC_VERSION`，改契约已 +1，正常会重建）；
-如果手工保留过旧容器，`docker rm -f` 掉让它重建即可。
+镜像或 IO 契约升级后老容器不会自动带新端口（规格指纹含 `SPEC_VERSION`：桌面 6080、
+文件面 envd 49983 等，改契约会 +1 并重建）。如果手工保留过旧容器，`docker rm -f` 掉让它重建即可。
 
 ### 2.5 容量
 
@@ -399,9 +405,8 @@ curl -fsS http://<控制节点>:19090/healthz        # network-agent
 
 | 数据 | 放哪 | 跨节点 |
 |---|---|---|
-| 工作区 `/workspace` | 宿主目录（单机）/ 共享卷（多机） | 看存储 |
-| 用户 home `/home/pointer`（浏览器登录态、pip/npm 缓存） | Volume 挂载 | ✅ 后端是 S3 / JuiceFS / NFS 时 |
-| 技能 `/skills` | 每台节点本地同一份，只读挂载 | 部署时分发 |
+| 用户 data `/data`（工作区、附件、媒体） | 宿主目录（单机）/ 共享卷（多机） | 看存储 |
+| 用户 home `/home/pointer`（浏览器登录态、pip/npm 缓存、技能与插件） | Volume 挂载 | ✅ 后端是 S3 / JuiceFS / NFS 时 |
 
 **浏览器登录态**靠 home 卷：Chromium profile 在 `$HOME/.config/chromium`，
 容器/VM 重建后仍在。

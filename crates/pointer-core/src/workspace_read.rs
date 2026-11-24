@@ -104,7 +104,7 @@ impl std::error::Error for GitCommandError {}
 /// leaf entries and are never followed, preventing traversal outside the root.
 /// 面板要操作的根目录。
 ///
-/// headless/desktop 档位下工作区在沙箱里（`/workspace`），宿主路径在沙箱中不存在，
+/// headless/desktop 档位下工作区在沙箱里（`/data/...`），宿主路径在沙箱中不存在，
 /// 所以一律以环境绑定的工作区为准；local 档位沿用调用方给的宿主路径。
 fn panel_root(env: &dyn crate::env::Environment, workspace_root: &Path) -> Result<PathBuf> {
     if env.kind() != crate::env::EnvKind::Local {
@@ -505,8 +505,8 @@ pub fn git_status(
 /// avoids re-spawning within a few seconds of the last run. Errors are not
 /// cached so a transient failure retries immediately.
 ///
-/// 只缓存 `local` 档位：沙箱档位下每个会话的 `workspace_root()` 都是 `/workspace`，
-/// 按路径做键会让不同会话的 git 状态互相串。
+/// 只缓存 `local` 档位：沙箱档位下多个会话的默认 `workspace_root()` 可能相同
+/// （如 `/data/workspaces`），按路径做键会让不同会话的 git 状态互相串。
 const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
 static GIT_STATUS_CACHE: Mutex<Option<HashMap<String, (Instant, Vec<GitChange>)>>> =
     Mutex::new(None);
@@ -515,8 +515,8 @@ pub fn git_status_response(
     env: &dyn crate::env::Environment,
     workspace_root: &Path,
 ) -> Result<GitStatusResponse> {
-    // 缓存键只对 local 档位有效：沙箱档位下所有会话的 `workspace_root()` 都是
-    // `/workspace`，按路径做键会把不同会话的 git 状态互相串（跨会话泄露文件名）。
+    // 缓存键只对 local 档位有效：沙箱档位下多个会话可能共享同一 guest cwd
+    // （如 `/data/workspaces`），按路径做键会把不同会话的 git 状态互相串。
     let cache_key = (env.kind() == crate::env::EnvKind::Local)
         .then(|| workspace_root.to_string_lossy().into_owned());
     if let Some(key) = cache_key.as_deref() {
@@ -873,9 +873,9 @@ mod tests {
         assert_eq!(media.path, file.canonicalize().unwrap());
     }
 
-    /// 沙箱风格环境：路径是环境内路径（`/workspace/...`），IO 走内存假文件系统。
+    /// 沙箱风格环境：路径是环境内路径（`/data/...`），IO 走内存假文件系统。
     ///
-    /// `map` 由用例决定：容器后端有「guest `/workspace` → 宿主目录」的挂载表，
+    /// `map` 由用例决定：容器后端有「guest `/data` → 宿主目录」的挂载表，
     /// 云端 envd 的挂载点只是模板（宿主上没有文件）。
     struct SandboxEnv {
         workspace: PathBuf,
@@ -887,7 +887,7 @@ mod tests {
     impl SandboxEnv {
         fn new(mounts: Vec<crate::env::Mount>) -> Self {
             Self {
-                workspace: PathBuf::from("/workspace"),
+                workspace: PathBuf::from("/data/workspaces"),
                 map: crate::env::PathMap::new(mounts),
                 files: std::sync::Mutex::new(std::collections::BTreeMap::new()),
                 reads: std::sync::atomic::AtomicUsize::new(0),
@@ -1011,15 +1011,15 @@ mod tests {
         fs::write(&file, b"\x89PNG\r\n").unwrap();
         let env = SandboxEnv::new(vec![crate::env::Mount::new(
             host_ws.path(),
-            "/workspace",
+            "/data",
             false,
         )]);
-        env.put("/workspace/pic.png", b"\x89PNG\r\n");
+        env.put("/data/workspaces/pic.png", b"\x89PNG\r\n");
 
-        let media = resolve_file_for_media(&env, Path::new("/workspace"), "pic.png").unwrap();
+        let media = resolve_file_for_media(&env, Path::new("/data/workspaces"), "pic.png").unwrap();
         assert_eq!(
             media.path,
-            PathBuf::from("/workspace/pic.png"),
+            PathBuf::from("/data/workspaces/pic.png"),
             "沙箱里拿到的是 guest 路径"
         );
 
@@ -1036,14 +1036,14 @@ mod tests {
         let host_ws = tempfile::tempdir().unwrap();
         let env = SandboxEnv::new(vec![crate::env::Mount::new(
             host_ws.path(),
-            "/workspace",
+            "/data",
             false,
         )]);
-        env.put("/workspace/out.mp4", b"video-bytes");
+        env.put("/data/workspaces/out.mp4", b"video-bytes");
 
         let body = media_body_for_streaming(
             &env,
-            Path::new("/workspace/out.mp4"),
+            Path::new("/data/workspaces/out.mp4"),
             WORKSPACE_MEDIA_INLINE_MAX_BYTES,
         )
         .unwrap();
@@ -1054,9 +1054,9 @@ mod tests {
     #[test]
     fn media_body_rejects_oversize_env_file_with_clear_error() {
         let env = SandboxEnv::new(Vec::new());
-        env.put("/workspace/huge.mp4", &vec![7u8; 2048]);
+        env.put("/data/workspaces/huge.mp4", &vec![7u8; 2048]);
 
-        let err = media_body_for_streaming(&env, Path::new("/workspace/huge.mp4"), 1024)
+        let err = media_body_for_streaming(&env, Path::new("/data/workspaces/huge.mp4"), 1024)
             .expect_err("超过上限必须报错，不能静默截断");
         let msg = err.to_string();
         assert!(msg.contains("超过在线预览上限"), "{msg}");
@@ -1069,13 +1069,13 @@ mod tests {
         let host_ws = tempfile::tempdir().unwrap();
         let env = SandboxEnv::new(vec![crate::env::Mount::new(
             host_ws.path(),
-            "/workspace",
+            "/data",
             false,
         )]);
 
         let err = media_body_for_streaming(
             &env,
-            Path::new("/workspace/missing.png"),
+            Path::new("/data/workspaces/missing.png"),
             WORKSPACE_MEDIA_INLINE_MAX_BYTES,
         )
         .expect_err("文件不存在应报错");

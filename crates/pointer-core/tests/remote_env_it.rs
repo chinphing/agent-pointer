@@ -85,7 +85,7 @@ fn remote_env_mounts_host_directories_bidirectionally() {
     // 宿主 → 沙箱
     std::fs::write(host_workspace.join("from-host.txt"), "hello-from-host\n").expect("host write");
     assert_eq!(
-        env.read_to_string(Path::new("/workspace/from-host.txt"))
+        env.read_to_string(Path::new("/data/workspaces/from-host.txt"))
             .expect("read host file in sandbox"),
         "hello-from-host\n"
     );
@@ -97,7 +97,7 @@ fn remote_env_mounts_host_directories_bidirectionally() {
     );
 
     // 沙箱 → 宿主
-    env.write_file(Path::new("/workspace/from-sandbox.txt"), b"hello-from-sandbox")
+    env.write_file(Path::new("/data/workspaces/from-sandbox.txt"), b"hello-from-sandbox")
         .expect("sandbox write");
     let landed = host_workspace.join("from-sandbox.txt");
     assert!(landed.exists(), "宿主目录应看到沙箱写入: {}", landed.display());
@@ -129,7 +129,7 @@ fn remote_env_roundtrip_against_e2b_local() {
     let env = &env.0;
 
     // --- 文件 IO -------------------------------------------------------
-    let a = Path::new("/workspace/a.txt");
+    let a = Path::new("/data/workspaces/a.txt");
     env.write_file(a, b"hello").expect("write a.txt");
     assert_eq!(env.read_file(a).expect("read a.txt"), b"hello");
     assert_eq!(env.read_to_string(a).expect("read_to_string"), "hello");
@@ -138,20 +138,20 @@ fn remote_env_roundtrip_against_e2b_local() {
     assert!(meta.is_file && !meta.is_dir && !meta.is_symlink, "{meta:?}");
     assert_eq!(meta.len, 5);
     assert!(env.exists(a));
-    assert!(!env.exists(Path::new("/workspace/nope.txt")));
+    assert!(!env.exists(Path::new("/data/workspaces/nope.txt")));
 
-    env.create_dir_all(Path::new("/workspace/sub/deep")).expect("mkdir -p");
-    env.write_file(Path::new("/workspace/sub/deep/b.txt"), b"deep")
+    env.create_dir_all(Path::new("/data/workspaces/sub/deep")).expect("mkdir -p");
+    env.write_file(Path::new("/data/workspaces/sub/deep/b.txt"), b"deep")
         .expect("write b.txt");
 
-    let listed = env.list_dir(Path::new("/workspace")).expect("list /workspace");
+    let listed = env.list_dir(Path::new("/data/workspaces")).expect("list /data/workspaces");
     let names: Vec<&str> = listed.iter().map(|e| e.name.as_str()).collect();
     assert!(names.contains(&"a.txt"), "{names:?}");
     assert!(names.contains(&"sub"), "{names:?}");
     assert!(listed.iter().any(|e| e.name == "sub" && e.is_dir));
 
     let walked = env
-        .walk(Path::new("/workspace"), WalkOptions::new(3))
+        .walk(Path::new("/data/workspaces"), WalkOptions::new(3))
         .expect("walk");
     assert!(walked.len() >= 3, "{walked:?}");
     assert!(walked.iter().any(|e| e.path.ends_with("sub/deep/b.txt")));
@@ -169,11 +169,11 @@ fn remote_env_roundtrip_against_e2b_local() {
         .exec(
             &sh("pwd; echo FOO=$FOO"),
             ExecOptions::new()
-                .with_cwd("/workspace")
+                .with_cwd("/data/workspaces")
                 .with_env("FOO", "bar"),
         )
         .expect("exec cwd/env");
-    assert_eq!(out.stdout_str(), "/workspace\nFOO=bar\n");
+    assert_eq!(out.stdout_str(), "/data/workspaces\nFOO=bar\n");
 
     // env_remove：先设再删
     let out = env
@@ -217,24 +217,24 @@ fn remote_env_roundtrip_against_e2b_local() {
     assert!(out.timed_out || out.status != 0, "超时没生效: {out:?} ({elapsed:?})");
 
     // --- 其余 Environment 操作 -----------------------------------------
-    let real = env.canonicalize(Path::new("/workspace/../workspace/a.txt")).expect("realpath");
-    assert_eq!(real, Path::new("/workspace/a.txt"));
+    let real = env.canonicalize(Path::new("/data/workspaces/../workspaces/a.txt")).expect("realpath");
+    assert_eq!(real, Path::new("/data/workspaces/a.txt"));
 
     env.set_executable(a).expect("chmod");
-    let out = env.exec(&sh("test -x /workspace/a.txt"), ExecOptions::new()).expect("test -x");
+    let out = env.exec(&sh("test -x /data/workspaces/a.txt"), ExecOptions::new()).expect("test -x");
     assert!(out.success(), "set_executable 没生效: {out:?}");
 
     env.remove_file(a).expect("rm file");
     assert!(!env.exists(a));
-    env.remove_dir_all(Path::new("/workspace/sub")).expect("rm -rf");
-    assert!(!env.exists(Path::new("/workspace/sub")));
+    env.remove_dir_all(Path::new("/data/workspaces/sub")).expect("rm -rf");
+    assert!(!env.exists(Path::new("/data/workspaces/sub")));
 
     // --- 流式读（Range 分块，D）----------------------------------------
     let big = vec![b'x'; 9 * 1024 * 1024];
-    env.write_file(Path::new("/workspace/big.bin"), &big)
+    env.write_file(Path::new("/data/workspaces/big.bin"), &big)
         .expect("write big.bin");
     let mut reader = env
-        .open_reader(Path::new("/workspace/big.bin"))
+        .open_reader(Path::new("/data/workspaces/big.bin"))
         .expect("open_reader");
     let mut total = 0usize;
     let mut buf = vec![0u8; 1024 * 1024];
@@ -247,7 +247,7 @@ fn remote_env_roundtrip_against_e2b_local() {
         total += n;
     }
     assert_eq!(total, big.len(), "流式读字节数应与文件一致");
-    env.remove_file(Path::new("/workspace/big.bin")).expect("rm big");
+    env.remove_file(Path::new("/data/workspaces/big.bin")).expect("rm big");
 
     // 只读路径：procfs 即使 root 也不可写（rootfs 本身是可写 overlay，不能拿 /etc 当判据）
     assert!(
@@ -309,23 +309,23 @@ fn media_pipeline_runs_inside_sandbox() {
     let env: Arc<dyn Environment> = remote.clone();
 
     // 3) 把视频写进沙箱，然后在沙箱里跑媒体管线
-    env.write_file(Path::new("/workspace/in.mp4"), &video_bytes)
+    env.write_file(Path::new("/data/workspaces/in.mp4"), &video_bytes)
         .expect("upload video");
     let _bound = EnvironmentGuard::enter(
         pointer_core::env::SessionEnv::wrap("it-user", "it-conv", env.clone()).expect("session"),
     );
 
-    // 文件工具的路径判定必须走环境：宿主上根本没有 `/workspace`，
+    // 文件工具的路径判定必须走环境：宿主上根本没有 `/data/workspaces`，
     // 用 Path::is_dir()/canonicalize() 会误判成"工作区不存在"。
     let ws = pointer_core::tools::file::resolve_tool_workspace_root()
         .expect("headless 下工作区解析应成功");
-    assert_eq!(ws, Path::new("/workspace"));
+    assert_eq!(ws, Path::new("/data/workspaces"));
     let resolved =
-        pointer_core::tools::file::resolve_within_workspace_root(Path::new("/workspace"), "sub/a.txt")
+        pointer_core::tools::file::resolve_within_workspace_root(Path::new("/data/workspaces"), "sub/a.txt")
             .expect("headless 下相对路径解析应成功");
-    assert_eq!(resolved, Path::new("/workspace/sub/a.txt"));
+    assert_eq!(resolved, Path::new("/data/workspaces/sub/a.txt"));
 
-    let input = MediaInput::existing("/workspace/in.mp4");
+    let input = MediaInput::existing("/data/workspaces/in.mp4");
     assert!(!input.is_staged(), "路径模式不应产生宿主临时文件");
 
     let duration = probe_video_duration_at(&env, &input).expect("probe in sandbox");
@@ -513,7 +513,7 @@ fn terminal_tool_runs_inside_sandbox() {
             "/Users/someone/host-workspace",
             "test",
         ),
-        "/workspace"
+        "/data/workspaces"
     );
 
     let args = serde_json::json!({
@@ -521,7 +521,7 @@ fn terminal_tool_runs_inside_sandbox() {
     });
     let result = pointer_core::tools::terminal::run_terminal_command_streaming(
         args,
-        "/workspace".to_string(),
+        "/data/workspaces".to_string(),
         |_| {},
         None,
         None,
@@ -537,7 +537,7 @@ fn terminal_tool_runs_inside_sandbox() {
         result.stdout
     );
     assert!(
-        result.stdout.contains("/workspace"),
+        result.stdout.contains("/data/workspaces"),
         "cwd 应为沙箱工作区：{}",
         result.stdout
     );

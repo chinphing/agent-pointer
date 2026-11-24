@@ -68,7 +68,7 @@ pub fn run_ok(env: &Arc<dyn Environment>, program: &str, args: &[String]) -> Res
 ///
 /// 路径优先是设计文档 §7.2 的要求：大文件不该整段穿过环境边界进宿主内存。
 pub enum MediaInput {
-    /// 文件已在环境里（沙箱 `/workspace/x.mp4` 或宿主路径）。
+    /// 文件已在环境里（沙箱 `/data/...` 或宿主路径）。
     Existing(PathBuf),
     /// 只有字节，需要临时落盘。
     Staged(StagedFile),
@@ -260,9 +260,9 @@ mod tests {
 
     #[test]
     fn media_input_existing_keeps_path() {
-        let input = MediaInput::existing("/workspace/a.mp4");
-        assert_eq!(input.path(), Path::new("/workspace/a.mp4"));
-        assert_eq!(input.arg(), "/workspace/a.mp4");
+        let input = MediaInput::existing("/data/workspaces/a.mp4");
+        assert_eq!(input.path(), Path::new("/data/workspaces/a.mp4"));
+        assert_eq!(input.arg(), "/data/workspaces/a.mp4");
         assert!(!input.is_staged());
     }
 
@@ -296,7 +296,7 @@ mod tests {
     impl RecordingEnv {
         fn new() -> Self {
             Self {
-                workspace: PathBuf::from("/workspace"),
+                workspace: PathBuf::from("/data/workspaces"),
                 map: crate::env::PathMap::identity(),
                 exec_calls: std::sync::Mutex::new(Vec::new()),
                 written: std::sync::Mutex::new(Vec::new()),

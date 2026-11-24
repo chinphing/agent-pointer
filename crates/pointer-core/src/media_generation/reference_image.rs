@@ -12,7 +12,7 @@ pub fn resolve_reference_image_for_api(raw: &str) -> Result<String> {
 
 /// 同 [`resolve_reference_image_for_api`]，本地路径按**会话环境**解析。
 ///
-/// 沙箱档位下参考图可能是工作区路径（`/workspace/ref.png`），宿主上没有这个文件；
+/// 沙箱档位下参考图可能是工作区路径（`/data/.../ref.png`），宿主上没有这个文件；
 /// `env = None`（没有会话环境 / local 档位未缓存）时行为与
 /// [`resolve_reference_image_for_api`] 完全一致（宿主读取）。
 pub fn resolve_reference_image_for_api_in_env(

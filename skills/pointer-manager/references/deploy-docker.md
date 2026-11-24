@@ -100,7 +100,7 @@ docker rm -f sbx-vnc
 老容器升级镜像后不会自带 6080——规格指纹含契约版本，改契约时会自动重建；
 手工保留过旧容器就 `docker rm -f` 掉。
 
-服务端侧：开会话让 agent 跑 `pwd`，返回 `/workspace` 即通。
+服务端侧：开会话让 agent 跑 `pwd`，返回 `/data/workspaces`（或选中的 `/data/...`）即通。
 
 ## 容量规划
 

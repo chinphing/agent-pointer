@@ -2,17 +2,17 @@
 //!
 //! ## 为什么需要它
 //!
-//! e2b-local 的卷只能是 `~/.e2b-local/volumes/` 下的真实目录，挂不了用户的项目目录
-//! （实测：符号链接被拒 `is not a directory`；`metadata["host-mount"]` 被静默忽略）。
-//! 于是开发环境里 `/workspace` 永远是空卷，`git status` / diff / 文件树都验不了。
+//! e2b-local 的卷只能落在网关约定目录下，挂不了任意宿主项目路径
+//! （实测：符号链接被拒；`metadata["host-mount"]` 被静默忽略）。本地开发若只靠
+//! 空卷，`git status` / diff / 文件树都验不了。
 //!
-//! 这里改成和 Hermes / OpenClaw 一样的做法：`docker run -v <项目目录>:/workspace`，
-//! 直接 bind 宿主目录。开发和生产的**语义一致**（隔离、无 GUI），只有实现不同。
+//! Docker 后端把用户 **home/data** 双卷 bind 进容器（`/home/pointer`、`/data`），
+//! 与生产隔离语义一致；工作区 cwd 落在 `/data/workspaces…`。
 //!
 //! ## 关键设计：文件 IO 也进容器
 //!
-//! 挂载仍用 `-v host:guest` 建容器；**PathMap 只服务挂载创建与宿主侧运维**。
-//! 会话内路径保持 guest 视角（与 Hermes / RemoteEnv 一致），不会在 macOS 上把
+//! 挂载仍用 `-v host:guest` 建容器；**PathMap 只服务挂载计划与宿主侧运维**。
+//! 会话内路径保持 guest 视角（与 RemoteEnv 一致），不会在 macOS 上把
 //! 容器 `/tmp` 翻成宿主 `/private/tmp` 后再撞挂载表。
 //!
 //! - 文件读写：容器内 **envd** `/files`（与 `RemoteEnv` 共用 `EnvdFs`）

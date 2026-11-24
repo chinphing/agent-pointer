@@ -149,7 +149,11 @@ pub(crate) fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -
                 .filter(|s| !s.is_empty())
             {
                 let p = resolve_existing_read_path(root, b, "glob")?;
-                if !p.is_dir() {
+                let env = tool_env(root)?;
+                let meta = env
+                    .metadata(&p)
+                    .map_err(|e| anyhow!("glob 搜索根无效: {e}"))?;
+                if !meta.is_dir {
                     return Err(anyhow!("glob 搜索根必须是目录: {}", p.display()));
                 }
                 p

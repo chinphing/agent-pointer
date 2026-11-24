@@ -49,7 +49,7 @@ impl LocalEnv {
         }
     }
 
-    /// 用户会话的本地环境。可见范围只有这个用户的 home 和 data。
+    /// 用户会话的本地环境。可见范围是这个用户的 home、data，以及用户选中的工作区。
     ///
     /// `home_root()` / `data_root()` 就是这两棵目录的宿主路径。路径表未命中即拒绝。
     pub fn for_user(
@@ -60,10 +60,13 @@ impl LocalEnv {
         let home = existing_canonical(home.into());
         let data = existing_canonical(data.into());
         let workspace = existing_canonical(workspace.into());
-        let mounts = vec![
+        let mut mounts = vec![
             super::Mount::new(&home, &home, false),
             super::Mount::new(&data, &data, false),
         ];
+        if !path_is_under(&workspace, &home) && !path_is_under(&workspace, &data) {
+            mounts.push(super::Mount::new(&workspace, &workspace, false));
+        }
         Self {
             skills_root: home.join(".pointer").join("skills"),
             home_root: home,
@@ -126,7 +129,13 @@ impl LocalEnv {
             .filter(|path| !path.as_os_str().is_empty())
             .unwrap_or_else(|| self.workspace_root.clone());
         let cwd = self.visible(&requested)?;
-        let argv = confine_argv(&self.home_root, &self.data_root, &cwd, argv)?;
+        let argv = confine_argv(
+            &self.home_root,
+            &self.data_root,
+            &self.workspace_root,
+            &cwd,
+            argv,
+        )?;
         Ok((argv, cwd))
     }
 
@@ -575,7 +584,20 @@ impl Environment for LocalEnv {
 }
 
 /// 把用户会话的命令包进只含 home 与 data 的视图。没有可用沙箱时拒绝执行。
-fn confine_argv(home: &Path, data: &Path, cwd: &Path, argv: &[String]) -> Result<Vec<String>> {
+fn path_is_under(path: &Path, root: &Path) -> bool {
+    if root.as_os_str().is_empty() {
+        return false;
+    }
+    path == root || path.starts_with(root)
+}
+
+fn confine_argv(
+    home: &Path,
+    data: &Path,
+    workspace: &Path,
+    cwd: &Path,
+    argv: &[String],
+) -> Result<Vec<String>> {
     if argv.is_empty() {
         bail_empty_exec();
     }
@@ -602,16 +624,21 @@ fn confine_argv(home: &Path, data: &Path, cwd: &Path, argv: &[String]) -> Result
             "--bind".into(),
             data.display().to_string(),
             data.display().to_string(),
-            "--chdir".into(),
-            cwd.display().to_string(),
-            "--".into(),
         ]);
+        if !path_is_under(workspace, home) && !path_is_under(workspace, data) {
+            wrapped.extend([
+                "--bind".into(),
+                workspace.display().to_string(),
+                workspace.display().to_string(),
+            ]);
+        }
+        wrapped.extend(["--chdir".into(), cwd.display().to_string(), "--".into()]);
         wrapped.extend(argv.iter().cloned());
         log::info!("local env: confined exec via bwrap cwd={}", cwd.display());
         return Ok(wrapped);
     }
     if cfg!(target_os = "macos") && command_on_path("sandbox-exec") {
-        let profile = macos_profile(home, data);
+        let profile = macos_profile(home, data, workspace);
         let mut wrapped = vec!["sandbox-exec".to_string(), "-p".into(), profile];
         wrapped.extend(argv.iter().cloned());
         log::info!(
@@ -644,9 +671,14 @@ fn command_on_path(name: &str) -> bool {
     })
 }
 
-fn macos_profile(home: &Path, data: &Path) -> String {
-    let home = home.display();
-    let data = data.display();
+fn macos_profile(home: &Path, data: &Path, workspace: &Path) -> String {
+    let home_text = home.display().to_string();
+    let data_text = data.display().to_string();
+    let extra = if path_is_under(workspace, home) || path_is_under(workspace, data) {
+        String::new()
+    } else {
+        format!("\n    (subpath \"{}\")", workspace.display())
+    };
     // `(literal "/")` 只放行根目录这一项，用来解析 `/var`、`/tmp`、`/etc` 这些符号链接。
     // `/var` 只给元数据：`/usr/bin/git` 要能发现 `/var/select/developer_dir` 不存在，
     // 再读到 `/var/db/xcode_select_link`。不放行 `/var/folders` 的内容。
@@ -679,8 +711,8 @@ fn macos_profile(home: &Path, data: &Path) -> String {
     (literal "/var/db/xcode_select_link")
     (literal "/private/var/db/xcode_select_link"))
 (allow file-read* file-write*
-    (subpath "{home}")
-    (subpath "{data}")
+    (subpath "{home_text}")
+    (subpath "{data_text}"){extra}
     (subpath "/private/tmp")
     (subpath "/tmp")
     (literal "/dev/null"))

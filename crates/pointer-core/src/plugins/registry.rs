@@ -55,7 +55,7 @@ pub struct PluginRecord {
     pub enabled: bool,
 }
 
-/// 持久化授权记录（单文件 JSON，位于 app data `plugin-auth.json`，不在插件代码树内）。
+/// 持久化授权记录（该用户 home 下的 `.pointer/plugin-auth.json`）。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct AuthEntry {
     pub(crate) dir: String,
@@ -75,7 +75,7 @@ pub(crate) struct AuthStore {
 pub struct PluginRegistry {
     /// 范围 id → 插件 id → 记录。扫描只替换当前用户这一桶。
     inner: RwLock<HashMap<String, HashMap<String, PluginRecord>>>,
-    /// 授权状态文件路径覆盖（测试用；默认 app data `plugin-auth.json`）。
+    /// 授权状态文件路径覆盖（测试用；默认是当前用户 home 下的那份）。
     auth_path_override: Option<PathBuf>,
     /// 每个范围上次扫描见过的插件 id。
     seen_ids: RwLock<HashMap<String, HashSet<String>>>,
@@ -124,7 +124,7 @@ impl PluginRegistry {
                 }
                 let path = env.home_root().join(".pointer").join("plugin-auth.json");
                 if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
+                    crate::env::create_dir_all_in_session(parent)?;
                 }
                 Ok(path)
             }
@@ -134,9 +134,12 @@ impl PluginRegistry {
     pub(crate) fn load_auth(&self) -> AuthStore {
         let path = match self.auth_path() {
             Ok(p) => p,
-            Err(_) => return AuthStore::default(),
+            Err(error) => {
+                log::warn!("plugin auth: path unavailable: {error:#}");
+                return AuthStore::default();
+            }
         };
-        let mut store: AuthStore = std::fs::read_to_string(&path)
+        let mut store: AuthStore = crate::env::read_text_in_session(&path)
             .ok()
             .and_then(|raw| serde_json::from_str(&raw).ok())
             .unwrap_or_default();
@@ -155,7 +158,7 @@ impl PluginRegistry {
     fn save_auth(&self, store: &AuthStore) -> Result<()> {
         let path = self.auth_path()?;
         let json = serde_json::to_string_pretty(store)?;
-        std::fs::write(&path, json)?;
+        crate::env::write_bytes_in_session(&path, json.as_bytes())?;
         Ok(())
     }
 

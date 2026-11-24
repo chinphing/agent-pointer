@@ -9,15 +9,19 @@
 //! 这里改成和 Hermes / OpenClaw 一样的做法：`docker run -v <项目目录>:/workspace`，
 //! 直接 bind 宿主目录。开发和生产的**语义一致**（隔离、无 GUI），只有实现不同。
 //!
-//! ## 关键设计：文件 IO 不进容器
+//! ## 关键设计：文件 IO 也进容器
 //!
-//! `/workspace` 是项目目录的 bind mount，宿主和容器看到同一份文件。所以
+//! 挂载仍用 `-v host:guest` 建容器；**PathMap 只服务挂载创建与宿主侧运维**。
+//! 会话内路径保持 guest 视角（与 Hermes / RemoteEnv 一致），不会在 macOS 上把
+//! 容器 `/tmp` 翻成宿主 `/private/tmp` 后再撞挂载表。
 //!
-//! - 文件读写：把 guest 路径按 [`PathMap`] 翻回宿主路径，直接交给 [`LocalEnv`]
+//! - 文件读写：容器内 **envd** `/files`（与 `RemoteEnv` 共用 `EnvdFs`）
+//! - 列目录 / metadata / 删改：仍 `docker exec`（envd 无目录列举 REST）
 //! - 命令执行：`docker exec`
 //! - 交互终端：宿主 `portable_pty` 包一层 `docker exec -it`（tty 由 `-t` 分配）
 //!
-//! 少一层 `docker cp`，也少一份"容器内外不一致"的坑。
+//! envd 二进制默认从 `POINTER_ENVD_BINARY` 或 `.dev-sandbox/envd-bin/` 挂进容器，
+//! 以 `-isnotfc` 常驻；端口只绑 `127.0.0.1`（无鉴权，勿对公网暴露）。
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,10 +30,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 
+use super::envd_fs::{EnvdFs, ENVD_PORT};
 use super::{
     Capabilities, ChildHandle, DirEntry, EnvKind, Environment, ExecOptions, ExecOutput,
     FileMetadata, PathMap, PtyHandle, PtySpec, SpawnOptions, WalkEntry, WalkOptions,
 };
+
+/// 容器内 envd 挂载点（宿主二进制 bind 到此，只读）。
+const GUEST_ENVD_BIN: &str = "/usr/local/bin/pointer-envd";
 
 /// 建容器所需的参数。
 #[derive(Debug, Clone)]
@@ -143,7 +151,8 @@ impl DockerSpec {
 ///   链接变手形），不再永远一个箭头。
 /// v8 → v9：镜像改成分层构建（base → headless → desktop），desktop 档位镜像名
 ///   `pointer-sandbox-desktop:latest`，内容变了但名字没变，必须靠版本号让旧容器重建。
-const SPEC_VERSION: u32 = 9;
+/// v9 → v10：文件 IO 改走容器内 envd（挂载二进制 + 映射 49983），与 RemoteEnv 共用客户端。
+const SPEC_VERSION: u32 = 10;
 
 /// 构造 `docker run` 参数。
 ///
@@ -154,6 +163,7 @@ fn run_args(
     fingerprint: &str,
     vnc_password: Option<&str>,
     include_disk_limit: bool,
+    envd_host: &Path,
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "run".into(),
@@ -171,6 +181,11 @@ fn run_args(
         args.push("-v".into());
         args.push(bind);
     }
+    // envd：宿主二进制 bind 进容器；端口只绑 loopback（`-isnotfc` 无鉴权）。
+    args.push("-v".into());
+    args.push(format!("{}:{GUEST_ENVD_BIN}:ro", envd_host.display()));
+    args.push("-p".into());
+    args.push(format!("127.0.0.1::{ENVD_PORT}"));
     if spec.tier == super::provider::Tier::Desktop {
         // 桌面观察 / 接管通道，都只绑 127.0.0.1 的宿主随机端口：
         //   5900 → x11vnc（系统屏幕共享直连）
@@ -213,8 +228,8 @@ pub struct DockerEnv {
     tier: super::provider::Tier,
     vnc_password: Option<String>,
     map: PathMap,
-    /// 文件 IO 直接走宿主（bind 挂载 = 同一份文件）。
-    host_fs: super::volume_io::VolumeIo,
+    /// 与 RemoteEnv 共用的 `/files` 客户端（指向本容器映射出的 envd）。
+    files: EnvdFs,
 }
 
 impl std::fmt::Debug for DockerEnv {
@@ -222,6 +237,7 @@ impl std::fmt::Debug for DockerEnv {
         f.debug_struct("DockerEnv")
             .field("container", &self.container)
             .field("workdir", &self.workdir)
+            .field("envd_url", &self.files.envd_url())
             .finish()
     }
 }
@@ -287,7 +303,7 @@ impl DockerEnv {
             tier: super::provider::Tier::Desktop,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
-            host_fs: super::volume_io::VolumeIo,
+            files: EnvdFs::new("http://127.0.0.1:1").expect("test EnvdFs"),
         }
     }
 
@@ -320,14 +336,27 @@ impl DockerEnv {
             workspace_host.display()
         );
         let map = PathMap::new(spec.mounts.clone());
+        let files = connect_envd(&container)?;
         Ok(Some(Self {
             vnc_password: Self::container_vnc_password(&container),
             container,
             workdir: spec.workdir,
             tier: spec.tier,
             map,
-            host_fs: super::volume_io::VolumeIo,
+            files,
         }))
+    }
+
+    /// 同一容器换工作区。挂载不变时不必重建。
+    pub(crate) fn with_workdir(&self, workdir: PathBuf) -> Self {
+        Self {
+            container: self.container.clone(),
+            workdir,
+            tier: self.tier,
+            vnc_password: self.vnc_password.clone(),
+            map: self.map.clone(),
+            files: self.files.clone(),
+        }
     }
 
     /// 创建并启动容器（已存在则复用）。
@@ -365,6 +394,7 @@ impl DockerEnv {
         };
 
         if !reusable {
+            let envd_host = resolve_envd_host_binary()?;
             // 残留容器（停止/异常）先清掉，避免名字冲突。
             let _ = Command::new("docker")
                 .args(["rm", "-f", &spec.container])
@@ -372,7 +402,13 @@ impl DockerEnv {
                 .stderr(Stdio::null())
                 .status();
 
-            let mut args = run_args(&spec, &fingerprint, vnc_password.as_deref(), true);
+            let mut args = run_args(
+                &spec,
+                &fingerprint,
+                vnc_password.as_deref(),
+                true,
+                &envd_host,
+            );
             let mut out = Command::new("docker")
                 .args(&args)
                 .output()
@@ -392,7 +428,13 @@ impl DockerEnv {
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())
                         .status();
-                    args = run_args(&spec, &fingerprint, vnc_password.as_deref(), false);
+                    args = run_args(
+                        &spec,
+                        &fingerprint,
+                        vnc_password.as_deref(),
+                        false,
+                        &envd_host,
+                    );
                     out = Command::new("docker")
                         .args(&args)
                         .output()
@@ -408,13 +450,14 @@ impl DockerEnv {
             }
         }
 
+        let files = connect_envd(&spec.container)?;
         let env = Self {
             container: spec.container,
             workdir: spec.workdir,
             tier: spec.tier,
             vnc_password,
             map,
-            host_fs: super::volume_io::VolumeIo,
+            files,
         };
         // 容器档位：Xvfb 是异步起的，立刻 exec 会拿到 "cannot open display"。
         // 这里等桌面真正可用再返回，避免调用方第一次执行就失败。
@@ -425,26 +468,10 @@ impl DockerEnv {
     }
 
     /// 查容器某个端口映射到宿主的哪个端口（只绑 127.0.0.1）。
+    ///
+    /// headless / desktop 都会映射 envd（49983）；VNC 端口仅 desktop 有。
     fn published_port(&self, container_port: &str) -> Option<u16> {
-        if self.tier != super::provider::Tier::Desktop {
-            return None;
-        }
-        let out = Command::new("docker")
-            .args(["port", &self.container, container_port])
-            .output()
-            .ok()?;
-        if !out.status.success() {
-            return None;
-        }
-        let text = String::from_utf8_lossy(&out.stdout);
-        text.lines()
-            .next()?
-            .trim()
-            .rsplit(':')
-            .next()?
-            .trim()
-            .parse()
-            .ok()
+        published_port_for(&self.container, container_port)
     }
 
     /// 桌面观察地址（容器档位才有）。返回 `vnc://127.0.0.1:<port>`。
@@ -610,9 +637,72 @@ impl DockerEnv {
         out
     }
 
-    /// 把 guest 路径翻成宿主路径（文件 IO 用）。
-    fn host_path(&self, path: &Path) -> Result<PathBuf> {
-        self.map.to_host(path)
+    /// 文件 IO 边界：绝对路径且落在某条 guest 挂载下（不做宿主 realpath）。
+    fn ensure_guest_mapped(&self, path: &Path) -> Result<()> {
+        if !path.is_absolute() {
+            bail!("docker 环境只接受绝对路径: {}", path.display());
+        }
+        if self.map.contains_guest(path) {
+            return Ok(());
+        }
+        Err(anyhow!(
+            "PATH_NOT_MAPPED: 环境路径不在任何挂载点内: {}",
+            path.display()
+        ))
+    }
+
+    fn run_sh(&self, script: &str) -> Result<ExecOutput> {
+        self.exec(
+            &["/bin/sh".into(), "-c".into(), script.to_string()],
+            ExecOptions::new(),
+        )
+    }
+
+    fn find_entries(
+        &self,
+        root: &Path,
+        max_depth: usize,
+        include_hidden: bool,
+        exclude_git: bool,
+    ) -> Result<Vec<WalkEntry>> {
+        let root_q = sh_quote(root);
+        let mut script = format!("find {} -mindepth 1 -maxdepth {}", root_q, max_depth.max(1));
+        if !include_hidden {
+            script.push_str(" ! -path '*/.*'");
+        }
+        if exclude_git {
+            script.push_str(" ! -path '*/.git/*' ! -name .git");
+        }
+        script.push_str(" -printf '%y\\0%p\\0'");
+        let out = self.run_sh(&script)?;
+        if !out.success() {
+            bail!(
+                "find {} failed: {}",
+                root.display(),
+                out.stderr_str().trim()
+            );
+        }
+        Ok(parse_find_nul(&out.stdout)
+            .into_iter()
+            .filter_map(|(kind, path)| match kind {
+                'd' => Some(WalkEntry {
+                    path,
+                    is_dir: true,
+                    is_symlink: false,
+                }),
+                'l' => Some(WalkEntry {
+                    path,
+                    is_dir: false,
+                    is_symlink: true,
+                }),
+                'f' => Some(WalkEntry {
+                    path,
+                    is_dir: false,
+                    is_symlink: false,
+                }),
+                _ => None,
+            })
+            .collect())
     }
 
     fn exec_docker(&self, argv: &[String], opts: &ExecOptions) -> Result<ExecOutput> {
@@ -794,78 +884,337 @@ impl Environment for DockerEnv {
     }
 
     fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
-        let host = self.host_path(path)?;
-        self.host_fs.read_file(&host)
+        self.ensure_guest_mapped(path)?;
+        self.files.read_file(path)
     }
 
     fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
-        let host = self.host_path(path)?;
-        self.host_fs.write_file(&host, data)
+        self.ensure_guest_mapped(path)?;
+        // 父目录可能还不存在：envd POST 不建目录，先 mkdir -p。
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            self.create_dir_all(parent)?;
+        }
+        self.files.write_file(path, data)
     }
 
     fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>> {
-        let host = self.host_path(path)?;
-        let mut entries = self.host_fs.list_dir(&host)?;
-        // 名字对外仍是 guest 视角（host_fs 返回的是宿主路径，这里翻回去）。
-        for entry in &mut entries {
-            if let Ok(guest) = self.map.to_agent(&entry.path) {
-                entry.path = guest;
-            }
-        }
-        Ok(entries)
+        self.ensure_guest_mapped(path)?;
+        let mut entries = self.find_entries(path, 1, true, false)?;
+        let mut out: Vec<DirEntry> = entries
+            .drain(..)
+            .map(|e| DirEntry {
+                name: e
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                path: e.path,
+                is_dir: e.is_dir,
+                is_symlink: e.is_symlink,
+            })
+            .collect();
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
     }
 
     fn metadata(&self, path: &Path) -> Result<FileMetadata> {
-        let host = self.host_path(path)?;
-        self.host_fs.metadata(&host)
+        self.ensure_guest_mapped(path)?;
+        let script = format!("stat -c '%F|%s' -- {}", sh_quote(path));
+        let out = self.run_sh(&script)?;
+        if !out.success() {
+            bail!(
+                "读取元数据失败 {}: {}",
+                path.display(),
+                out.stderr_str().trim()
+            );
+        }
+        let text = out.stdout_str();
+        let line = text.lines().next().unwrap_or("");
+        let (kind, len) = line
+            .rsplit_once('|')
+            .ok_or_else(|| anyhow!("unexpected stat output for {}: {line}", path.display()))?;
+        Ok(FileMetadata {
+            is_file: kind.starts_with("regular"),
+            is_dir: kind.starts_with("directory"),
+            is_symlink: kind.contains("symbolic link"),
+            len: len.trim().parse().unwrap_or(0),
+        })
     }
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        let host = self.host_path(path)?;
-        let canonical = self.host_fs.canonicalize(&host)?;
-        self.map.to_agent(&canonical)
+        self.ensure_guest_mapped(path)?;
+        let script = format!("realpath -- {}", sh_quote(path));
+        let out = self.run_sh(&script)?;
+        if !out.success() {
+            bail!(
+                "无法解析路径 {}: {}",
+                path.display(),
+                out.stderr_str().trim()
+            );
+        }
+        let resolved = PathBuf::from(out.stdout_str().trim());
+        // realpath 可能跳出挂载（符号链接）；解析后再验一次边界。
+        self.ensure_guest_mapped(&resolved)?;
+        Ok(resolved)
     }
 
     fn create_dir_all(&self, path: &Path) -> Result<()> {
-        let host = self.host_path(path)?;
-        self.host_fs.create_dir_all(&host)
+        self.ensure_guest_mapped(path)?;
+        let script = format!("mkdir -p -- {}", sh_quote(path));
+        let out = self.run_sh(&script)?;
+        if !out.success() {
+            bail!(
+                "无法创建目录 {}: {}",
+                path.display(),
+                out.stderr_str().trim()
+            );
+        }
+        Ok(())
     }
 
     fn read_to_string(&self, path: &Path) -> Result<String> {
-        let host = self.host_path(path)?;
-        self.host_fs.read_to_string(&host)
+        let bytes = self.read_file(path)?;
+        String::from_utf8(bytes).map_err(|e| anyhow!("读取失败 {}: not UTF-8: {e}", path.display()))
     }
 
     fn open_reader(&self, path: &Path) -> Result<Box<dyn std::io::Read + Send>> {
-        let host = self.host_path(path)?;
-        self.host_fs.open_reader(&host)
+        self.ensure_guest_mapped(path)?;
+        let meta = self.metadata(path)?;
+        if meta.is_dir {
+            bail!("无法打开目录作为文件: {}", path.display());
+        }
+        self.files.open_reader(path, meta.len)
     }
 
     fn walk(&self, root: &Path, opts: WalkOptions) -> Result<Vec<WalkEntry>> {
-        let host = self.host_path(root)?;
-        let mut entries = self.host_fs.walk(&host, opts)?;
-        for entry in &mut entries {
-            if let Ok(guest) = self.map.to_agent(&entry.path) {
-                entry.path = guest;
+        self.ensure_guest_mapped(root)?;
+        if opts.respect_gitignore {
+            let mut script = format!(
+                "rg --files --no-messages --max-depth {}",
+                opts.max_depth.max(1)
+            );
+            if opts.include_hidden {
+                script.push_str(" --hidden");
+            }
+            script.push_str(&format!(" -- {}", sh_quote(root)));
+            match self.run_sh(&script) {
+                Ok(out) if out.success() || out.status == 1 => {
+                    return Ok(out
+                        .stdout_str()
+                        .lines()
+                        .filter(|l| !l.is_empty())
+                        .map(|l| WalkEntry {
+                            path: PathBuf::from(l),
+                            is_dir: false,
+                            is_symlink: false,
+                        })
+                        .collect());
+                }
+                Ok(out) => {
+                    log::warn!(
+                        "docker walk: rg 失败，回退 find root={} status={} stderr={}",
+                        root.display(),
+                        out.status,
+                        out.stderr_str().trim()
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "docker walk: rg 不可用，回退 find root={}: {e:#}",
+                        root.display()
+                    );
+                }
             }
         }
-        Ok(entries)
+        self.find_entries(
+            root,
+            opts.max_depth,
+            opts.include_hidden,
+            opts.exclude_git_metadata,
+        )
     }
 
     fn remove_file(&self, path: &Path) -> Result<()> {
-        let host = self.host_path(path)?;
-        self.host_fs.remove_file(&host)
+        self.ensure_guest_mapped(path)?;
+        let script = format!("rm -f -- {}", sh_quote(path));
+        let out = self.run_sh(&script)?;
+        if !out.success() {
+            bail!("删除失败 {}: {}", path.display(), out.stderr_str().trim());
+        }
+        Ok(())
     }
 
     fn remove_dir_all(&self, path: &Path) -> Result<()> {
-        let host = self.host_path(path)?;
-        self.host_fs.remove_dir_all(&host)
+        self.ensure_guest_mapped(path)?;
+        let script = format!("rm -rf -- {}", sh_quote(path));
+        let out = self.run_sh(&script)?;
+        if !out.success() {
+            bail!(
+                "删除目录失败 {}: {}",
+                path.display(),
+                out.stderr_str().trim()
+            );
+        }
+        Ok(())
     }
 
     fn set_executable(&self, path: &Path) -> Result<()> {
-        let host = self.host_path(path)?;
-        self.host_fs.set_executable(&host)
+        self.ensure_guest_mapped(path)?;
+        let script = format!("chmod 700 -- {}", sh_quote(path));
+        let out = self.run_sh(&script)?;
+        if !out.success() {
+            bail!(
+                "设置权限失败 {}: {}",
+                path.display(),
+                out.stderr_str().trim()
+            );
+        }
+        Ok(())
     }
+}
+
+/// 宿主上的 envd 二进制：优先 `POINTER_ENVD_BINARY`，否则在 cwd / 可执行文件旁 /
+/// 仓库根附近找 `.dev-sandbox/envd-bin/envd-linux-*`（与 `dev-sandbox.sh` 产物一致）。
+fn resolve_envd_host_binary() -> Result<PathBuf> {
+    if let Ok(raw) = std::env::var("POINTER_ENVD_BINARY") {
+        let path = PathBuf::from(raw.trim());
+        if path.is_file() {
+            log::info!("docker: envd binary from POINTER_ENVD_BINARY={}", path.display());
+            return Ok(path);
+        }
+        bail!("POINTER_ENVD_BINARY 不是可读文件: {}", path.display());
+    }
+    let name = envd_binary_name()?;
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            roots.push(dir.to_path_buf());
+        }
+    }
+    // cargo 开发态：crates/pointer-core → 仓库根。
+    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
+
+    for root in roots {
+        let mut dir = root;
+        for _ in 0..10 {
+            let candidate = dir.join(".dev-sandbox/envd-bin").join(name);
+            if candidate.is_file() {
+                log::info!("docker: envd binary={}", candidate.display());
+                return Ok(candidate.canonicalize().unwrap_or(candidate));
+            }
+            let alt = dir.join("envd-bin").join(name);
+            if alt.is_file() {
+                log::info!("docker: envd binary={}", alt.display());
+                return Ok(alt.canonicalize().unwrap_or(alt));
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+    }
+    bail!(
+        "找不到 envd 二进制（需要 {name}）。设置 POINTER_ENVD_BINARY，\
+         或先执行 scripts/dev-sandbox.sh up 提取到 .dev-sandbox/envd-bin/"
+    )
+}
+
+fn envd_binary_name() -> Result<&'static str> {
+    match std::env::consts::ARCH {
+        "aarch64" => Ok("envd-linux-arm64"),
+        "x86_64" => Ok("envd-linux-amd64"),
+        other => bail!("不支持的宿主架构，无法选择 envd 二进制: {other}"),
+    }
+}
+
+fn published_port_for(container: &str, container_port: &str) -> Option<u16> {
+    let out = Command::new("docker")
+        .args(["port", container, container_port])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines()
+        .next()?
+        .trim()
+        .rsplit(':')
+        .next()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// 确保容器内 envd 在跑，并返回指向宿主映射端口的客户端。
+///
+/// 必须经 [`super::run_blocking`]：`reqwest::blocking` 不能在 tokio 异步上下文里建客户端
+/// （否则 drop runtime 会 panic）。`DockerEnv::create` 常从 dispatcher 的 async 路径调用。
+fn connect_envd(container: &str) -> Result<EnvdFs> {
+    let container = container.to_string();
+    super::run_blocking(move || connect_envd_blocking(&container))
+}
+
+fn connect_envd_blocking(container: &str) -> Result<EnvdFs> {
+    let port = published_port_for(container, &format!("{ENVD_PORT}/tcp")).ok_or_else(|| {
+        anyhow!(
+            "docker: 容器 {container} 未映射 envd 端口 {ENVD_PORT}（规格过旧？会在下次 create 重建）"
+        )
+    })?;
+    let url = format!("http://127.0.0.1:{port}");
+    let files = EnvdFs::new(&url)?;
+    if files.wait_ready(Duration::from_secs(1)).is_ok() {
+        return Ok(files);
+    }
+    log::info!("docker: starting envd in container={container} url={url}");
+    let out = Command::new("docker")
+        .args([
+            "exec",
+            "-d",
+            container,
+            GUEST_ENVD_BIN,
+            "-isnotfc",
+        ])
+        .output()
+        .context("docker exec 启动 envd")?;
+    if !out.status.success() {
+        bail!(
+            "docker: 启动 envd 失败 container={container}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    files
+        .wait_ready(Duration::from_secs(20))
+        .with_context(|| format!("docker: envd 未就绪 container={container} url={url}"))?;
+    Ok(files)
+}
+
+fn sh_quote(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+fn parse_find_nul(raw: &[u8]) -> Vec<(char, PathBuf)> {
+    let mut parts = raw.split(|b| *b == 0);
+    let mut out = Vec::new();
+    loop {
+        let Some(kind) = parts.next() else { break };
+        if kind.is_empty() {
+            break;
+        }
+        let Some(path) = parts.next() else { break };
+        if path.is_empty() {
+            break;
+        }
+        let kind = String::from_utf8_lossy(kind).chars().next().unwrap_or('?');
+        out.push((
+            kind,
+            PathBuf::from(String::from_utf8_lossy(path).into_owned()),
+        ));
+    }
+    out
 }
 
 /// `docker exec` 起的常驻进程。
@@ -955,6 +1304,10 @@ mod tests {
         );
     }
 
+    fn stub_envd() -> EnvdFs {
+        EnvdFs::new("http://127.0.0.1:9").expect("envd stub")
+    }
+
     #[test]
     fn capabilities_follow_tier() {
         // 直接构造结构体（不真的起容器），只验证能力映射。
@@ -964,7 +1317,7 @@ mod tests {
             tier: super::super::provider::Tier::Headless,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
-            host_fs: super::super::volume_io::VolumeIo,
+            files: stub_envd(),
         };
         assert_eq!(headless.kind(), EnvKind::Headless);
         assert!(!headless.capabilities().desktop, "headless 档不应有桌面");
@@ -976,7 +1329,7 @@ mod tests {
             tier: super::super::provider::Tier::Desktop,
             vnc_password: None,
             map: PathMap::new(Vec::new()),
-            host_fs: super::super::volume_io::VolumeIo,
+            files: stub_envd(),
         };
         assert_eq!(container.kind(), EnvKind::Desktop);
         assert!(container.capabilities().desktop, "container 档必须有桌面");
@@ -1032,19 +1385,26 @@ mod tests {
     #[test]
     fn run_args_carry_limits_and_mounts() {
         let spec = spec_for_args();
-        let args = run_args(&spec, "abc123", None, true).join(" ");
+        let envd = std::env::temp_dir().join("pointer-envd-test-bin");
+        let args = run_args(&spec, "abc123", None, true, &envd).join(" ");
         assert!(args.contains("-v /host/data:/data"), "{args}");
         assert!(args.contains("--cpus 2"), "{args}");
         assert!(args.contains("--memory 2048m"), "{args}");
         assert!(args.contains("--storage-opt size=8192m"), "{args}");
         assert!(args.contains("--label pointer.spec=abc123"), "{args}");
+        assert!(
+            args.contains(&format!("-v {}:{GUEST_ENVD_BIN}:ro", envd.display())),
+            "{args}"
+        );
+        assert!(args.contains(&format!("-p 127.0.0.1::{ENVD_PORT}")), "{args}");
     }
 
     #[test]
     fn disk_limit_can_be_dropped_for_unsupported_platforms() {
         // macOS 不支持 --storage-opt，重试时必须能干净地去掉它。
         let spec = spec_for_args();
-        let args = run_args(&spec, "abc123", None, false).join(" ");
+        let envd = std::env::temp_dir().join("pointer-envd-test-bin");
+        let args = run_args(&spec, "abc123", None, false, &envd).join(" ");
         assert!(!args.contains("--storage-opt"), "{args}");
         assert!(
             args.contains("--memory 2048m"),
@@ -1056,7 +1416,8 @@ mod tests {
     fn desktop_tier_publishes_vnc_with_password() {
         let mut spec = spec_for_args();
         spec.tier = super::super::provider::Tier::Desktop;
-        let args = run_args(&spec, "h", Some("abcd2345"), true).join(" ");
+        let envd = std::env::temp_dir().join("pointer-envd-test-bin");
+        let args = run_args(&spec, "h", Some("abcd2345"), true, &envd).join(" ");
         assert!(args.contains("-p 127.0.0.1::5900"), "{args}");
         assert!(args.contains("-p 127.0.0.1::6080"), "{args}");
         assert!(args.contains("-e POINTER_VNC_PASSWORD=abcd2345"), "{args}");
@@ -1071,7 +1432,7 @@ mod tests {
             tier: super::super::provider::Tier::Headless,
             vnc_password: Some("abcd2345".into()),
             map: PathMap::new(Vec::new()),
-            host_fs: super::super::volume_io::VolumeIo,
+            files: stub_envd(),
         };
         assert!(
             headless.desktop_endpoint().is_none(),

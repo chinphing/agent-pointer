@@ -82,13 +82,16 @@ pub(super) async fn run_single_agent_tool_pass(
         trim_hook: Some(trim_hook),
         cancel: req.cancel,
     };
-    match run_agent_tool_pass(pass).await? {
-        InnerToolPassResult::SubFinished(_) => Ok(ToolPassResult::Finished),
-        InnerToolPassResult::NoopExit => Ok(ToolPassResult::NoopExit),
-        InnerToolPassResult::FinalReplyComplete(output) => {
-            Ok(ToolPassResult::FinalReplyComplete(output))
+    {
+        let pinned = Box::pin(run_agent_tool_pass(pass));
+        match pinned.await? {
+            InnerToolPassResult::SubFinished(_) => Ok(ToolPassResult::Finished),
+            InnerToolPassResult::NoopExit => Ok(ToolPassResult::NoopExit),
+            InnerToolPassResult::FinalReplyComplete(output) => {
+                Ok(ToolPassResult::FinalReplyComplete(output))
+            }
+            InnerToolPassResult::AskUserDeferred => Ok(ToolPassResult::Finished),
+            InnerToolPassResult::RanTools => Ok(ToolPassResult::RanTools),
         }
-        InnerToolPassResult::AskUserDeferred => Ok(ToolPassResult::Finished),
-        InnerToolPassResult::RanTools => Ok(ToolPassResult::RanTools),
     }
 }

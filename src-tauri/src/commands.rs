@@ -32,7 +32,6 @@ fn platform_list_scope(state: &AppState) -> pointer_core::conversation_store::Li
     )
 }
 
-
 /// 面板命令的执行环境：按会话解析并绑定（沙箱档位下工作区在沙箱里）。
 ///
 /// 与 Web 端 `/api/workspace/*` 走同一个入口
@@ -54,8 +53,7 @@ fn panel_binding(
                 if let Ok(resolved) = cfg.resolve(None) {
                     if resolved.backend == pointer_core::env::provider::Backend::Docker {
                         return Err(
-                            "会话环境还没有建立，无法打开工作区。请先发送一条消息。"
-                                .to_string(),
+                            "会话环境还没有建立，无法打开工作区。请先发送一条消息。".to_string()
                         );
                     }
                 }
@@ -152,9 +150,9 @@ pub fn delete_workspace_path(
     .map_err(|e| e.to_string())
 }
 
-
 #[tauri::command]
-pub async fn workspace_policy() -> Result<pointer_core::workspace_resolve::WorkspacePolicy, String> {
+pub async fn workspace_policy() -> Result<pointer_core::workspace_resolve::WorkspacePolicy, String>
+{
     let uid = pointer_core::session_user_env::current_session_user_id().unwrap_or_default();
     tauri::async_runtime::spawn_blocking(move || {
         pointer_core::workspace_service::policy_for_user(&uid).map_err(|e| format!("{e:#}"))
@@ -299,7 +297,10 @@ fn desktop_env(
 
 /// 接管页打开/关闭时调用：pin 住容器，避免正在接管时被空闲回收掉。
 #[tauri::command]
-pub async fn set_sandbox_desktop_active(conversation_id: String, active: bool) -> Result<(), String> {
+pub async fn set_sandbox_desktop_active(
+    conversation_id: String,
+    active: bool,
+) -> Result<(), String> {
     let id = conversation_id.trim();
     if id.is_empty() {
         return Ok(());
@@ -811,7 +812,8 @@ pub async fn install_org_plugin(
     Ok(())
 }
 
-fn view_plugin(state: &AppState, plugin_id: &str) -> Result<PluginView, String> {    let record = state
+fn view_plugin(state: &AppState, plugin_id: &str) -> Result<PluginView, String> {
+    let record = state
         .plugins
         .get(plugin_id)
         .ok_or_else(|| format!("插件不存在: {plugin_id}"))?;
@@ -1460,7 +1462,7 @@ pub fn load_project_conversation_metas(
 }
 
 #[tauri::command]
-pub fn create_project(
+pub async fn create_project(
     state: State<'_, Arc<AppState>>,
     name: String,
     workspace_root: String,
@@ -1469,7 +1471,8 @@ pub fn create_project(
         .active_platform_auth()
         .platform_user_id()
         .unwrap_or_default();
-    storage::create_project(&name, &workspace_root, &uid).map_err(|e| e.to_string())
+    let selected = accept_workspace_path(uid.clone(), workspace_root).await?;
+    storage::create_project(&name, &selected, &uid).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1493,7 +1496,7 @@ pub fn create_directory(parent_path: String, name: String) -> Result<String, Str
 }
 
 #[tauri::command]
-pub fn update_project(
+pub async fn update_project(
     state: State<'_, Arc<AppState>>,
     id: String,
     name: Option<String>,
@@ -1505,6 +1508,10 @@ pub fn update_project(
         .active_platform_auth()
         .platform_user_id()
         .unwrap_or_default();
+    let workspace_root = match workspace_root {
+        Some(path) => Some(accept_workspace_path(uid.clone(), path).await?),
+        None => None,
+    };
     storage::update_project(
         &id,
         &uid,
@@ -1514,6 +1521,23 @@ pub fn update_project(
         is_archived,
     )
     .map_err(|e| e.to_string())
+}
+
+async fn accept_workspace_path(uid: String, path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cid = format!("browse-{uid}");
+        let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
+            .map_err(|e| format!("{e:#}"))?;
+        pointer_core::workspace_service::select_workspace(
+            &uid,
+            &pointer_core::workspace_resolve::WorkspaceSelection { path },
+            env,
+        )
+        .map(|selected| selected.path)
+        .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }
 
 #[tauri::command]

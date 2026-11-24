@@ -77,6 +77,18 @@ pub fn list_directories(
         Some(env) if env.kind() != crate::env::EnvKind::Local => {
             list_via_env(env.as_ref(), &parent_path)?
         }
+        Some(_) | None
+            if parent_path.starts_with('/')
+                && (parent_path.starts_with("/data")
+                    || parent_path.starts_with("/home/pointer")
+                    || parent_path.starts_with("/skills")) =>
+        {
+            // 沙箱 guest 路径却没有会话环境：拒绝回落宿主，避免列错盘。
+            log::warn!(
+                "workspace_service: refuse host list for guest path without sandbox env parent={parent_path}"
+            );
+            bail!("沙箱工作区列表需要会话执行环境");
+        }
         _ => list_via_host(&parent_path)?,
     };
     Ok(WorkspaceListResult {
@@ -108,8 +120,7 @@ pub fn create_directory(
                 .with_context(|| format!("create sandbox dir {child}"))?;
         }
         _ => {
-            std::fs::create_dir_all(&child)
-                .with_context(|| format!("create host dir {child}"))?;
+            std::fs::create_dir_all(&child).with_context(|| format!("create host dir {child}"))?;
         }
     }
     log::info!(
@@ -193,12 +204,7 @@ pub fn browse_env_for_user(
     if resolved.tier == Tier::Local {
         return Ok(None);
     }
-    crate::env::session_env::resolve_session_env(
-        &cfg,
-        conversation_id,
-        session_user_id,
-        None,
-    )
+    crate::env::session_env::resolve_session_env(&cfg, conversation_id, session_user_id, None)
 }
 
 fn resolve_list_parent(policy: &WorkspacePolicy, parent: Option<&str>) -> Result<String> {
@@ -326,7 +332,10 @@ mod tests {
     #[test]
     fn sandbox_policy_roots_are_data_workspaces() {
         let policy = sandbox_workspace_policy();
-        assert_eq!(policy.selectable_roots, vec![crate::workspace_resolve::SANDBOX_WORKSPACES_ROOT]);
+        assert_eq!(
+            policy.selectable_roots,
+            vec![crate::workspace_resolve::SANDBOX_WORKSPACES_ROOT]
+        );
         assert!(policy.reserved_names.contains(&"attachments".into()));
     }
 

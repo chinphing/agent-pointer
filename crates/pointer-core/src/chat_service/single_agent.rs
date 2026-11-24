@@ -223,12 +223,14 @@ pub(super) async fn run_single_agent_loop(
             tools_appendix_enabled,
             max_tokens_override: length_output_override,
         };
-        let stream_outcome = super::single_agent_stream::run_provider_stream_round(
-            &mut stream_ctx,
-            stream_input,
-            assistant_id.clone(),
-        )
-        .await?;
+        let stream_outcome = {
+            let fut = Box::pin(super::single_agent_stream::run_provider_stream_round(
+                &mut stream_ctx,
+                stream_input,
+                assistant_id.clone(),
+            ));
+            fut.await?
+        };
         let buf = match stream_outcome {
             super::single_agent_stream::ProviderRoundOutcome::RetryAfterOverflowCompress => {
                 overflow_recoveries += 1;
@@ -549,45 +551,47 @@ pub(super) async fn run_single_agent_loop(
                 Some(ensure_verify_before_capture(state.as_ref(), conversation_id).await?);
         }
 
-        match super::single_agent_tools::run_single_agent_tool_pass(
-            super::agent_tool_pass::LeadSingleToolPassRequest {
-                session: super::context::SessionRefs {
-                    stream: &stream,
-                    state: state.as_ref(),
-                    conversation_id,
-                    cancel: &cancel,
+        let tool_pass_result = {
+            let fut = Box::pin(super::single_agent_tools::run_single_agent_tool_pass(
+                super::agent_tool_pass::LeadSingleToolPassRequest {
+                    session: super::context::SessionRefs {
+                        stream: &stream,
+                        state: state.as_ref(),
+                        conversation_id,
+                        cancel: &cancel,
+                    },
+                    main_task_board_store_key: board_store_key.as_str(),
+                    history: ctx.history,
+                    allow_agents: &agent_plan.allow_agents,
+                    enabled_skill_ids: ctx.enabled_skill_ids,
+                    agent_skill_overrides: ctx.agent_skill_overrides,
+                    provider,
+                    tool_approval_mode,
+                    tool_budget: ctx.tool_budget,
+                    consumed_single: ctx.consumed_single,
+                    token_session: ctx.token_session,
+                    settings,
+                    lead_agent_id: &agent_plan.lead_agent_id,
+                    instance_scope: &lead_scope,
+                    active: super::agent_tool_pass::ActiveAgentExecutionState {
+                        def: &agent_plan.active_def,
+                        system_prompt: &agent_plan.active_system_prompt,
+                        skill_ids: &agent_plan.resolved_skill_ids,
+                        skill_prompts: &agent_plan.resolved_skill_prompts,
+                        allowed_tools: &agent_plan.allowed_tool_names,
+                    },
+                    file_tool_lead_for_invoke: file_tool_lead_for_invoke.clone(),
+                    assistant_id: assistant_id.clone(),
+                    final_tool_calls: &buf.final_tool_calls,
+                    agent_trace: &mut agent_trace,
+                    cancel: cancel.clone(),
+                    state_arc: state.clone(),
+                    trigger_source: ctx.trigger_source,
                 },
-                main_task_board_store_key: board_store_key.as_str(),
-                history: ctx.history,
-                allow_agents: &agent_plan.allow_agents,
-                enabled_skill_ids: ctx.enabled_skill_ids,
-                agent_skill_overrides: ctx.agent_skill_overrides,
-                provider,
-                tool_approval_mode,
-                tool_budget: ctx.tool_budget,
-                consumed_single: ctx.consumed_single,
-                token_session: ctx.token_session,
-                settings,
-                lead_agent_id: &agent_plan.lead_agent_id,
-                instance_scope: &lead_scope,
-                active: super::agent_tool_pass::ActiveAgentExecutionState {
-                    def: &agent_plan.active_def,
-                    system_prompt: &agent_plan.active_system_prompt,
-                    skill_ids: &agent_plan.resolved_skill_ids,
-                    skill_prompts: &agent_plan.resolved_skill_prompts,
-                    allowed_tools: &agent_plan.allowed_tool_names,
-                },
-                file_tool_lead_for_invoke: file_tool_lead_for_invoke.clone(),
-                assistant_id: assistant_id.clone(),
-                final_tool_calls: &buf.final_tool_calls,
-                agent_trace: &mut agent_trace,
-                cancel: cancel.clone(),
-                state_arc: state.clone(),
-                trigger_source: ctx.trigger_source,
-            },
-        )
-        .await?
-        {
+            ));
+            fut.await?
+        };
+        match tool_pass_result {
             super::single_agent_tools::ToolPassResult::Finished
             | super::single_agent_tools::ToolPassResult::NoopExit => return Ok(()),
             super::single_agent_tools::ToolPassResult::FinalReplyComplete(tool_output) => {

@@ -678,20 +678,20 @@ impl OpenAIProvider {
         disable_thinking: bool,
     ) -> Result<ChatOnceOutput> {
         let mut guard = self.trace.as_ref().map(LlmSpanGuard::new);
-        let result = self
-            .chat_once_scoped_inner(
-                messages,
-                injected_tail,
-                system,
-                native_tools,
-                history_scope,
-                tool_choice,
-                cancel,
-                max_tokens_override,
-                dump_label,
-                disable_thinking,
-            )
-            .await;
+        // Pin inner on the heap so its state machine is not embedded in this frame.
+        let result = Box::pin(self.chat_once_scoped_inner(
+            messages,
+            injected_tail,
+            system,
+            native_tools,
+            history_scope,
+            tool_choice,
+            cancel,
+            max_tokens_override,
+            dump_label,
+            disable_thinking,
+        ))
+        .await;
         match &result {
             Ok(out) => {
                 if let Some(g) = guard.as_mut() {
@@ -803,12 +803,14 @@ impl OpenAIProvider {
             &wire_body,
         );
         let client = llm_http_client(Duration::from_secs(180))?;
+        // Keep the JSON body on the heap across the await (debug async state).
+        let wire_body = Box::new(wire_body);
         let resp = tokio::select! {
             _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
             r = client
                 .post(&url)
                 .bearer_auth(&self.api_key)
-                .json(&wire_body)
+                .json(wire_body.as_ref())
                 .send() => r?,
         };
         if !resp.status().is_success() {

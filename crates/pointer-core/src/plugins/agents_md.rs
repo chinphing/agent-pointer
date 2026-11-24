@@ -8,6 +8,7 @@
 //! - 全局：会话 home 下的 `.pointer/AGENTS.md`；没有会话时才用进程用户的 `~/.pointer`；
 //! - 项目：会话工作区当作 cwd（不使用进程 cwd）。从该目录向上找 `.git`
 //!   （目录或 worktree 文件），再从 git 根沿路径走到工作区，每层最多一份；
+//!   有会话时这条链停在该用户的 data 或 home，不走到宿主的 git 根；
 //! - 找不到 git 根时只读工作区根上的那一份；
 //! - 合并顺序：全局 → git 根 → … → 工作区（近处在后）；同一路径只注入一次；
 //! - 不扫描旁支子目录，也不按当前打开的文件动态附加；
@@ -15,7 +16,6 @@
 //! - 发现 ≠ 执行：仅读取文本注入 Prompt，不改变任何运行时行为。
 
 use anyhow::{anyhow, Result};
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -43,10 +43,7 @@ fn pointer_home_dir_no_create() -> Option<PathBuf> {
 }
 
 fn same_dir(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(x), Ok(y)) => x == y,
-        _ => a == b,
-    }
+    crate::env::canonicalize_in_session(a) == crate::env::canonicalize_in_session(b)
 }
 
 fn posix_rel(root: &Path, file: &Path) -> String {
@@ -61,21 +58,38 @@ fn posix_rel(root: &Path, file: &Path) -> String {
 }
 
 fn path_has_git_marker(dir: &Path) -> bool {
-    match std::fs::symlink_metadata(dir.join(".git")) {
-        Ok(_) => true,
-        Err(e) if e.kind() == ErrorKind::NotFound => false,
-        Err(e) => {
-            log::warn!(
-                "agents_md: .git metadata failed dir={} err={e}",
-                dir.display()
-            );
-            false
-        }
+    crate::env::path_exists_in_session(&dir.join(".git"))
+}
+
+fn normalized_dir(path: &Path) -> PathBuf {
+    crate::env::canonicalize_in_session(path)
+}
+
+fn within_root(path: &Path, root: &Path) -> bool {
+    let path = normalized_dir(path);
+    let root = normalized_dir(root);
+    path == root || path.starts_with(&root)
+}
+
+/// `None` keeps the old unbounded walk (tests). `Some` stops at those session roots.
+fn parent_inside_bounds(parent: &Path, bounds: Option<&[PathBuf]>) -> bool {
+    match bounds {
+        None => true,
+        Some(roots) => roots.iter().any(|root| within_root(parent, root)),
+    }
+}
+
+fn workspace_inside_bounds(cwd: &Path, bounds: Option<&[PathBuf]>) -> bool {
+    match bounds {
+        None => true,
+        Some(roots) if roots.is_empty() => false,
+        Some(roots) => roots.iter().any(|root| within_root(cwd, root)),
     }
 }
 
 /// Walk up from `start` until `.git` exists. Filesystem root is never a git root.
-fn find_git_root(start: &Path) -> Option<PathBuf> {
+/// Session bounds stop the walk at the user's data or home.
+fn find_git_root(start: &Path, bounds: Option<&[PathBuf]>) -> Option<PathBuf> {
     let mut cursor = start.to_path_buf();
     for depth in 0..=MAX_ANCESTORS {
         if is_filesystem_root(&cursor) {
@@ -95,7 +109,16 @@ fn find_git_root(start: &Path) -> Option<PathBuf> {
             return Some(cursor);
         }
         match cursor.parent() {
-            Some(p) => cursor = p.to_path_buf(),
+            Some(parent) if parent_inside_bounds(parent, bounds) => {
+                cursor = parent.to_path_buf();
+            }
+            Some(_) => {
+                log::info!(
+                    "agents_md: stop at session root, no git marker start={}",
+                    start.display()
+                );
+                return None;
+            }
             None => return None,
         }
     }
@@ -108,7 +131,7 @@ fn find_git_root(start: &Path) -> Option<PathBuf> {
 }
 
 /// Directories from git root down to cwd (inclusive). No git → cwd only. Never walks siblings.
-fn project_search_dirs(cwd: &Path) -> (Option<PathBuf>, Vec<PathBuf>) {
+fn project_search_dirs(cwd: &Path, bounds: Option<&[PathBuf]>) -> (Option<PathBuf>, Vec<PathBuf>) {
     if is_filesystem_root(cwd) {
         log::warn!(
             "agents_md: skip filesystem root workspace={}",
@@ -133,7 +156,14 @@ fn project_search_dirs(cwd: &Path) -> (Option<PathBuf>, Vec<PathBuf>) {
         );
         return (None, Vec::new());
     }
-    let Some(git_root) = find_git_root(&cwd) else {
+    if !workspace_inside_bounds(&cwd, bounds) {
+        log::warn!(
+            "agents_md: workspace is outside the session home and data path={}",
+            cwd.display()
+        );
+        return (None, Vec::new());
+    }
+    let Some(git_root) = find_git_root(&cwd, bounds) else {
         log::info!("agents_md: no git root, cwd only cwd={}", cwd.display());
         return (None, vec![cwd]);
     };
@@ -183,31 +213,16 @@ fn agents_md_in_dir(dir: &Path) -> Option<PathBuf> {
         return None;
     }
     let path = dir.join(AGENTS_MD);
-    match std::fs::symlink_metadata(&path) {
-        Ok(md) => {
-            let ft = md.file_type();
-            if ft.is_file() || ft.is_symlink() {
-                Some(path)
-            } else if ft.is_dir() {
-                log::warn!(
-                    "agents_md: skip, path is a directory path={}",
-                    path.display()
-                );
-                None
-            } else {
-                log::warn!(
-                    "agents_md: skip, not a regular file path={}",
-                    path.display()
-                );
-                None
-            }
-        }
-        Err(e) if e.kind() == ErrorKind::NotFound => None,
-        Err(e) => {
-            log::warn!("agents_md: metadata failed path={} err={e}", path.display());
-            None
-        }
+    if crate::env::path_is_file_in_session(&path) {
+        return Some(path);
     }
+    if crate::env::path_is_dir_in_session(&path) {
+        log::warn!(
+            "agents_md: skip, path is a directory path={}",
+            path.display()
+        );
+    }
+    None
 }
 
 fn already_have(out: &[(String, PathBuf)], path: &Path) -> bool {
@@ -219,6 +234,14 @@ pub fn discover_agents_md_chain(
     workspace_root: Option<&Path>,
     pointer_home: Option<&Path>,
 ) -> Vec<(String, PathBuf)> {
+    discover_agents_md_chain_bounded(workspace_root, pointer_home, None)
+}
+
+fn discover_agents_md_chain_bounded(
+    workspace_root: Option<&Path>,
+    pointer_home: Option<&Path>,
+    bounds: Option<&[PathBuf]>,
+) -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
     if let Some(home) = pointer_home {
         if let Some(path) = agents_md_in_dir(home) {
@@ -228,7 +251,7 @@ pub fn discover_agents_md_chain(
     let Some(cwd) = workspace_root else {
         return out;
     };
-    let (git_root, dirs) = project_search_dirs(cwd);
+    let (git_root, dirs) = project_search_dirs(cwd, bounds);
     let label_root = git_root.as_deref().unwrap_or(cwd);
     for dir in dirs {
         let Some(path) = agents_md_in_dir(&dir) else {
@@ -259,7 +282,8 @@ pub fn discover_agents_md(workspace_root: &Path) -> Vec<PathBuf> {
 }
 
 fn read_agents_md_file(path: &Path) -> Result<String> {
-    let content = std::fs::read_to_string(path).map_err(|e| anyhow!("读取 {path:?} 失败: {e}"))?;
+    let content =
+        crate::env::read_text_in_session(path).map_err(|e| anyhow!("读取 {path:?} 失败: {e}"))?;
     Ok(content.trim().to_string())
 }
 
@@ -307,6 +331,34 @@ fn format_project_context_block(merged: &str) -> String {
     format!("{PROJECT_CONTEXT_PREAMBLE}{merged}")
 }
 
+fn session_ancestor_bounds(conversation_id: &str) -> Option<Vec<PathBuf>> {
+    let Some(env) = crate::env::session_env::env_for_conversation(conversation_id)
+        .or_else(crate::env::current_env)
+    else {
+        log::warn!(
+            "agents_md: no session environment, ancestor walk stopped conversation_id={conversation_id}"
+        );
+        return Some(Vec::new());
+    };
+    if env.is_denied() || env.path_map().is_host_passthrough() {
+        log::warn!("agents_md: session bounds refused conversation_id={conversation_id}");
+        return Some(Vec::new());
+    }
+    let mut bounds = Vec::new();
+    for root in [env.data_root(), env.home_root()] {
+        if root.as_os_str().is_empty() {
+            continue;
+        }
+        bounds.push(root.to_path_buf());
+    }
+    if bounds.is_empty() {
+        log::warn!(
+            "agents_md: session has no home or data bound conversation_id={conversation_id}"
+        );
+    }
+    Some(bounds)
+}
+
 fn session_pointer_home(conversation_id: &str) -> Option<PathBuf> {
     let env = crate::env::session_env::env_for_conversation(conversation_id)
         .or_else(crate::env::current_env)?;
@@ -319,23 +371,13 @@ fn session_pointer_home(conversation_id: &str) -> Option<PathBuf> {
         log::warn!("agents_md: session home is empty conversation_id={conversation_id}");
         return None;
     }
-    match env.path_map().to_host(&guest) {
-        Ok(host) => {
-            log::info!("agents_md: session pointer home conversation_id={conversation_id}");
-            Some(host)
-        }
-        Err(error) => {
-            log::warn!(
-                "agents_md: session home not mapped conversation_id={conversation_id}: {error:#}"
-            );
-            Some(guest)
-        }
-    }
+    log::info!("agents_md: session pointer home conversation_id={conversation_id}");
+    Some(guest)
 }
 
 fn workspace_dir_for_agents(conversation_id: &str, raw: &str) -> Option<PathBuf> {
     let root = PathBuf::from(raw);
-    if root.is_dir() {
+    if crate::env::path_is_dir_in_session(&root) {
         return Some(root);
     }
     let Some(env) = crate::env::session_env::env_for_conversation(conversation_id)
@@ -350,25 +392,16 @@ fn workspace_dir_for_agents(conversation_id: &str, raw: &str) -> Option<PathBuf>
         log::warn!("agents_md: workspace refused conversation_id={conversation_id} root={raw}");
         return None;
     }
-    match env.path_map().to_host(&root) {
-        Ok(host) if host.is_dir() => {
-            log::info!(
-                "agents_md: read session workspace conversation_id={conversation_id} session={raw}"
-            );
-            Some(host)
-        }
-        Ok(_) => {
-            log::warn!(
-                "agents_md: session workspace is not a directory conversation_id={conversation_id} session={raw}"
-            );
-            None
-        }
-        Err(error) => {
-            log::warn!(
-                "agents_md: session workspace not mapped conversation_id={conversation_id} session={raw}: {error:#}"
-            );
-            None
-        }
+    if env.metadata(&root).map(|m| m.is_dir).unwrap_or(false) {
+        log::info!(
+            "agents_md: read session workspace conversation_id={conversation_id} session={raw}"
+        );
+        Some(root)
+    } else {
+        log::warn!(
+            "agents_md: session workspace is not a directory conversation_id={conversation_id} session={raw}"
+        );
+        None
     }
 }
 
@@ -391,9 +424,21 @@ pub fn push_agents_md_to_cacheable_with_home(
 ) {
     let started = Instant::now();
     let raw = workspace_root.trim();
+    let ancestor_bounds = if pointer_home.is_some() {
+        None
+    } else {
+        session_ancestor_bounds(conversation_id)
+    };
     let pointer_home = match pointer_home {
         Some(home) => Some(home.to_path_buf()),
-        None => session_pointer_home(conversation_id).or_else(|| resolved_pointer_home(None)),
+        None => session_pointer_home(conversation_id).or_else(|| {
+            if conversation_id.trim().is_empty() {
+                resolved_pointer_home(None)
+            } else {
+                log::warn!("agents_md: skip process home conversation_id={conversation_id}");
+                None
+            }
+        }),
     };
 
     let workspace_root = if raw.is_empty() {
@@ -403,7 +448,11 @@ pub fn push_agents_md_to_cacheable_with_home(
         workspace_dir_for_agents(conversation_id, raw)
     };
 
-    let files = discover_agents_md_chain(workspace_root.as_deref(), pointer_home.as_deref());
+    let files = discover_agents_md_chain_bounded(
+        workspace_root.as_deref(),
+        pointer_home.as_deref(),
+        ancestor_bounds.as_deref(),
+    );
     let mut injected = false;
     match merge_labeled_files(&files) {
         Ok(content) if content.is_empty() => {}
@@ -429,7 +478,7 @@ pub fn push_agents_md_to_cacheable_with_home(
         workspace_root
             .as_ref()
             .and_then(|p| p.canonicalize().ok())
-            .and_then(|c| find_git_root(&c))
+            .and_then(|c| find_git_root(&c, ancestor_bounds.as_deref()))
     };
     let elapsed_ms = started.elapsed().as_millis();
     let labels: Vec<&str> = files.iter().map(|(l, _)| l.as_str()).collect();
@@ -642,6 +691,39 @@ mod tests {
         let root = tmp.path();
         fs::create_dir_all(root.join("AGENTS.md")).unwrap();
         assert!(discover_agents_md_chain(Some(root), None).is_empty());
+    }
+
+    #[test]
+    fn ancestor_walk_stops_at_session_data_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outside = tmp.path().join("outside-repo");
+        let data = outside.join("user/data");
+        let workspace = data.join("workspaces/proj");
+        fs::create_dir_all(&workspace).unwrap();
+        init_git(&outside);
+        fs::write(outside.join("AGENTS.md"), "HOST-LEAK\n").unwrap();
+        fs::write(workspace.join("AGENTS.md"), "inside\n").unwrap();
+
+        let stopped = discover_agents_md_chain_bounded(
+            Some(&workspace),
+            None,
+            Some(std::slice::from_ref(&data)),
+        );
+        let stopped_text = merge_labeled_files(&stopped).unwrap();
+        assert!(stopped_text.contains("inside"));
+        assert!(!stopped_text.contains("HOST-LEAK"));
+
+        init_git(&data);
+        fs::write(data.join("AGENTS.md"), "data rules\n").unwrap();
+        let kept = discover_agents_md_chain_bounded(
+            Some(&workspace),
+            None,
+            Some(std::slice::from_ref(&data)),
+        );
+        let kept_text = merge_labeled_files(&kept).unwrap();
+        assert!(kept_text.contains("data rules"));
+        assert!(kept_text.contains("inside"));
+        assert!(!kept_text.contains("HOST-LEAK"));
     }
 
     #[test]

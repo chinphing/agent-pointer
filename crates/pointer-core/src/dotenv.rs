@@ -27,7 +27,7 @@ pub fn parse_dotenv_bytes(content: &[u8]) -> HashMap<String, String> {
 pub fn merged_env_from_files(env_files: &[PathBuf]) -> HashMap<String, String> {
     let mut merged: HashMap<String, String> = HashMap::new();
     for path in env_files {
-        match std::fs::read(path) {
+        match crate::env::read_bytes_in_session(path) {
             Ok(bytes) => {
                 for (k, v) in parse_dotenv_bytes(&bytes) {
                     let applied = env_value_for_child(&k, &v);
@@ -66,7 +66,7 @@ pub fn build_terminal_child_environment_for(
         .filter(|(k, _)| !is_sensitive_env_key(k))
         .collect();
     for path in env_files {
-        match std::fs::read(path) {
+        match crate::env::read_bytes_in_session(path) {
             Ok(bytes) => {
                 info!("dotenv: loaded {}", path.display());
                 for (k, v) in parse_dotenv_bytes(&bytes) {
@@ -221,16 +221,9 @@ fn session_pointer_env_file() -> Option<PathBuf> {
     if guest.as_os_str().is_empty() {
         return None;
     }
-    let host = match env.path_map().to_host(&guest) {
-        Ok(path) => path,
-        Err(error) => {
-            log::warn!("dotenv: session .env not mapped: {error:#}");
-            guest
-        }
-    };
-    if host.is_file() {
+    if crate::env::path_is_file_in_session(&guest) {
         log::info!("dotenv: using session .pointer/.env");
-        Some(host)
+        Some(guest)
     } else {
         None
     }

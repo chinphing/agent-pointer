@@ -44,7 +44,7 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
 
     if is_user_filesystem_path(trimmed) {
         let path = normalize_user_path(trimmed)?;
-        if path.is_file() || path.is_dir() {
+        if path_visible_to_session(&path)? {
             return accept_host_media_path(path);
         }
         if let Some(nested) = recover_nested_absolute_path(&path) {
@@ -121,18 +121,38 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
     anyhow::bail!("media file not found: {trimmed}")
 }
 
-/// 已经按库存相对路径解析过的文件。有会话时仍必须落在该会话的路径表里。
+/// 宿主上看得到，或者当前会话环境能 stat 到。容器里的 `/data` 在宿主上不是目录。
+fn path_visible_to_session(path: &std::path::Path) -> Result<bool> {
+    if path.is_file() || path.is_dir() {
+        return Ok(true);
+    }
+    let Some(session) = crate::env::current_session() else {
+        return Ok(false);
+    };
+    match session.environment().metadata(path) {
+        Ok(meta) => Ok(meta.is_file || meta.is_dir),
+        Err(error) => {
+            log::info!(
+                "media path is not in the session: {} ({error:#})",
+                path.display()
+            );
+            Ok(false)
+        }
+    }
+}
+
+/// 已经按库存相对路径解析过的文件。有会话时翻成环境内路径（guest / 用户树）。
 fn accept_stored_media_path(path: PathBuf) -> Result<PathBuf> {
     if let Some(session) = crate::env::current_session() {
-        crate::media::media_ref::session_host_file(session.environment().as_ref(), &path)?;
+        return crate::media::media_ref::session_env_path(session.environment().as_ref(), &path);
     }
     Ok(path)
 }
 
-/// 调用方直接给出的宿主路径。没有会话，或路径不在会话的 home / data 里，就拒绝。
+/// 调用方直接给出的宿主路径。翻成会话环境路径；没有会话或未映射则拒绝。
 fn accept_host_media_path(path: PathBuf) -> Result<PathBuf> {
-    crate::media::media_ref::ensure_inside_user_env(&path)?;
-    Ok(path)
+    let session = crate::env::require_session()?;
+    crate::media::media_ref::session_env_path(session.environment().as_ref(), &path)
 }
 
 #[cfg(test)]

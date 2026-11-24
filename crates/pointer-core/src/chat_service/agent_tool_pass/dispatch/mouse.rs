@@ -91,10 +91,22 @@ pub(super) async fn dispatch_mouse(
     if tool_id == "mouse_drag_from_to_at" {
         // Two ends, grounded separately: the grab point and the drop point can
         // be far apart and are often different kinds of thing.
-        let (fx, fy, fbox) =
-            ground_or_fail!(resolve_point(state, conversation_id, provider, &args, "from_", cancel));
-        let (tx, ty, tbox) =
-            ground_or_fail!(resolve_point(state, conversation_id, provider, &args, "to_", cancel));
+        let (fx, fy, fbox) = ground_or_fail!(resolve_point(
+            state,
+            conversation_id,
+            provider,
+            &args,
+            "from_",
+            cancel
+        ));
+        let (tx, ty, tbox) = ground_or_fail!(resolve_point(
+            state,
+            conversation_id,
+            provider,
+            &args,
+            "to_",
+            cancel
+        ));
         let obj = args
             .as_object_mut()
             .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
@@ -119,8 +131,14 @@ pub(super) async fn dispatch_mouse(
             .and_then(|v| v.as_str())
             .is_some_and(|s| !s.trim().is_empty());
         if has_target {
-            let (x, y, bbox) =
-                ground_or_fail!(resolve_point(state, conversation_id, provider, &args, "", cancel));
+            let (x, y, bbox) = ground_or_fail!(resolve_point(
+                state,
+                conversation_id,
+                provider,
+                &args,
+                "",
+                cancel
+            ));
             let obj = args
                 .as_object_mut()
                 .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
@@ -143,8 +161,14 @@ pub(super) async fn dispatch_mouse(
             obj.remove(k);
         }
     } else {
-        let (x, y, bbox) =
-            ground_or_fail!(resolve_point(state, conversation_id, provider, &args, "", cancel));
+        let (x, y, bbox) = ground_or_fail!(resolve_point(
+            state,
+            conversation_id,
+            provider,
+            &args,
+            "",
+            cancel
+        ));
         let obj = args
             .as_object_mut()
             .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
@@ -209,5 +233,4 @@ mod tests {
         // 两对参数：from_* 和 to_*，不是一个 target_desc 能描述的
         assert_eq!(method_for("mouse_drag_from_to_at"), Some("drag_from_to"));
     }
-
 }

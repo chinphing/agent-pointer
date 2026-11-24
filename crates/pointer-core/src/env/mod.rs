@@ -16,6 +16,7 @@
 //! `chat_service/agent_tool_pass/dispatch/registry.rs`。
 
 pub mod docker;
+mod envd_fs;
 mod local;
 pub mod mounts;
 pub mod pathmap;
@@ -25,13 +26,12 @@ pub mod remote;
 pub mod sandbox_registry;
 pub mod session;
 pub mod session_env;
-mod volume_io;
 
 pub use local::LocalEnv;
 pub use pathmap::{Mount, MountSpec, PathMap};
 pub use session::{SessionEnv, SessionScope};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -681,6 +681,93 @@ pub fn process_io_at(root: &std::path::Path) -> Arc<dyn Environment> {
     host_env_at(root)
 }
 
+fn session_io_env() -> Option<Arc<dyn Environment>> {
+    current_env().filter(|env| !env.is_denied())
+}
+
+/// 有会话环境就经它读文本；否则（单测 / 早期启动）才用宿主 `std::fs`。
+pub(crate) fn read_text_in_session(path: &Path) -> Result<String> {
+    if let Some(env) = session_io_env() {
+        return env.read_to_string(path);
+    }
+    std::fs::read_to_string(path).with_context(|| format!("读取失败: {}", path.display()))
+}
+
+/// 有会话环境就经它读字节；否则才用宿主 `std::fs`。
+pub(crate) fn read_bytes_in_session(path: &Path) -> Result<Vec<u8>> {
+    if let Some(env) = session_io_env() {
+        return env.read_file(path);
+    }
+    std::fs::read(path).with_context(|| format!("读取失败: {}", path.display()))
+}
+
+pub(crate) fn write_bytes_in_session(path: &Path, data: &[u8]) -> Result<()> {
+    if let Some(env) = session_io_env() {
+        return env.write_file(path, data);
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("无法创建目录: {}", parent.display()))?;
+        }
+    }
+    std::fs::write(path, data).with_context(|| format!("写入失败: {}", path.display()))
+}
+
+pub(crate) fn create_dir_all_in_session(path: &Path) -> Result<()> {
+    if let Some(env) = session_io_env() {
+        return env.create_dir_all(path);
+    }
+    std::fs::create_dir_all(path).with_context(|| format!("无法创建目录: {}", path.display()))
+}
+
+pub(crate) fn path_is_dir_in_session(path: &Path) -> bool {
+    if let Some(env) = session_io_env() {
+        return env.metadata(path).map(|m| m.is_dir).unwrap_or(false);
+    }
+    path.is_dir()
+}
+
+pub(crate) fn path_is_file_in_session(path: &Path) -> bool {
+    if let Some(env) = session_io_env() {
+        return env.metadata(path).map(|m| m.is_file).unwrap_or(false);
+    }
+    path.is_file()
+}
+
+pub(crate) fn path_exists_in_session(path: &Path) -> bool {
+    if let Some(env) = session_io_env() {
+        return env.exists(path);
+    }
+    path.exists()
+}
+
+pub(crate) fn canonicalize_in_session(path: &Path) -> PathBuf {
+    if let Some(env) = session_io_env() {
+        return env
+            .canonicalize(path)
+            .unwrap_or_else(|_| path.to_path_buf());
+    }
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// 列目录：返回子项的完整路径（含文件与目录）。
+pub(crate) fn list_child_paths_in_session(path: &Path) -> Result<Vec<PathBuf>> {
+    if let Some(env) = session_io_env() {
+        let mut out: Vec<PathBuf> = env.list_dir(path)?.into_iter().map(|e| e.path).collect();
+        out.sort();
+        return Ok(out);
+    }
+    let mut out = Vec::new();
+    for entry in
+        std::fs::read_dir(path).with_context(|| format!("无法列出目录: {}", path.display()))?
+    {
+        out.push(entry?.path());
+    }
+    out.sort();
+    Ok(out)
+}
+
 /// 当前生效的环境：本线程绑过就用绑定的，否则**按部署档位兜底**。
 ///
 /// 兜底出来的实例可能与会话无关（local 部署 → 与当前会话无关的 `LocalEnv`；
@@ -1178,9 +1265,10 @@ mod tests {
             ("media/public_download.rs", "媒体库文件读写"),
             ("media/media_ref.rs", "附件本体路径"),
             ("media/exec.rs", "local 档位暂存读回（remote 分支已走 env）"),
-            ("media/image_dir.rs", "附件目录枚举（宿主路径）"),
-            ("tools/terminal_elevated.rs", "提权是宿主专属能力"),
-            ("tools/terminal_askpass.rs", "提权口令交互，宿主专属"),
+            (
+                "tools/terminal_askpass.rs",
+                "口令桥接实现仍在文件里，用户会话入口已拒绝",
+            ),
             (
                 "media/ffmpeg.rs",
                 "仅 local 档位走宿主 which；headless 已走 env.exec",

@@ -823,13 +823,11 @@ pub fn load_external_agents() -> Result<Vec<BaseAgent>> {
     let mut seen = HashSet::new();
 
     for root in agent_roots()? {
-        if !root.exists() {
+        if !crate::env::path_exists_in_session(&root) {
             continue;
         }
-        for entry in fs::read_dir(&root)? {
-            let entry = entry?;
-            let path = entry.path();
-            if !path.is_dir() {
+        for path in crate::env::list_child_paths_in_session(&root)? {
+            if !crate::env::path_is_dir_in_session(&path) {
                 continue;
             }
             match load_agent_from_dir(&path) {
@@ -852,11 +850,12 @@ fn agent_roots() -> Result<Vec<PathBuf>> {
         log::info!("agent_roots: host environment is not a user session");
         return Ok(Vec::new());
     }
-    let root = env.home_root().join(".pointer").join(AGENTS_DIR);
+    let guest = env.home_root().join(".pointer").join(AGENTS_DIR);
+    let _ = env;
     let mut roots = Vec::new();
     for name in ["system", "user"] {
-        let dir = root.join(name);
-        if dir.is_dir() {
+        let dir = guest.join(name);
+        if crate::env::path_is_dir_in_session(&dir) {
             roots.push(dir);
         }
     }
@@ -871,22 +870,22 @@ pub(crate) fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
         ));
     }
     let manifest_path = dir.join(AGENT_MANIFEST);
-    if !manifest_path.exists() {
+    if !crate::env::path_is_file_in_session(&manifest_path) {
         return Err(anyhow!("未找到 {}", AGENT_MANIFEST));
     }
 
-    let raw = fs::read_to_string(&manifest_path)?;
+    let raw = crate::env::read_text_in_session(&manifest_path)?;
     let manifest = parse_agent_md(&raw)?;
     let mut communication = if manifest.id == "computer" {
         load_external_computer_communication(dir)?
-    } else if dir.join(AGENT_COMMUNICATION).exists() {
-        fs::read_to_string(dir.join(AGENT_COMMUNICATION))?
+    } else if crate::env::path_is_file_in_session(&dir.join(AGENT_COMMUNICATION)) {
+        crate::env::read_text_in_session(&dir.join(AGENT_COMMUNICATION))?
     } else {
         String::new()
     };
     let inject_path = dir.join(AGENT_SESSION_INJECT);
-    if inject_path.exists() {
-        let inj = fs::read_to_string(&inject_path)?;
+    if crate::env::path_is_file_in_session(&inject_path) {
+        let inj = crate::env::read_text_in_session(&inject_path)?;
         if !inj.trim().is_empty() {
             communication = merge_legacy_session_into_communication(&inj, communication.trim());
         }
@@ -903,8 +902,8 @@ fn load_external_computer_communication(dir: &Path) -> Result<String> {
     ];
     let mut communication = String::new();
     for path in comm_candidates {
-        if path.exists() {
-            communication = fs::read_to_string(&path)?;
+        if crate::env::path_is_file_in_session(&path) {
+            communication = crate::env::read_text_in_session(&path)?;
             break;
         }
     }

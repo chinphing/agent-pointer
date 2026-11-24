@@ -30,10 +30,31 @@ pub fn find_attachment_by_media_ref(
                 .storage_rel_path
                 .as_deref()
                 .is_some_and(|p| p.rsplit('/').next() == Some(tail_id))
+            || att.file_name.eq_ignore_ascii_case(tail_id)
+            || storage_basename_matches_id_prefix(att, tail_id)
             || tail_id
                 .strip_prefix(&format!("{}_", att.id))
                 .is_some_and(|rest| !rest.is_empty())
     })
+}
+
+/// `482af79dec0f_sample-envd.pdf` 匹配裸文件名 `sample-envd.pdf` 或完整 basename。
+fn storage_basename_matches_id_prefix(att: &MediaAttachment, needle: &str) -> bool {
+    let Some(base) = att
+        .storage_rel_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .and_then(|p| p.rsplit('/').next())
+    else {
+        return false;
+    };
+    if base.eq_ignore_ascii_case(needle) {
+        return true;
+    }
+    let prefix = format!("{}_", att.id);
+    base.strip_prefix(&prefix)
+        .is_some_and(|rest| rest.eq_ignore_ascii_case(needle))
 }
 
 pub fn find_attachment_by_id(

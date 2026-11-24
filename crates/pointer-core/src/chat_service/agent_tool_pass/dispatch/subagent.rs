@@ -359,7 +359,10 @@ mod self_fork_preparation_tests {
             Err(error) => error,
         };
 
-        assert!(error.contains("spawn depth limit"), "unexpected error: {error}");
+        assert!(
+            error.contains("spawn depth limit"),
+            "unexpected error: {error}"
+        );
     }
 
     /// Delegating to your own id is rewritten to `self` during tool-pass preparation.

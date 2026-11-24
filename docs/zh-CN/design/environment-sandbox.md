@@ -1241,17 +1241,36 @@ WARN 只陈述事实（「档位 `headless` 默认不带桌面，但配置显式
 
 #### 7.4.4 DockerEnv 设计
 
-核心洞察：`/workspace` 是项目目录的 **bind mount**，宿主和容器看到同一份文件。所以
+挂载仍用 `-v host:guest` 建容器；**PathMap 只服务挂载计划与宿主侧运维**。
+会话内路径保持 guest 视角（与 Hermes / `RemoteEnv` 一致）。这样不会在 macOS 上
+把容器 `/tmp` 翻成宿主 `/private/tmp` 后再撞挂载表。
 
-- **文件 IO 不进容器** → 直接复用 `LocalEnv`（先把 guest 路径按 `PathMap` 翻回宿主路径）
-- **只有执行进容器** → `docker exec`
+- **文件读写** → 容器内 **envd** `GET|POST /files`（与 `RemoteEnv` 共用 `EnvdFs`）
+- **列目录 / metadata / 删改** → 仍 `docker exec`（envd 无目录列举 REST）
+- **执行进容器** → `docker exec`（控制面仍是 Docker，不改走 envd Process）
+- **边界** → `PathMap::contains_guest`（词法匹配 guest 前缀，不做宿主 realpath）
+- **挂载 host** → `Mount::new` 对已存在目录做 `canonicalize`（macOS `/tmp` → `/private/tmp`），
+  与 `to_agent` / 媒体 `resolve` 同一口径；媒体解析在有会话时返回 guest 路径再经 envd 读
+- **媒体 vision 栈** → debug 下嵌套 `poll`（dispatch → run_chat → tool pass →
+  `media_understand`）会在默认 ~2MiB worker 栈上溢出。关键异步边界用 `Box::pin`
+  打断嵌套；lead 与 sub_agent 一样 pin 工具轮；`pointer-server` 仍
+  `thread_stack_size(8MiB)` 作兜底（`POINTER_WORKER_STACK_BYTES` 可覆盖）
+- **旁路收口** → 媒体预览、插件/技能/agents 发现、dotenv、AGENTS.md、file_grep/glob
+  一律经会话 `Environment`（或 `*_in_session` 辅助），沙箱不再 `to_host` + `std::fs`
+
+envd 二进制：`POINTER_ENVD_BINARY` 或 `.dev-sandbox/envd-bin/envd-linux-*`，
+`docker run` 时 bind 到 `/usr/local/bin/pointer-envd`，映射 `127.0.0.1::49983`，
+容器内以 `-isnotfc` 常驻（无鉴权，勿对公网暴露）。`SPEC_VERSION` v10 起强制重建旧容器。
 
 | 方法 | 实现 |
 |---|---|
 | `exec` | `docker exec -i <name> <argv>`；`-w` 走 `ExecOptions.cwd`，env 用 `-e` |
 | `spawn` | `docker exec -i` 常驻进程，stdin/stdout 走管道 |
 | `pty_open` | 宿主 `portable_pty` 起 `docker exec -it <name> <shell>`（tty 由 `-t` 提供，与 OpenClaw 一致） |
-| `read_file` / `write_file` / `list_dir` / `walk` / `metadata` / `remove_*` | 路径映射到宿主后交给 `LocalEnv` |
+| `read_file` / `write_file` / `open_reader` | envd `/files`（`EnvdFs`；写前 `mkdir -p` 父目录） |
+| `list_dir` / `walk` | 容器内 `find`；`walk` 在需要 gitignore 时优先 `rg --files` |
+| `metadata` / `canonicalize` | 容器内 `stat` / `realpath` |
+| `remove_*` / `create_dir_all` / `set_executable` | 容器内 `rm` / `mkdir -p` / `chmod` |
 | `kind()` / `capabilities()` | `EnvKind::Headless` / `Capabilities::headless()` |
 
 挂载列表**复用 `MountPlan` 的输出**：`Mount { host, guest, read_only }` → `-v host:guest[:ro]`。

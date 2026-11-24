@@ -110,11 +110,22 @@ pub(super) async fn dispatch_modified_click(
                 _ => {
                     let first = points.first().copied().unwrap_or((0.0, 0.0));
                     let last = points.last().copied().unwrap_or(first);
-                    control.click(MouseButton::Left, Some(first.0 as i32), Some(first.1 as i32), 1)?;
+                    control.click(
+                        MouseButton::Left,
+                        Some(first.0 as i32),
+                        Some(first.1 as i32),
+                        1,
+                    )?;
                     control.key_down("shift")?;
-                    control.click(MouseButton::Left, Some(last.0 as i32), Some(last.1 as i32), 1)?;
+                    control.click(
+                        MouseButton::Left,
+                        Some(last.0 as i32),
+                        Some(last.1 as i32),
+                        1,
+                    )?;
                     control.key_up("shift")?;
-                    "Shift+click range by coordinates. Verify result on next screenshot.".to_string()
+                    "Shift+click range by coordinates. Verify result on next screenshot."
+                        .to_string()
                 }
             };
             return Ok((success_payload(tool_id, &points, &boxes, &out), true, None));
@@ -134,9 +145,5 @@ pub(super) async fn dispatch_modified_click(
     let out = tool.execute_with(ModifiedClickBackend::At, method, &args)?;
     // Same envelope as the failure path: `success` plus every grounded point and
     // the box each one landed in.
-    Ok((
-        success_payload(tool_id, &points, &boxes, &out),
-        true,
-        None,
-    ))
+    Ok((success_payload(tool_id, &points, &boxes, &out), true, None))
 }

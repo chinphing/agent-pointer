@@ -154,10 +154,7 @@ pub fn list_directory(
         entries.push(WorkspaceEntry {
             name: item.name.clone(),
             path: item_relative,
-            size_bytes: metadata
-                .as_ref()
-                .filter(|m| m.is_file)
-                .map(|m| m.len),
+            size_bytes: metadata.as_ref().filter(|m| m.is_file).map(|m| m.len),
             kind,
         });
     }
@@ -353,14 +350,13 @@ pub const WORKSPACE_MEDIA_INLINE_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
 /// 工作区媒体文件的字节来源。
 ///
-/// 沙箱档位下 [`resolve_file_for_media`] 返回的是**环境内路径**（`/workspace/x.png`），
-/// 宿主上没有这个文件，直接 `tokio::fs::File::open` 会失败——图片 / 视频预览就没了。
-/// 这里把「怎么拿到字节」定下来，HTTP 层只负责按结果组响应。
+/// 沙箱档位下 [`resolve_file_for_media`] 返回的是**环境内路径**（`/data/...`），
+/// 字节一律经 [`Environment`] 取回；只有 local 恒等映射才直接打开宿主路径流式返回。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceMediaBody {
-    /// 宿主上能直接流式打开（local 档位 / 有宿主挂载的容器后端）。
+    /// local 档位：宿主就是环境，可直接流式打开。
     HostPath(PathBuf),
-    /// 宿主上没有，已整段读进内存（远端后端）。
+    /// 沙箱 / 远端：经环境读入内存。
     Inline(Vec<u8>),
 }
 
@@ -374,16 +370,10 @@ impl WorkspaceMediaBody {
     }
 }
 
-/// 把已解析的工作区媒体路径落到「宿主流式」或「整段读内存」。
+/// 把已解析的工作区媒体路径落到「宿主流式」或「环境读内存」。
 ///
-/// 规则（顺序有意义）：
-///
-/// 1. 路径映射恒等（local 档位：宿主就是环境）→ 原样流式打开，行为不变；
-/// 2. `to_host` 映射成功且宿主上确实有该文件（docker / e2b-local 的 bind mount）
-///    → 用宿主路径流式返回，零额外内存；
-/// 3. 宿主上没有该文件：**只有环境里确实存在**时才回落整段读（云端 envd 的挂载点
-///    只是模板，宿主侧本来就没有文件）；
-/// 4. 环境里也没有 → 报「文件不存在」，不猜、不静默回落。
+/// 1. 路径映射恒等（local）→ 宿主路径流式；
+/// 2. 其余档位 → 只走 `env.metadata` / `env.read_file_capped`，不经 `to_host`。
 pub fn media_body_for_streaming(
     env: &dyn crate::env::Environment,
     path: &Path,
@@ -392,22 +382,11 @@ pub fn media_body_for_streaming(
     if !env.is_denied() && env.path_map().is_host_passthrough() {
         return Ok(WorkspaceMediaBody::HostPath(path.to_path_buf()));
     }
-    let mapped = env.path_map().to_host(path);
-    if let Ok(host) = &mapped {
-        if host.is_file() {
-            return Ok(WorkspaceMediaBody::HostPath(host.clone()));
-        }
-    }
-    // 宿主上没有：容器后端说明文件真的不在了（`env.metadata` 也读宿主，会直接失败），
-    // 远端后端才可能「宿主没有、沙箱里有」。
     let meta = env
         .metadata(path)
         .with_context(|| format!("workspace file does not exist: {}", path.display()))?;
     if !meta.is_file {
-        return Err(anyhow!(
-            "workspace path is not a file: {}",
-            path.display()
-        ));
+        return Err(anyhow!("workspace path is not a file: {}", path.display()));
     }
     if meta.len > max_bytes {
         return Err(anyhow!(
@@ -709,7 +688,9 @@ fn read_worktree_text(
     if !env.exists(&full) {
         return Ok(String::new());
     }
-    let meta = env.metadata(&full).with_context(|| format!("stat {}", full.display()))?;
+    let meta = env
+        .metadata(&full)
+        .with_context(|| format!("stat {}", full.display()))?;
     if !meta.is_file {
         return Err(anyhow!("不是常规文件: {}", full.display()));
     }
@@ -968,8 +949,7 @@ mod tests {
             Err(anyhow!("sandbox env: spawn not supported"))
         }
         fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
-            self.reads
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.lookup(path)
                 .ok_or_else(|| anyhow!("sandbox env: not found: {}", path.display()))
         }
@@ -1024,8 +1004,8 @@ mod tests {
     }
 
     #[test]
-    fn media_body_streams_host_path_for_docker_mount() {
-        // 容器后端：`/workspace` 是宿主目录的 bind mount，guest 路径能映射回宿主。
+    fn media_body_reads_via_env_for_sandbox_mount() {
+        // 容器后端即使有 bind mount，媒体字节也只经 Environment，不经宿主 fs。
         let host_ws = tempfile::tempdir().unwrap();
         let file = host_ws.path().join("pic.png");
         fs::write(&file, b"\x89PNG\r\n").unwrap();
@@ -1037,23 +1017,17 @@ mod tests {
         env.put("/workspace/pic.png", b"\x89PNG\r\n");
 
         let media = resolve_file_for_media(&env, Path::new("/workspace"), "pic.png").unwrap();
-        assert_eq!(media.path, PathBuf::from("/workspace/pic.png"), "沙箱里拿到的是 guest 路径");
+        assert_eq!(
+            media.path,
+            PathBuf::from("/workspace/pic.png"),
+            "沙箱里拿到的是 guest 路径"
+        );
 
         let body =
             media_body_for_streaming(&env, &media.path, WORKSPACE_MEDIA_INLINE_MAX_BYTES).unwrap();
-        assert_eq!(
-            body,
-            // 映射表里的宿主根是按词法存的（macOS 上 `/var` 与 `/private/var` 是同一处），
-            // 这里按词法比较，再断言两边指向同一个文件。
-            WorkspaceMediaBody::HostPath(host_ws.path().join("pic.png")),
-            "映射成功就走宿主流式，不进内存"
-        );
-        if let WorkspaceMediaBody::HostPath(host) = &body {
-            assert_eq!(host.canonicalize().unwrap(), file.canonicalize().unwrap());
-            // 宿主路径能直接打开：HTTP 层就是这么流式返回的。
-            assert_eq!(fs::read(host).unwrap(), b"\x89PNG\r\n");
-        }
-        assert_eq!(env.reads(), 0, "宿主流式不该再读一遍环境");
+        assert_eq!(body, WorkspaceMediaBody::Inline(b"\x89PNG\r\n".to_vec()));
+        assert_eq!(body.source_label(), "env-inline");
+        assert!(env.reads() >= 1, "沙箱必须经环境读文件");
     }
 
     #[test]
@@ -1090,9 +1064,8 @@ mod tests {
     }
 
     #[test]
-    fn media_body_errors_when_mapped_path_is_gone_without_env_fallback() {
-        // 容器后端映射成功但宿主上文件没了（挂载目录里没有），环境里也没有：
-        // 直接报「文件不存在」，不回落去读环境（否则会掩盖路径问题）。
+    fn media_body_errors_when_env_file_missing() {
+        // 沙箱只认环境内文件；不存在就报错，不猜宿主挂载。
         let host_ws = tempfile::tempdir().unwrap();
         let env = SandboxEnv::new(vec![crate::env::Mount::new(
             host_ws.path(),
@@ -1111,7 +1084,7 @@ mod tests {
                 || err.to_string().contains("not found"),
             "{err}"
         );
-        assert_eq!(env.reads(), 0, "不允许回落到环境读");
+        assert_eq!(env.reads(), 0, "metadata 失败时不应再 read_file");
     }
 
     #[test]
@@ -1241,7 +1214,12 @@ mod tests {
         let env = host(root.path());
         let env = env.as_ref();
         run_git(env, root.path(), ["init"]).unwrap();
-        run_git(env, root.path(), ["config", "user.email", "test@example.com"]).unwrap();
+        run_git(
+            env,
+            root.path(),
+            ["config", "user.email", "test@example.com"],
+        )
+        .unwrap();
         run_git(env, root.path(), ["config", "user.name", "Test"]).unwrap();
         fs::write(root.path().join("a.txt"), "one\n").unwrap();
         run_git(env, root.path(), ["add", "a.txt"]).unwrap();
@@ -1290,9 +1268,6 @@ mod tests {
         let err = list_directory(env.as_ref(), &host_dir, None)
             .expect_err("headless 环境不应读到宿主目录");
         let chain = format!("{err:#}");
-        assert!(
-            chain.contains("未绑定"),
-            "错误链应说明环境未绑定：{chain}"
-        );
+        assert!(chain.contains("未绑定"), "错误链应说明环境未绑定：{chain}");
     }
 }

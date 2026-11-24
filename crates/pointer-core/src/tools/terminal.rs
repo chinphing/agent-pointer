@@ -346,12 +346,6 @@ pub fn run_terminal_command_streaming(
     }
 
     if terminal_requests_elevation(&args) {
-        // 提权是宿主概念：沙箱里没有 sudo/管理员会话，直接说明而不是尝试宿主提权。
-        if crate::env::require_env()?.kind() != crate::env::EnvKind::Local {
-            return Err(anyhow!(
-                "当前执行环境（headless/desktop）不支持提权命令：请在沙箱内用普通权限完成，或让用户在本机执行"
-            ));
-        }
         return run_terminal_command_elevated(
             args,
             session_workspace,
@@ -368,6 +362,10 @@ pub fn run_terminal_command_streaming(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow!("缺少 command"))?;
+    if super::terminal_askpass::command_wants_ssh_askpass(command) {
+        warn!("terminal askpass: refused in a user session");
+        return Err(anyhow!("用户会话不提供宿主口令助手"));
+    }
     let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?, &session_workspace)?;
     let timeout_ms = resolve_timeout_ms(&args);
     let wall_cap_ms = resolve_max_wall_ms(&args);

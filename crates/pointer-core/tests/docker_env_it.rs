@@ -21,12 +21,35 @@ fn docker_available() -> bool {
         .unwrap_or(false)
 }
 
-fn spec(name: &str, workspace: &Path) -> DockerSpec {
+fn headless_image() -> String {
+    std::env::var("POINTER_IT_DOCKER_IMAGE").unwrap_or_else(|_| {
+        // 本机若还没打 headless 标签，允许回退到 light（旧名）。
+        for name in [
+            "pointer-sandbox-headless:latest",
+            "pointer-sandbox-light:latest",
+            "pointer-sandbox-container:latest",
+        ] {
+            let ok = std::process::Command::new("docker")
+                .args(["image", "inspect", name])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if ok {
+                return name.to_string();
+            }
+        }
+        "pointer-sandbox-headless:latest".to_string()
+    })
+}
+
+fn spec(name: &str, data_host: &Path) -> DockerSpec {
     DockerSpec {
         container: name.to_string(),
-        image: "pointer-sandbox-headless:latest".to_string(),
-        mounts: vec![Mount::new(workspace, "/workspace", false)],
-        workdir: "/workspace".into(),
+        image: headless_image(),
+        mounts: vec![Mount::new(data_host, "/data", false)],
+        workdir: "/data".into(),
         tier: pointer_core::env::provider::Tier::Headless,
         cpus: None,
         memory_mb: None,
@@ -35,12 +58,12 @@ fn spec(name: &str, workspace: &Path) -> DockerSpec {
     }
 }
 
-fn container_spec(name: &str, workspace: &Path) -> DockerSpec {
+fn container_spec(name: &str, data_host: &Path) -> DockerSpec {
     DockerSpec {
         container: name.to_string(),
         image: "pointer-sandbox-desktop:latest".to_string(),
-        mounts: vec![Mount::new(workspace, "/workspace", false)],
-        workdir: "/workspace".into(),
+        mounts: vec![Mount::new(data_host, "/data", false)],
+        workdir: "/data".into(),
         tier: pointer_core::env::provider::Tier::Desktop,
         cpus: Some(2.0),
         memory_mb: Some(2048),
@@ -77,10 +100,111 @@ fn docker_env_runs_commands_inside_container() {
         .expect("exec");
     let text = String::from_utf8_lossy(&out.stdout);
     assert_eq!(out.status, 0, "stderr={}", String::from_utf8_lossy(&out.stderr));
-    assert!(text.contains("/workspace"), "cwd 应在 /workspace：{text}");
+    assert!(text.contains("/data"), "cwd 应在 /data：{text}");
     assert!(text.contains("Linux"), "应在容器内运行：{text}");
     assert!(text.contains("from-host"), "应看到宿主文件（bind 挂载）：{text}");
 }
+
+#[test]
+#[ignore = "需要本机 docker"]
+fn docker_env_file_io_goes_through_envd() {
+    use std::path::PathBuf;
+
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let env = DockerEnv::create(spec("pointer-it-docker-envd-fs", dir.path())).expect("create");
+    let _guard = Guard(env);
+    let env = &_guard.0;
+
+    let guest = PathBuf::from("/data/envd-roundtrip.txt");
+    env.write_file(&guest, b"hello-via-envd\n")
+        .expect("write_file via envd");
+    let got = env.read_file(&guest).expect("read_file via envd");
+    assert_eq!(got, b"hello-via-envd\n");
+
+    let host = std::fs::read_to_string(dir.path().join("envd-roundtrip.txt")).expect("host sees write");
+    assert!(host.contains("hello-via-envd"), "{host}");
+
+    // open_reader 走 Range
+    let mut reader = env.open_reader(&guest).expect("open_reader");
+    let mut buf = Vec::new();
+    reader.read_to_end(&mut buf).expect("read_to_end");
+    assert_eq!(buf, b"hello-via-envd\n");
+}
+
+#[test]
+#[ignore = "需要本机 docker"]
+fn docker_env_pdf_bytes_via_envd() {
+    use std::path::PathBuf;
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let pdf_host = PathBuf::from("/tmp/pointer-chat-verify/sample-envd.pdf");
+    let bytes = std::fs::read(&pdf_host).expect("sample pdf");
+    let env = DockerEnv::create(spec("pointer-it-docker-envd-pdf", dir.path())).expect("create");
+    let _guard = Guard(env);
+    let env = &_guard.0;
+    let guest = PathBuf::from("/data/sample-envd.pdf");
+    env.write_file(&guest, &bytes).expect("write pdf via envd");
+    let got = env.read_file(&guest).expect("read pdf via envd");
+    assert_eq!(got.len(), bytes.len());
+    let pages = pointer_core::media::pdf::pdf_page_count(&got, "sample-envd.pdf").expect("pdfium");
+    assert!(pages >= 1, "pages={pages}");
+    eprintln!("pdf via envd ok pages={pages} bytes={}", got.len());
+}
+
+#[test]
+#[ignore = "需要本机 docker"]
+fn docker_env_media_understand_pdf_path() {
+    use pointer_core::env::{EnvironmentGuard, SessionEnv};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("data");
+    let att_dir = data.join("attachments").join("probe-conv");
+    std::fs::create_dir_all(&att_dir).unwrap();
+    let pdf_bytes = std::fs::read("/tmp/pointer-chat-verify/sample-envd.pdf").expect("sample pdf");
+    let host_file = att_dir.join("abcd1234efef_sample-envd.pdf");
+    std::fs::write(&host_file, &pdf_bytes).unwrap();
+
+    let docker = Arc::new(DockerEnv::create(spec("pointer-it-mu-pdf", &data)).expect("create"));
+    let env: Arc<dyn pointer_core::env::Environment> = docker.clone();
+    let guest = PathBuf::from("/data/attachments/probe-conv/abcd1234efef_sample-envd.pdf");
+    assert!(env.metadata(&guest).expect("meta").is_file);
+    let got = env.read_file(&guest).expect("read via envd");
+    assert_eq!(got.len(), pdf_bytes.len());
+
+    {
+        let session = SessionEnv::wrap("it-user", "probe-conv", env.clone()).expect("session");
+        let _guard = EnvironmentGuard::enter(session);
+
+        let uri = "pointer-media://data:attachments/probe-conv/abcd1234efef_sample-envd.pdf";
+        let resolved = pointer_core::media::resolve_media_ref(uri).expect("resolve data uri");
+        eprintln!("resolve_media_ref => {}", resolved.display());
+        assert_eq!(resolved, guest, "docker session must resolve to guest path");
+        let again = env.read_file(&resolved).expect("read resolved guest");
+        assert_eq!(again.len(), pdf_bytes.len());
+
+        let bytes = pointer_core::media::read_media_ref_bytes(uri).expect("read via env");
+        assert_eq!(bytes.len(), pdf_bytes.len());
+    }
+
+    drop(env);
+    if let Ok(docker) = Arc::try_unwrap(docker) {
+        let _ = docker.destroy();
+    }
+}
+
 
 #[test]
 #[ignore = "需要本机 docker"]
@@ -205,9 +329,9 @@ fn disk_limit_degrades_gracefully_when_unsupported() {
     // 期望：告警一次、退回不限磁盘、容器照常可用。
     let spec = DockerSpec {
         container: "pointer-it-disk-limit".to_string(),
-        image: "pointer-sandbox-headless:latest".to_string(),
-        mounts: vec![Mount::new(dir.path(), "/workspace", false)],
-        workdir: "/workspace".into(),
+        image: headless_image(),
+        mounts: vec![Mount::new(dir.path(), "/data", false)],
+        workdir: "/data".into(),
         tier: pointer_core::env::provider::Tier::Headless,
         cpus: Some(1.0),
         memory_mb: Some(1024),
@@ -324,12 +448,13 @@ fn docker_env_git_status_and_diff_work() {
     let guard = EnvironmentGuard::enter(
         pointer_core::env::SessionEnv::wrap("it-user", "it-conv", dyn_env.clone()).expect("session"),
     );
-    let changes = pointer_core::workspace_read::git_status(dyn_env.as_ref(), repo)
+    let guest_root = std::path::Path::new("/data");
+    let changes = pointer_core::workspace_read::git_status(dyn_env.as_ref(), guest_root)
         .expect("git_status");
     assert_eq!(changes.len(), 1, "应有 1 个变更: {changes:?}");
     assert_eq!(changes[0].path, "a.txt");
 
-    let diff = pointer_core::workspace_read::git_diff(dyn_env.as_ref(), repo, "a.txt", None)
+    let diff = pointer_core::workspace_read::git_diff(dyn_env.as_ref(), guest_root, "a.txt", None)
         .expect("git_diff");
     let rendered = serde_json::to_string(&diff.diff_lines).unwrap_or_default();
     assert!(
@@ -359,7 +484,7 @@ fn stale_spec_container_is_recreated() {
         .args([
             "run", "-d", "--name", "pointer-it-stale",
             "--label", "pointer.spec=stale-from-old-build",
-            "pointer-sandbox-headless:latest", "sleep", "infinity",
+            &headless_image(), "sleep", "infinity",
         ])
         .output()
         .expect("run");

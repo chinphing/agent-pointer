@@ -348,17 +348,27 @@ pub(super) async fn run_chat_inner(
     // - `dispatch/terminal.rs` 的两处 `spawn_blocking` 闭包
     // 请求域名由 `access_host_scope`（task-local）一路带到终端分发点。
 
-    if effective_workspace.trim() != ui_workspace_before.trim() {
+    let shown_workspace = if tool_workspace != effective_workspace {
+        log::info!(
+            "session workspace: selected={} tools={}",
+            effective_workspace,
+            tool_workspace
+        );
+        tool_workspace.clone()
+    } else {
+        effective_workspace.clone()
+    };
+    if shown_workspace.trim() != ui_workspace_before.trim() {
         let is_ephemeral = ui_workspace_before.trim().is_empty()
             && crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(
-                effective_workspace.trim(),
+                shown_workspace.trim(),
             ))
             .unwrap_or(false);
         emit(
             &stream,
             StreamEvent::WorkspaceUpdated {
                 conversation_id: conversation_id.to_string(),
-                workspace_root: effective_workspace.clone(),
+                workspace_root: shown_workspace.clone(),
                 is_ephemeral_sandbox: is_ephemeral,
             },
         );
@@ -368,7 +378,7 @@ pub(super) async fn run_chat_inner(
     // （tokio 可能在 await 之间把 future 挪到别的线程）。
     crate::storage::apply_user_runtime_overlay_to_model_settings(&mut settings, &session_user_id);
     if !effective_workspace.trim().is_empty() {
-        settings.workspace_root = effective_workspace.trim().to_string();
+        settings.workspace_root = shown_workspace.trim().to_string();
     }
     let tool_approval_mode = settings.tool_approval_mode.clone();
     let lead_worker_id: Option<String> = request_lead_agent_id
@@ -560,7 +570,10 @@ pub(super) async fn run_chat_inner(
         reasoning_in_messages,
         trigger_source: req.trigger_source,
     };
-    super::single_agent::run_single_agent_loop(&mut lead_ctx).await?;
+    {
+        let fut = Box::pin(super::single_agent::run_single_agent_loop(&mut lead_ctx));
+        fut.await?;
+    }
 
     let new_tool_total = tool_rounds_used_single_start.saturating_add(*ctx.consumed_single);
     let skill_due = crate::memory::skill_review_due_for(

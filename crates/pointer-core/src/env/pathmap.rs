@@ -56,8 +56,14 @@ pub struct Mount {
 
 impl Mount {
     pub fn new(host: impl Into<PathBuf>, guest: impl Into<PathBuf>, read_only: bool) -> Self {
+        let host = host.into();
+        // macOS: `/tmp` → `/private/tmp`. 挂载表与后续 canonicalize 必须同一口径，
+        // 否则 to_agent 对已存在文件一律 PATH_NOT_MAPPED（设计文档：挂载前统一 realpath）。
+        let host = host
+            .canonicalize()
+            .unwrap_or_else(|_| normalize_lexical(&host));
         Self {
-            host: normalize_lexical(&host.into()),
+            host,
             guest: normalize_lexical(&guest.into()),
             read_only,
         }
@@ -134,6 +140,18 @@ impl PathMap {
             .map(|(mount, _)| mount.read_only)
             .unwrap_or(false)
     }
+
+    /// 环境内路径是否落在某个 guest 挂载前缀下（只做词法归一，不碰宿主 realpath）。
+    ///
+    /// Docker / Remote 文件 IO 在环境内执行时用它做边界检查，避免把路径翻到宿主
+    /// 再 `canonicalize`（macOS 上 `/tmp` → `/private/tmp` 会让挂载表对不上）。
+    pub fn contains_guest(&self, env_path: &Path) -> bool {
+        if self.host_passthrough {
+            return true;
+        }
+        let candidate = normalize_lexical(env_path);
+        longest_prefix(&self.mounts, &candidate, |m| &m.guest).is_some()
+    }
 }
 
 fn longest_prefix<'a>(
@@ -146,7 +164,9 @@ fn longest_prefix<'a>(
         let prefix = prefix_of(mount);
         if let Ok(rest) = candidate.strip_prefix(prefix) {
             let better = match &best {
-                Some((current, _)) => prefix.components().count() > prefix_of(current).components().count(),
+                Some((current, _)) => {
+                    prefix.components().count() > prefix_of(current).components().count()
+                }
                 None => true,
             };
             if better {
@@ -221,10 +241,30 @@ mod tests {
     #[test]
     fn rejects_unmapped_paths_with_marker() {
         let map = PathMap::new(vec![Mount::new("/data/skills-ro", "/skills", true)]);
-        let err = map.to_host(Path::new("/etc/passwd")).unwrap_err().to_string();
+        let err = map
+            .to_host(Path::new("/etc/passwd"))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("PATH_NOT_MAPPED"), "{err}");
-        let err = map.to_agent(Path::new("/etc/passwd")).unwrap_err().to_string();
+        let err = map
+            .to_agent(Path::new("/etc/passwd"))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("PATH_NOT_MAPPED"), "{err}");
+    }
+
+    #[test]
+    fn contains_guest_is_lexical_only() {
+        let map = PathMap::new(vec![
+            Mount::new("/tmp/host-data", "/data", false),
+            Mount::new("/tmp/skills", "/skills", true),
+        ]);
+        assert!(map.contains_guest(Path::new("/data/workspaces/a")));
+        assert!(map.contains_guest(Path::new("/skills/x/SKILL.md")));
+        assert!(map.contains_guest(Path::new("/data/../data/workspaces/a")));
+        assert!(!map.contains_guest(Path::new("/etc/passwd")));
+        assert!(!map.contains_guest(Path::new("/data/../../etc/passwd")));
+        assert!(PathMap::identity().contains_guest(Path::new("/anything")));
     }
 
     #[test]

@@ -82,13 +82,12 @@ pub(super) fn locate_providers(
     // 定位校验：模型 / 服务商 / 思考强度都可独立配置，留空跟随定位。
     let mut verify_settings = locate_settings;
     apply_locate_verify_overrides(&mut verify_settings, &cfg.pipeline_llm);
-    let verify_key = if verify_settings.active_provider_id.trim()
-        == locate.settings.active_provider_id.trim()
-    {
-        locate_key
-    } else {
-        crate::provider::api_key_for_settings(&verify_settings)?
-    };
+    let verify_key =
+        if verify_settings.active_provider_id.trim() == locate.settings.active_provider_id.trim() {
+            locate_key
+        } else {
+            crate::provider::api_key_for_settings(&verify_settings)?
+        };
     Ok(LocateProviders {
         locate,
         verify: OpenAIProvider::new(verify_settings, verify_key),
@@ -204,7 +203,10 @@ pub(super) fn success_payload(
             // Scroll-at-current-pointer grounds nothing; there is no point or box
             // to report and inventing an empty one would read as "located at []".
         } else if points.len() == 1 {
-            obj.insert("point".into(), serde_json::json!([points[0].0, points[0].1]));
+            obj.insert(
+                "point".into(),
+                serde_json::json!([points[0].0, points[0].1]),
+            );
             obj.insert("box".into(), boxes.first().cloned().unwrap_or(Value::Null));
         } else {
             obj.insert("points".into(), serde_json::json!(points));
@@ -371,7 +373,8 @@ mod tests {
     // E4 held a red 9, but the red 9 was in E5. It retried the same wrong cell
     // until the round budget ran out, because the old message
     // 「没找到「…」：…」 read as "it exists, click again".
-    const E4_E5_SUMMARY: &str = "中心：红点完整落在空白单元格内部 / 大小：大小合适 / 位置：从图一看到：\
+    const E4_E5_SUMMARY: &str =
+        "中心：红点完整落在空白单元格内部 / 大小：大小合适 / 位置：从图一看到：\
 框住空白格，四边各贴网格线，左邻空白、右邻红色数字9\n\
 从图二看到：列标4/5/6可见，行标E可见；框在E行第4列（E4）；右侧紧邻E5为红色9\n\
 预期的目标是：数独盘面E行第四列显示红色数字9的单元格\n\
@@ -414,7 +417,10 @@ mod tests {
             "Attempted drag.",
         ))
         .unwrap();
-        assert_eq!(v["points"], serde_json::json!([[10.0, 20.0], [300.0, 400.0]]));
+        assert_eq!(
+            v["points"],
+            serde_json::json!([[10.0, 20.0], [300.0, 400.0]])
+        );
         assert_eq!(
             v["boxes"],
             serde_json::json!([[5, 15, 15, 25], [295, 395, 305, 405]])
@@ -427,9 +433,13 @@ mod tests {
     fn success_payload_omits_geometry_when_nothing_was_grounded() {
         // Scroll-at-current-pointer grounds nothing; an empty `point: []` would
         // read as "located at nowhere".
-        let v: serde_json::Value =
-            serde_json::from_str(&success_payload("mouse_scroll_current", &[], &[], "Scrolled."))
-                .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&success_payload(
+            "mouse_scroll_current",
+            &[],
+            &[],
+            "Scrolled.",
+        ))
+        .unwrap();
         assert_eq!(v["success"], serde_json::json!(true));
         assert!(v.get("point").is_none(), "{v}");
         assert!(v.get("box").is_none(), "{v}");
@@ -438,8 +448,11 @@ mod tests {
     #[test]
     fn payload_marks_the_call_unsuccessful_and_carries_every_field() {
         let v: serde_json::Value = serde_json::from_str(
-            &failure_for("not_verified", "描述说框内有红色 9，但框里是空白，红色 9 在右侧相邻格")
-                .to_payload(),
+            &failure_for(
+                "not_verified",
+                "描述说框内有红色 9，但框里是空白，红色 9 在右侧相邻格",
+            )
+            .to_payload(),
         )
         .unwrap();
         // Same discriminator `terminal` uses, so the verify stage can branch on
@@ -459,8 +472,7 @@ mod tests {
         // `summary` averages 304 characters of centre/size/position readings. The
         // model cannot act on any of it, and carrying it buried the one sentence
         // that says what to change.
-        let payload =
-            failure_for("not_verified", "描述说框内有红色 9，但框里是空白").to_payload();
+        let payload = failure_for("not_verified", "描述说框内有红色 9，但框里是空白").to_payload();
         assert!(!payload.contains("中心："), "{payload}");
         assert!(!payload.contains("从图一看到"), "{payload}");
     }
@@ -473,7 +485,9 @@ mod tests {
             serde_json::from_str(&failure_for("not_verified", "").to_payload()).unwrap();
         assert_eq!(
             v["failure_reason"],
-            serde_json::json!("no，描述要求目标单元格内有红色数字9，但图里E4是空白格，红色9在右侧E5")
+            serde_json::json!(
+                "no，描述要求目标单元格内有红色数字9，但图里E4是空白格，红色9在右侧E5"
+            )
         );
     }
 
@@ -486,7 +500,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(v["status"], serde_json::json!("unclear"));
-        assert_eq!(v["failure_reason"], serde_json::json!("目标看不清，按钮边缘被选中框盖住"));
+        assert_eq!(
+            v["failure_reason"],
+            serde_json::json!("目标看不清，按钮边缘被选中框盖住")
+        );
     }
 
     #[test]

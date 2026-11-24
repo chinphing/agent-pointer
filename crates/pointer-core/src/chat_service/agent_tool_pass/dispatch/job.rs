@@ -22,8 +22,9 @@ pub(super) async fn dispatch_job(
     let parsed = parse_job_args(&args_value).map_err(|e| anyhow::anyhow!(e))?;
     // 并行上限按会话用户：`job` 可能跑在后台/阻塞线程，thread-local 上没有身份，
     // 所以从会话行取 uid 显式传入。
-    let slot_cap = ParallelLimits::from_settings(&state.effective_settings_for_session(conversation_id))
-        .max_parallel_sub_agents;
+    let slot_cap =
+        ParallelLimits::from_settings(&state.effective_settings_for_session(conversation_id))
+            .max_parallel_sub_agents;
     let slot_cap = crate::chat_service::job_supervisor::JobSupervisor::slot_cap_from(slot_cap);
     let running_count = state.jobs.running_count_for_conversation(conversation_id);
     let idle_slots = state.jobs.idle_slots(conversation_id, slot_cap);
@@ -97,9 +98,7 @@ pub(super) async fn dispatch_job(
             let result = match awaited {
                 Ok(result) => result,
                 Err(err) => {
-                    log::warn!(
-                        "job tool: await rejected conversation_id={conversation_id}: {err}"
-                    );
+                    log::warn!("job tool: await rejected conversation_id={conversation_id}: {err}");
                     return Ok((format!("ERROR: {err}"), false, Some(err)));
                 }
             };

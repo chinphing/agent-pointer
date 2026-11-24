@@ -33,13 +33,12 @@ fn admin_on_desktop_deployment_binds_a_replayable_host_env() {
             .expect("bind admin session");
 
     assert!(guard.is_some(), "local 档位也必须绑定环境");
-    assert!(
-        workspace.contains("workspaces"),
-        "宿主项目路径不在用户目录内时，工作区落到该用户 data/workspaces：{workspace}"
-    );
-    assert!(
-        !workspace.starts_with(&dir.path().display().to_string()),
-        "不应把任意宿主目录当成用户工作区：{workspace}"
+    let selected = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
+    let bound = std::path::PathBuf::from(&workspace);
+    let bound = bound.canonicalize().unwrap_or(bound);
+    assert_eq!(
+        bound, selected,
+        "用户选中的目录就是这次会话的工作区：{workspace}"
     );
     assert_eq!(effective_env().kind(), EnvKind::Local);
     assert!(!effective_env().is_denied(), "local 档位不是「环境未绑定」");

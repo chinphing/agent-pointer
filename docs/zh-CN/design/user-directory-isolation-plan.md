@@ -115,7 +115,7 @@
 - `console_session.rs`、`workspace_read.rs`：去掉 `host_env` 回退，使用会话用户的环境。
 - `agents/coder/read_lints/detect.rs`：`probe_env` 使用当前会话环境。没有环境就报错。
 - `plugins/hooks.rs`、`plugins/mcp.rs`：进程只在该用户环境里启动。不复用进程启动时用宿主拉起的客户端。环境不存在就失败。
-- `workspace_service.rs`：列目录和建目录只通过传入的用户环境，范围是该环境的两个根。客户端传入的宿主项目路径返回明确错误。
+- `workspace_service.rs`：列目录和建目录只通过传入的用户环境，范围是该环境的两个根。本地档位里，用户明确选中的已有目录成为这次会话的工作区。容器档位传入宿主路径时返回明确错误。
 - `worktree/git.rs`：没有 `with_git_env` 时返回错误，不再默认 `host_env()`。
 - 定时任务、IM、webhook、子代理、电脑操控沿用会话属主重新绑定。环境守卫是线程局部的，`.await` 之后的入口调用 `bind_cached_or_resolve`，不沿用可能串用户的线程缓存。
 
@@ -171,7 +171,8 @@ P0、P1 大约一个短迭代。P2 一个短迭代。P3 是主要工作量，按
 
 `CURRENT_ENV` 改成 `Option<Arc<dyn SessionEnv>>`。`EnvironmentGuard::enter` 只接受 `SessionEnv`。对外函数改名为 `current_session`、`require_session`。`host_env`、`host_env_at`、`effective_env`、`LocalEnv::new` 从公共接口删掉，不能再放进这个槽。
 
-容器翻译路径之后的宿主读取改成 `env` 模块私有的 `VolumeIo`。它只提供「读这一条已经映射过的宿主路径」，不实现 `SessionEnv`。`docker.rs` 里现在的 `LocalEnv::new("/tmp")` 和 `LocalEnv::new(workspace_host)` 换成它。
+Docker 会话内文件读写走容器内 envd `/files`（guest 路径）；列目录等仍 `docker exec`，不再把路径翻到宿主再读。
+`PathMap` 仍用于建容器时的 `-v` 挂载；文件边界用 `PathMap::contains_guest`（词法匹配）。
 
 没有会话 id 的本地工作区请求不再调用 `local_env_for`。调用方必须带会话；没有会话就返回「缺少会话标识」。
 
@@ -237,7 +238,7 @@ P0、P1 已经接上用户树。下面八步关掉还敞着的宿主读取。会
 - 容器里的 `home_root()` / `data_root()` 仍是 `/home/pointer` 和 `/data`，每个用户都一样，不能用来区分用户。区分用户看存在环境上的宿主树。`DockerEnv::skills_root()` 改为 `/home/pointer/.pointer/skills`，不再返回没有挂载的 `/skills`。
 - `env_matches_session_user` 改为同时看用户和会话：空范围返回 false；登录用户只比对 `user_key`；匿名会话还要比对会话 id。用户 id 为空不再直接算匹配。
 - `thread_env_reusable` 要求线程上的环境和该会话缓存里的环境范围相同，且都不是空范围。档位相同不够。
-- 复用成功时，工作区只用 `env.workspace_root()`。调用方传入的宿主项目路径只在 `materialize_env` 里经过 `local_workspace`，落在两棵目录外就改到 `data/workspaces`。
+- 复用成功时，工作区只用 `env.workspace_root()`。本地档位里，用户明确选中的目录经 `local_workspace` 成为工作区。容器档位只接受容器内路径，宿主路径直接拒绝。没选、或仍是旧的 `session-sandboxes` 路径时，工作区是 `data/workspaces`。
 - `bind_cached` 看到线程上已有环境时，范围对不上当前会话就不当作已绑定，交给 `bind_and_resolve_workspace` 重绑。
 
 读文件只留一条：

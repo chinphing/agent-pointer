@@ -144,8 +144,8 @@ process chatter already shown in tool rows / the task board.
 Settings, skills, and terminal environment files live under the session home.
 They are not a path on another machine.
 
-- Session home is `~`. In a container that is `/home/pointer`.
-- Session data is the data root. In a container that is `/data`.
+- Session home is `~`.
+- Session data is this session's data root.
 - Skills you edit are `~/.pointer/skills/`.
 - Terminal environment variables default to `~/.pointer/.env` when the tool
   call does not pass `envFiles`.

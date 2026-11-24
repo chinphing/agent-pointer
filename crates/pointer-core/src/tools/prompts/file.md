@@ -25,7 +25,7 @@ Independent file tools. Call them directly by their flat names:
 - **`file_grep`** — search file contents with a regex.
 - **`file_list`** — list directory entries.
 
-**Relative paths** resolve under the workspace root. Do not use `..` to escape it. Reads and writes stay inside this session: the workspace, the session home, and the session data root. Paths outside that session are rejected. **`file_write`** and **`file_edit`** accept workspace-relative paths or paths under the session home and session data root, including **`~`**. These writes may require user approval. **`~`** expands to the session home (`/home/pointer` in a container).
+**Relative paths** resolve under the workspace root. Do not use `..` to escape it. Reads and writes stay inside this session: the workspace, the session home, and the session data root. Paths outside that session are rejected. **`file_write`** and **`file_edit`** accept workspace-relative paths or paths under the session home and session data root, including **`~`**. These writes may require user approval. **`~`** expands to the session home.
 
 **Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is a path inside this session. Reuse that path on later calls.
 

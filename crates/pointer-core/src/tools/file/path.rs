@@ -465,7 +465,7 @@ pub fn writable_path_roots_at(workspace_root: &Path, home: Option<&Path>) -> Res
                 }
                 scoped.push(canon);
             }
-            if (env.path_map().to_agent(&ws).is_ok() || env.path_map().to_host(&ws).is_ok())
+            if (env.path_map().contains_guest(&ws) || env.path_map().to_agent(&ws).is_ok())
                 && !scoped.iter().any(|root| ws.starts_with(root))
             {
                 scoped.insert(0, ws);
@@ -709,9 +709,7 @@ pub fn resolve_within_workspace_root(root: &Path, user_path: &str) -> Result<Pat
 
 /// Absolute path string for tool JSON responses. Prefer [`Path::canonicalize`] when it succeeds.
 pub(crate) fn path_display_abs(path: &Path) -> String {
-    path.canonicalize()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| path.display().to_string())
+    env_canonicalize(path).display().to_string()
 }
 
 const MAX_PATH_HINTS: usize = 8;
@@ -896,7 +894,7 @@ pub(crate) fn resolve_existing_read_path(
             format!("{purpose} 路径无效: {e}"),
         )
     })?;
-    if p.exists() {
+    if env_exists(&p) {
         Ok(p)
     } else {
         Err(path_error_with_hints(
@@ -989,7 +987,7 @@ fn read_allowed(resolved: &Path, workspace_root: &Path) -> bool {
                 log::warn!("file tool: user read scope refused a passthrough environment");
                 return false;
             }
-            env.path_map().to_agent(resolved).is_ok() || env.path_map().to_host(resolved).is_ok()
+            env.path_map().contains_guest(resolved) || env.path_map().to_agent(resolved).is_ok()
         }
     }
 }

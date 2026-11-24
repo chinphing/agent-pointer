@@ -69,6 +69,7 @@ pub struct AskpassBridge {
 }
 
 #[cfg(unix)]
+#[allow(dead_code)] // 用户会话不再创建宿主口令桥。
 impl AskpassBridge {
     pub fn start() -> Result<Self> {
         let dir = std::env::temp_dir().join("pointer-askpass");
@@ -129,18 +130,12 @@ pub fn try_create_ssh_askpass(
     if !input_hooks_active || !command_wants_ssh_askpass(command) {
         return None;
     }
-    match ensure_askpass_helper_script()
-        .and_then(|helper| AskpassBridge::start().map(|bridge| (bridge, helper)))
-    {
-        Ok(pair) => Some(pair),
-        Err(e) => {
-            warn!("terminal askpass: setup failed: {e:#}");
-            None
-        }
-    }
+    warn!("terminal askpass: refused in a user session");
+    None
 }
 
 #[cfg(unix)]
+#[allow(dead_code)] // 用户会话不再写宿主口令脚本。
 pub fn ensure_askpass_helper_script() -> Result<PathBuf> {
     let path = std::env::temp_dir().join(format!("pointer-ssh-askpass-{}.sh", std::process::id()));
     let env = crate::env::require_env()?;

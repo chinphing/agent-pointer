@@ -3,6 +3,8 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
+use crate::env::Environment;
+
 use super::video::MAX_VISION_FRAMES_PER_CALL;
 
 /// Max images processed per `media_understand` call (same cap as vision frame batch).
@@ -80,14 +82,22 @@ pub fn is_supported_image_file(path: &Path) -> bool {
 }
 
 /// List image files directly under `dir` (non-recursive), sorted by file name.
-pub fn list_image_files_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
-    if !dir.is_dir() {
+///
+/// The directory is listed through the bound environment, so a container path
+/// is not required to exist on the host.
+pub fn list_image_files_in_dir(env: &dyn Environment, dir: &Path) -> Result<Vec<PathBuf>> {
+    let meta = env
+        .metadata(dir)
+        .with_context(|| format!("stat image directory {}", dir.display()))?;
+    if !meta.is_dir {
         anyhow::bail!("not a directory: {}", dir.display());
     }
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+    let mut files: Vec<PathBuf> = env
+        .list_dir(dir)
         .with_context(|| format!("read image directory {}", dir.display()))?
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|p| p.is_file() && is_supported_image_file(p))
+        .into_iter()
+        .filter(|entry| !entry.is_dir && is_supported_image_file(Path::new(&entry.name)))
+        .map(|entry| entry.path)
         .collect();
     files.sort_by(|a, b| {
         a.file_name()
@@ -164,7 +174,8 @@ mod tests {
         fs::write(dir.path().join("b.png"), b"x").unwrap();
         fs::write(dir.path().join("a.jpg"), b"x").unwrap();
         fs::write(dir.path().join("skip.txt"), b"x").unwrap();
-        let files = list_image_files_in_dir(dir.path()).unwrap();
+        let env = crate::env::LocalEnv::new(dir.path());
+        let files = list_image_files_in_dir(&env, dir.path()).unwrap();
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].file_name().unwrap(), "a.jpg");
         assert_eq!(files[1].file_name().unwrap(), "b.png");

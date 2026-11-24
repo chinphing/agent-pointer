@@ -51,9 +51,9 @@ pub fn user_plugins_dir() -> Result<PathBuf> {
         anyhow::bail!("插件目录需要当前用户的执行环境");
     }
     let dir = env.home_root().join(".pointer").join(USER_PLUGINS_DIR_NAME);
-    std::fs::create_dir_all(dir.join("system"))?;
+    crate::env::create_dir_all_in_session(&dir.join("system"))?;
     let user = dir.join("user");
-    std::fs::create_dir_all(&user)?;
+    crate::env::create_dir_all_in_session(&user)?;
     Ok(user)
 }
 
@@ -61,7 +61,7 @@ pub fn user_plugins_dir() -> Result<PathBuf> {
 pub fn workspace_plugins_dir() -> Result<PathBuf> {
     let root = crate::tools::file::resolve_tool_workspace_root()?;
     let dir = root.join(WORKSPACE_PLUGINS_DIR_NAME);
-    std::fs::create_dir_all(&dir)?;
+    crate::env::create_dir_all_in_session(&dir)?;
     Ok(dir)
 }
 
@@ -79,22 +79,22 @@ pub fn discover_plugin_dirs() -> Result<Vec<(PathBuf, bool)>> {
     };
     for bucket in ["user", "system"] {
         let root = plugins.join(bucket);
-        if !root.is_dir() {
+        if !crate::env::path_is_dir_in_session(&root) {
             continue;
         }
-        for entry in std::fs::read_dir(&root)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() && path.join(PLUGIN_MANIFEST_FILE).is_file() {
+        for path in crate::env::list_child_paths_in_session(&root)? {
+            if crate::env::path_is_dir_in_session(&path)
+                && crate::env::path_is_file_in_session(&path.join(PLUGIN_MANIFEST_FILE))
+            {
                 out.push((path, true));
             }
         }
     }
     if let Ok(workspace) = workspace_plugins_dir() {
-        for entry in std::fs::read_dir(&workspace)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() && path.join(PLUGIN_MANIFEST_FILE).is_file() {
+        for path in crate::env::list_child_paths_in_session(&workspace)? {
+            if crate::env::path_is_dir_in_session(&path)
+                && crate::env::path_is_file_in_session(&path.join(PLUGIN_MANIFEST_FILE))
+            {
                 out.push((path, false));
             }
         }
@@ -115,17 +115,15 @@ fn collect_dir_fingerprint(
     dir: &Path,
     out: &mut HashMap<String, String>,
 ) -> Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
+    for path in crate::env::list_child_paths_in_session(dir)? {
+        if crate::env::path_is_dir_in_session(&path) {
             collect_dir_fingerprint(base, &path, out)?;
-        } else if path.is_file() {
+        } else if crate::env::path_is_file_in_session(&path) {
             let rel = path
                 .strip_prefix(base)
                 .map_err(|e| anyhow!("插件文件路径异常: {e}"))?;
             let rel_str = rel.to_string_lossy().replace('\\', "/");
-            let bytes = std::fs::read(&path)?;
+            let bytes = crate::env::read_bytes_in_session(&path)?;
             out.insert(rel_str, sha256_hex(&bytes));
         }
     }
@@ -143,7 +141,8 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 /// 解析 `pointer-plugin.toml` 并做结构校验；返回 `(PluginManifest, 原始文本)`。
 pub fn load_manifest(dir: &Path) -> Result<(manifest::PluginManifest, String)> {
     let path = dir.join(PLUGIN_MANIFEST_FILE);
-    let raw = std::fs::read_to_string(&path).map_err(|e| anyhow!("读取 {path:?} 失败: {e}"))?;
+    let raw =
+        crate::env::read_text_in_session(&path).map_err(|e| anyhow!("读取 {path:?} 失败: {e}"))?;
     let parsed = manifest::parse(&raw)?;
     Ok((parsed, raw))
 }

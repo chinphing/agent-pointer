@@ -208,8 +208,9 @@ pub(crate) fn execute_file_grep_payload_with(
     root: &Path,
     limits: &FileToolLimits,
 ) -> Result<String> {
-    let root = root
-        .canonicalize()
+    let env = tool_env(root)?;
+    let root = env
+        .canonicalize(root)
         .map_err(|e| anyhow!("工作区根无效: {e}"))?;
     let pattern = args
         .get("pattern")
@@ -338,12 +339,15 @@ pub(crate) fn execute_file_grep_payload_with(
 
     let scope = {
         let p = resolve_existing_read_path(&root, path_arg, "grep")?;
-        if p.is_dir() {
+        let meta = env
+            .metadata(&p)
+            .map_err(|e| path_error_with_hints(&root, path_arg, format!("grep path 无效: {e}")))?;
+        if meta.is_dir {
             GrepScope::Walk {
                 start: p,
                 max_depth,
             }
-        } else if p.is_file() {
+        } else if meta.is_file {
             info!("file:grep: single file {}", p.display());
             GrepScope::SingleFile { file: p }
         } else {
@@ -364,7 +368,6 @@ pub(crate) fn execute_file_grep_payload_with(
         GrepScope::SingleFile { file } => (path_display_abs(file), true),
     };
 
-    let env = tool_env(&root)?;
     match scope {
         GrepScope::SingleFile { file } => {
             grep_one_path_with_searcher(

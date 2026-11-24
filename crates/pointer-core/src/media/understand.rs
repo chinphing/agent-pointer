@@ -192,17 +192,17 @@ async fn understand_with_retries(
             prompt.kind
         );
         let user = prompt.user_message(note);
-        let out = provider
-            .chat_once(
-                &[user],
-                &system,
-                vec![],
-                cancel.clone(),
-                Some(max_tokens),
-                Some(prompt.call_name),
-            )
-            .await
-            .with_context(|| format!("{} chat_once", prompt.kind))?;
+        // Pin completion future so it is not embedded in this retry loop frame.
+        let out = Box::pin(provider.chat_once(
+            &[user],
+            &system,
+            vec![],
+            cancel.clone(),
+            Some(max_tokens),
+            Some(prompt.call_name),
+        ))
+        .await
+        .with_context(|| format!("{} chat_once", prompt.kind))?;
         // Every attempt spends tokens, including the ones we end up retrying.
         record_media_understand_usage(token_ctx, prompt.token_kind, &out);
         match require_understand_text(prompt.kind, &out, max_tokens) {

@@ -1,13 +1,13 @@
 //! Resolve media references (`pointer-media://`, storage rel, absolute paths).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
 
-/// Resolve a media reference to an on-disk file path.
+/// Resolve a media reference to an environment path (guest under sandbox, host under local user).
 pub fn resolve_media_ref(raw: &str) -> Result<PathBuf> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -28,30 +28,37 @@ pub fn resolve_media_ref(raw: &str) -> Result<PathBuf> {
     }
 }
 
-/// True when `raw` resolves to an existing directory.
+/// True when `raw` resolves to an existing directory in the session environment.
 pub fn media_ref_is_directory(raw: &str) -> Result<bool> {
-    Ok(resolve_media_ref(raw)?.is_dir())
+    let path = resolve_media_ref(raw)?;
+    let session = crate::env::require_session()?;
+    let env = session.environment();
+    let path = session_env_path(env.as_ref(), &path)?;
+    Ok(env.metadata(&path).map(|m| m.is_dir).unwrap_or(false))
 }
 
 /// Read raw bytes for a resolved media reference (files only).
 pub fn read_media_ref_bytes(raw: &str) -> Result<Vec<u8>> {
     let path = resolve_media_ref(raw)?;
-    if path.is_dir() {
+    let session = crate::env::require_session()?;
+    let env = session.environment();
+    let path = session_env_path(env.as_ref(), &path)?;
+    let meta = env
+        .metadata(&path)
+        .with_context(|| format!("read media metadata {}", path.display()))?;
+    if meta.is_dir {
         anyhow::bail!(
             "media ref is a directory; use media_understand mode=image with refs containing one directory path and pageStart/pageEnd"
         );
     }
-    let session = crate::env::require_session()?;
-    let host = session_host_file(session.environment().as_ref(), &path)?;
-    std::fs::read(&host).with_context(|| format!("read media file {}", host.display()))
+    env.read_file(&path)
+        .with_context(|| format!("read media file {}", path.display()))
 }
 
-/// 用户会话里只认路径表。`to_host` 成功就用返回的宿主路径；
-/// `to_agent` 成功说明入参已经是宿主路径。都不中返回 `PATH_NOT_MAPPED`。
-pub(crate) fn session_host_file(
-    env: &dyn crate::env::Environment,
-    path: &std::path::Path,
-) -> Result<std::path::PathBuf> {
+/// 会话内可读路径：优先 guest；若入参已是宿主路径且能翻回 guest，则返回 guest。
+///
+/// 不再返回宿主路径供 `std::fs` 使用——调用方应经 [`Environment`] 读写。
+pub(crate) fn session_env_path(env: &dyn crate::env::Environment, path: &Path) -> Result<PathBuf> {
     if env.is_denied() || env.path_map().is_host_passthrough() {
         log::warn!(
             "media: refuse passthrough environment for {}",
@@ -59,11 +66,20 @@ pub(crate) fn session_host_file(
         );
         anyhow::bail!("缺少当前用户的执行环境");
     }
-    if let Ok(host) = env.path_map().to_host(path) {
-        return Ok(host);
-    }
-    if env.path_map().to_agent(path).is_ok() {
+    if env.path_map().contains_guest(path) {
         return Ok(path.to_path_buf());
+    }
+    // LocalEnv::for_user 的 guest==host；入参可能是宿主绝对路径。
+    if let Ok(guest) = env.path_map().to_agent(path) {
+        return Ok(guest);
+    }
+    // 挂载表未 canonicalize、入参已 realpath（或相反）时再试一次。
+    if let Ok(canon) = path.canonicalize() {
+        if canon != path {
+            if let Ok(guest) = env.path_map().to_agent(&canon) {
+                return Ok(guest);
+            }
+        }
     }
     log::warn!(
         "media: path is outside the session home and data: {}",
@@ -75,10 +91,15 @@ pub(crate) fn session_host_file(
     )
 }
 
-/// 宿主绝对路径必须落在当前会话里。没有会话就拒绝，不再按整机路径打开。
-pub(crate) fn ensure_inside_user_env(path: &std::path::Path) -> Result<()> {
+/// 兼容旧名：校验路径在会话内，返回环境路径（非宿主旁路）。
+pub(crate) fn session_host_file(env: &dyn crate::env::Environment, path: &Path) -> Result<PathBuf> {
+    session_env_path(env, path)
+}
+
+/// 路径必须落在当前会话里。没有会话就拒绝。
+pub(crate) fn ensure_inside_user_env(path: &Path) -> Result<()> {
     let session = crate::env::require_session()?;
-    session_host_file(session.environment().as_ref(), path).map(|_| ())
+    session_env_path(session.environment().as_ref(), path).map(|_| ())
 }
 
 #[cfg(test)]

@@ -611,19 +611,103 @@ pub fn ensure_local_session(
     Ok(materialize_env(id, session_user_id, None, workspace)?.environment())
 }
 
-fn local_workspace(layout: &crate::user_data_paths::UserLayout, fallback: &Path) -> PathBuf {
-    let inside = !fallback.as_os_str().is_empty()
-        && (fallback.starts_with(&layout.home) || fallback.starts_with(&layout.data));
-    if inside {
-        return fallback.to_path_buf();
+/// 用户选中的目录怎么成为这次会话的工作区。
+enum WorkspaceChoice {
+    /// 没选，或仍是旧的 `session-sandboxes` 默认目录。
+    Default,
+    /// 容器里的路径，已经在 `/data` 或 `/home/pointer` 下。
+    Guest(PathBuf),
+    /// 宿主上用户明确选中的已有目录。
+    SelectedHost(PathBuf),
+}
+
+fn choose_workspace(requested: &Path) -> WorkspaceChoice {
+    if requested.as_os_str().is_empty() {
+        return WorkspaceChoice::Default;
     }
-    if !fallback.as_os_str().is_empty() {
-        log::info!(
-            "bind_env: host workspace {} is outside the user tree; using data/workspaces",
-            fallback.display()
+    let text = requested.to_string_lossy().replace('\\', "/");
+    if text.split('/').any(|segment| segment == "..") {
+        log::warn!(
+            "bind_env: workspace contains .. path={}",
+            requested.display()
         );
+        return WorkspaceChoice::Default;
     }
-    layout.data.join("workspaces")
+    if crate::session_sandbox::SessionSandbox::is_sandbox(requested).unwrap_or(false) {
+        return WorkspaceChoice::Default;
+    }
+    let guest = text == "/data"
+        || text.starts_with("/data/")
+        || text == "/home/pointer"
+        || text.starts_with("/home/pointer/");
+    if guest {
+        log::info!(
+            "bind_env: selected container workspace path={}",
+            requested.display()
+        );
+        return WorkspaceChoice::Guest(PathBuf::from(text));
+    }
+    if requested.is_dir() {
+        log::info!("bind_env: selected workspace path={}", requested.display());
+        return WorkspaceChoice::SelectedHost(requested.to_path_buf());
+    }
+    log::warn!(
+        "bind_env: selected workspace is not a directory path={}",
+        requested.display()
+    );
+    WorkspaceChoice::Default
+}
+
+fn remote_workspace_unchanged(env: &RemoteEnv, workdir: &Path) -> bool {
+    env.workspace_root() == workdir
+}
+
+fn local_workspace(layout: &crate::user_data_paths::UserLayout, fallback: &Path) -> PathBuf {
+    match choose_workspace(fallback) {
+        WorkspaceChoice::SelectedHost(path) => path,
+        WorkspaceChoice::Guest(path) => {
+            let text = path.to_string_lossy();
+            if let Some(rel) = text.strip_prefix("/data") {
+                let rel = rel.trim_start_matches('/');
+                if rel.is_empty() {
+                    layout.data.clone()
+                } else {
+                    layout.data.join(rel)
+                }
+            } else if let Some(rel) = text.strip_prefix("/home/pointer") {
+                let rel = rel.trim_start_matches('/');
+                if rel.is_empty() {
+                    layout.home.clone()
+                } else {
+                    layout.home.join(rel)
+                }
+            } else {
+                layout.data.join("workspaces")
+            }
+        }
+        WorkspaceChoice::Default => layout.data.join("workspaces"),
+    }
+}
+
+/// 容器工作区。只接受容器里的路径。宿主目录直接拒绝，不挂载。
+fn container_workspace(requested: Option<&Path>) -> Result<PathBuf> {
+    let default = PathBuf::from(crate::env::mounts::GUEST_WORKSPACES_ROOT);
+    let Some(requested) = requested.filter(|path| !path.as_os_str().is_empty()) else {
+        return Ok(default);
+    };
+    if crate::session_sandbox::SessionSandbox::is_sandbox(requested).unwrap_or(false) {
+        return Ok(default);
+    }
+    match choose_workspace(requested) {
+        WorkspaceChoice::Guest(path) => Ok(path),
+        WorkspaceChoice::Default | WorkspaceChoice::SelectedHost(_) => {
+            log::warn!(
+                "bind_env: container refused host workspace path={}",
+                requested.display()
+            );
+            anyhow::bail!("沙箱工作区只能选择 /data/workspaces 下的目录")
+        }
+    }
 }
 
 /// 工作区 / Git 面板这类 **UI 请求**的执行环境绑定。
@@ -980,8 +1064,9 @@ fn docker_spec_for(
         conversation_id,
         &[],
         None,
-        workspace_root,
+        None,
     )?;
+    let workdir = container_workspace(workspace_root)?;
 
     let (cpus, memory_mb, disk_mb) = sandbox_resource_limits();
     Ok(crate::env::docker::DockerSpec {
@@ -994,7 +1079,7 @@ fn docker_spec_for(
             .clone()
             .unwrap_or_else(|| crate::env::remote::DEFAULT_TEMPLATE.to_string()),
         mounts,
-        workdir: PathBuf::from(crate::env::mounts::GUEST_WORKSPACES_ROOT),
+        workdir,
         tier,
         cpus,
         memory_mb,
@@ -1082,23 +1167,29 @@ fn acquire_docker(
     );
     if let Ok(mut map) = docker_cache().lock() {
         evict_idle_docker(&mut map, Instant::now());
-        if let Some(hit) = cached_docker_alive(&mut map, &cache_id) {
-            remember_binding(conversation_id, &cache_id);
-            return Ok(hit);
-        }
     }
     let creation_lock = conversation_creation_lock(&cache_id);
     let _creating = creation_lock
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    let spec = docker_spec_for(cfg, conversation_id, session_user_id, workspace_root, tier)?;
     if let Ok(mut map) = docker_cache().lock() {
         if let Some(hit) = cached_docker_alive(&mut map, &cache_id) {
+            if hit.workspace_root() != spec.workdir {
+                let updated = Arc::new(hit.with_workdir(spec.workdir.clone()));
+                map.insert(cache_id.clone(), (updated.clone(), Instant::now()));
+                remember_binding(conversation_id, &cache_id);
+                log::info!(
+                    "sandbox workspace (docker) conversation={conversation_id} path={}",
+                    spec.workdir.display()
+                );
+                return Ok(updated);
+            }
             remember_binding(conversation_id, &cache_id);
             return Ok(hit);
         }
     }
-
-    let spec = docker_spec_for(cfg, conversation_id, session_user_id, workspace_root, tier)?;
     let env = Arc::new(crate::env::docker::DockerEnv::create(spec)?);
     log::info!(
         "sandbox created (docker) conversation={conversation_id} cache_id={cache_id} container={}",
@@ -1170,14 +1261,8 @@ fn acquire_remote(
         tier,
         &template,
     );
-    let now = Instant::now();
     if let Ok(mut map) = cache().lock() {
-        evict_idle(&mut map, now);
-        if let Some(hit) = map.get_mut(&cache_id) {
-            hit.last_used = now;
-            remember_binding(conversation_id, &cache_id);
-            return Ok(hit.env.clone());
-        }
+        evict_idle(&mut map, Instant::now());
     }
 
     // 单飞：同一缓存键只允许一个线程建沙箱。
@@ -1185,13 +1270,6 @@ fn acquire_remote(
     let _creating = creation_lock
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Ok(mut map) = cache().lock() {
-        if let Some(hit) = map.get_mut(&cache_id) {
-            hit.last_used = Instant::now();
-            remember_binding(conversation_id, &cache_id);
-            return Ok(hit.env.clone());
-        }
-    }
 
     let control_url = cfg
         .sandbox_url
@@ -1222,8 +1300,22 @@ fn acquire_remote(
         conversation_id,
         &[],
         None,
-        workspace_root,
+        None,
     )?;
+    let workspace_root_guest = container_workspace(workspace_root)?;
+    if let Ok(mut map) = cache().lock() {
+        if let Some(hit) = map.get_mut(&cache_id) {
+            if remote_workspace_unchanged(&hit.env, &workspace_root_guest) {
+                hit.last_used = Instant::now();
+                remember_binding(conversation_id, &cache_id);
+                return Ok(hit.env.clone());
+            }
+            log::info!(
+                "sandbox workspace (remote) changed conversation={conversation_id} path={}",
+                workspace_root_guest.display()
+            );
+        }
+    }
     // Cube 走 metadata host-mount，宿主目录必须先存在；
     // e2b-local 走卷注册，目录由网关创建（预建会被判成 unmanaged）。
     if volume_host_path.is_none() {
@@ -1246,6 +1338,7 @@ fn acquire_remote(
             .filter(|s| !s.is_empty())
             .unwrap_or(crate::env::remote::DEFAULT_TEMPLATE)
             .to_string(),
+        workspace_root: workspace_root_guest,
         ..Default::default()
     };
     // 先查注册表：应用重启后缓存是空的，但沙箱可能还活着。不认回就会新建一个，
@@ -1282,7 +1375,7 @@ fn acquire_remote(
             cache_id.clone(),
             Cached {
                 env: env.clone(),
-                last_used: now,
+                last_used: Instant::now(),
             },
         );
     }
@@ -1814,6 +1907,40 @@ mod tests {
     }
 
     #[test]
+    fn container_spec_refuses_host_workspace() {
+        let cfg = sandbox_deployment_cfg();
+        let _app_lock = crate::storage::test_app_data_dir_lock();
+        let app = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(app.path().to_path_buf());
+        let host = tempfile::tempdir().unwrap();
+        let refused = docker_spec_for(
+            &cfg,
+            "conv-refuse-host",
+            "alice",
+            Some(host.path()),
+            Tier::Desktop,
+        );
+        let Err(err) = refused else {
+            panic!("宿主目录不能进入容器");
+        };
+        assert!(err.to_string().contains("沙箱工作区只能选择"), "{err}");
+
+        let spec = docker_spec_for(
+            &cfg,
+            "conv-guest-ws",
+            "alice",
+            Some(Path::new("/data/workspaces/proj")),
+            Tier::Desktop,
+        )
+        .expect("容器内目录可以作为工作区");
+        assert_eq!(spec.workdir, PathBuf::from("/data/workspaces/proj"));
+        assert!(
+            spec.mounts.iter().all(|mount| mount.host != host.path()),
+            "宿主目录不应出现在挂载表里"
+        );
+    }
+
+    #[test]
     fn admin_on_sandbox_deployment_binds_local_env() {
         // 部署是 desktop（非 local 档位），admin 命中名单 → 解析成 local 档位。
         let cfg = sandbox_deployment_cfg();
@@ -1833,9 +1960,15 @@ mod tests {
         )
         .expect("bind");
         let guard = guard.expect("local 档位也必须绑定 LocalEnv");
-        assert!(
-            workspace.contains("workspaces"),
-            "用户会话的工作区在 data/workspaces 下: {workspace}"
+        let selected = dir
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|_| dir.path().to_path_buf());
+        let bound = PathBuf::from(&workspace);
+        let bound = bound.canonicalize().unwrap_or(bound);
+        assert_eq!(
+            bound, selected,
+            "用户选中的目录就是这次会话的工作区: {workspace}"
         );
 
         let env = current_env().expect("绑定后必须能读到环境");

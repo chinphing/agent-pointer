@@ -9,7 +9,8 @@
 //! | 每个技能根 | `/skills/<name>` | ro |
 //! | 用户插件根 | `/plugins` | ro |
 //!
-//! 客户端传入的宿主项目目录一律不是挂载源。会话只改变 `/data` 内的 active cwd。
+//! 容器里的工作区是 `/data` 或 `/home/pointer` 下用户选中的目录。
+//! 没有选中目录时，工作区是 `/data/workspaces`。宿主目录不挂进容器。
 
 use std::path::{Path, PathBuf};
 

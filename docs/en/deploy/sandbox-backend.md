@@ -132,9 +132,20 @@ silently — which looked like it worked.
 | Permission | Service user in the `docker` group, or able to access `/var/run/docker.sock` |
 | Disk | 1.5 GB image + per-container writable layer + mounted dirs |
 | Kernel | Linux host preferred; macOS via Docker Desktop / OrbStack |
+| envd binary | File IO uses in-container envd; see below |
 
 > **An image is not a runtime.** Having the image still requires Docker — the image is a
 > filesystem snapshot, running it needs a daemon.
+
+**envd (file dataplane):** Docker-backend `read_file` / `write_file` / `open_reader`
+share the same `/files` client as the `envd` backend. Provide a Linux static binary:
+
+1. `POINTER_ENVD_BINARY` (absolute path; preferred in production)
+2. Auto-discover `.dev-sandbox/envd-bin/envd-linux-{arm64,amd64}` (extracted by `scripts/dev-sandbox.sh up`)
+
+On `docker run`, the binary is bind-mounted and `127.0.0.1::<ephemeral>→49983` is published;
+envd starts with `-isnotfc`. **Do not expose 49983 publicly** (no auth in that mode).
+Exec still uses `docker exec`; the control plane stays Docker, unrelated to `backend=envd`.
 
 ### 2.2 Where the image comes from
 

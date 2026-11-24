@@ -318,13 +318,12 @@ pub fn load_external_skills_from(roots: &[PathBuf]) -> Result<Vec<SkillDef>> {
     let mut seen = HashSet::new();
 
     for root in roots {
-        if !root.exists() {
+        if !crate::env::path_exists_in_session(root) {
             continue;
         }
-        for entry in fs::read_dir(root)? {
-            let entry = entry?;
-            let path = entry.path();
-            if !path.is_dir() || is_ignored_skill_dir(path.file_name()) {
+        for path in crate::env::list_child_paths_in_session(root)? {
+            if !crate::env::path_is_dir_in_session(&path) || is_ignored_skill_dir(path.file_name())
+            {
                 continue;
             }
             if let Ok(skill) = load_skill_from_dir(&path) {
@@ -674,18 +673,24 @@ fn is_zip_file(path: &Path) -> bool {
 /// Order: user-added skills, then org copies, then the install-tree copy.
 /// Process home, `POINTER_HOME`, and `POINTER_SKILLS_DIR` are not session roots.
 pub(crate) fn skill_roots() -> Result<Vec<PathBuf>> {
-    let Some(base) = session_skills_dir() else {
+    let Some(guest) = session_skills_dir() else {
         log::info!("skill_roots: no user environment, skipping process-home skill libraries");
         return Ok(Vec::new());
     };
+    let Some(env) = crate::env::current_env() else {
+        log::warn!("skill_roots: session skills path disappeared before mapping");
+        return Err(anyhow!("技能目录缺少当前用户的执行环境"));
+    };
+    let _ = env;
+    let base = guest;
     let mut roots = Vec::new();
     for name in ["user", "org", "system"] {
         let dir = base.join(name);
-        if dir.is_dir() {
+        if crate::env::path_is_dir_in_session(&dir) {
             roots.push(dir);
         }
     }
-    if roots.is_empty() && base.is_dir() {
+    if roots.is_empty() && crate::env::path_is_dir_in_session(&base) {
         roots.push(base);
     }
     Ok(roots)
@@ -706,7 +711,7 @@ pub fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
     let manifest_path =
         manifest_path_in_dir(dir).ok_or_else(|| anyhow!("未找到 SKILL.md 或 skill.md"))?;
 
-    let raw = fs::read_to_string(&manifest_path)?;
+    let raw = crate::env::read_text_in_session(&manifest_path)?;
     let manifest = parse_skill_md(&raw)?;
     manifest_to_skill(manifest, dir)
 }
@@ -743,7 +748,7 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
 pub fn read_skill_instructions_from_dir(dir: &Path) -> Result<(String, String)> {
     let manifest_path =
         manifest_path_in_dir(dir).ok_or_else(|| anyhow!("未找到 SKILL.md 或 skill.md"))?;
-    let raw = fs::read_to_string(&manifest_path)
+    let raw = crate::env::read_text_in_session(&manifest_path)
         .with_context(|| format!("无法读取 {}", manifest_path.display()))?;
     let manifest = parse_skill_md(&raw)?;
     validate_manifest(&manifest)?;
@@ -919,19 +924,20 @@ pub fn is_skill_package_dir(dir: &Path) -> bool {
 pub fn manifest_path_in_dir(dir: &Path) -> Option<PathBuf> {
     for name in ["SKILL.md", "skill.md"] {
         let path = dir.join(name);
-        if path.is_file() {
+        if crate::env::path_is_file_in_session(&path) {
             return Some(path);
         }
     }
-    fs::read_dir(dir).ok().and_then(|entries| {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && is_manifest_file(&path) {
-                return Some(path);
+    crate::env::list_child_paths_in_session(dir)
+        .ok()
+        .and_then(|entries| {
+            for path in entries {
+                if crate::env::path_is_file_in_session(&path) && is_manifest_file(&path) {
+                    return Some(path);
+                }
             }
-        }
-        None
-    })
+            None
+        })
 }
 
 fn is_manifest_file(path: &Path) -> bool {

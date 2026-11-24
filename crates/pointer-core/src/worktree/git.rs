@@ -38,9 +38,16 @@ pub(crate) fn with_git_env<T>(env: Arc<dyn Environment>, body: impl FnOnce() -> 
 }
 
 fn active_git_env() -> Arc<dyn Environment> {
-    GIT_ENV
-        .with(|slot| slot.borrow().clone())
-        .unwrap_or_else(host_env)
+    if let Some(env) = GIT_ENV.with(|slot| slot.borrow().clone()) {
+        return env;
+    }
+    // 沙箱会话已绑定但漏了 with_git_env 时，仍用会话环境，禁止静默回落宿主。
+    if let Some(env) = crate::env::current_env() {
+        if !env.is_denied() && !env.path_map().is_host_passthrough() {
+            return env;
+        }
+    }
+    host_env()
 }
 
 pub(crate) fn git_on_host() -> bool {
@@ -50,8 +57,7 @@ pub(crate) fn git_on_host() -> bool {
 pub(crate) fn canonicalize_path(path: &Path) -> Result<PathBuf> {
     let env = active_git_env();
     if env.path_map().is_host_passthrough() {
-        std::fs::canonicalize(path)
-            .with_context(|| format!("cannot resolve {}", path.display()))
+        std::fs::canonicalize(path).with_context(|| format!("cannot resolve {}", path.display()))
     } else {
         env.canonicalize(path).with_context(|| {
             format!(
@@ -66,7 +72,10 @@ pub(crate) fn canonicalize_path_or_original(path: &Path) -> PathBuf {
     match canonicalize_path(path) {
         Ok(path) => path,
         Err(error) => {
-            log::warn!("worktree: canonicalize failed for {}: {error:#}", path.display());
+            log::warn!(
+                "worktree: canonicalize failed for {}: {error:#}",
+                path.display()
+            );
             path.to_path_buf()
         }
     }
@@ -115,8 +124,9 @@ pub(crate) fn create_dir_exclusive(path: &Path) -> Result<bool> {
         match std::fs::create_dir(path) {
             Ok(()) => Ok(true),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-            Err(error) => Err(error)
-                .with_context(|| format!("cannot create directory {}", path.display())),
+            Err(error) => {
+                Err(error).with_context(|| format!("cannot create directory {}", path.display()))
+            }
         }
     } else {
         let env = active_git_env();
@@ -180,8 +190,7 @@ pub(crate) fn write_bytes(path: &Path, data: &[u8]) -> Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(path, data)
-            .with_context(|| format!("cannot write {}", path.display()))
+        std::fs::write(path, data).with_context(|| format!("cannot write {}", path.display()))
     } else {
         if let Some(parent) = path.parent() {
             env.create_dir_all(parent)?;
@@ -268,10 +277,7 @@ where
     S: AsRef<OsStr>,
 {
     let output = git_output(cwd, GitOperation::Metadata, args)?;
-    let bytes = output
-        .stdout
-        .strip_suffix(b"\n")
-        .unwrap_or(&output.stdout);
+    let bytes = output.stdout.strip_suffix(b"\n").unwrap_or(&output.stdout);
     #[cfg(windows)]
     let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
     path_from_bytes(bytes)
@@ -341,8 +347,7 @@ pub(crate) fn resolve_git_path(cwd: &Path, argument: &str) -> Result<PathBuf> {
             }
         }
     };
-    canonicalize_path(&raw)
-        .with_context(|| format!("cannot resolve git path {}", raw.display()))
+    canonicalize_path(&raw).with_context(|| format!("cannot resolve git path {}", raw.display()))
 }
 
 /// git 加固参数：禁止仓库配置执行用户代码（hooks / fsmonitor / attributes / filters）。

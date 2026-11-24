@@ -59,7 +59,24 @@ pub fn init_stderr_only_logging(default_filter: &str) {
             .try_init();
 }
 
-/// 若未设置环境变量，则启用 **全量** panic 栈（`RUST_BACKTRACE=full`）与库错误栈（`RUST_LIB_BACKTRACE=1`）。
+/// Tokio / std worker stack for hosts that run multimodal LLM calls.
+///
+/// Nested debug `poll` into multimodal paths can still burn stack on sync
+/// frames inside a future. Prefer `Box::pin` at async boundaries; this larger
+/// worker stack is a safety net when the default ~2MiB is not enough.
+pub const ASYNC_WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
+
+/// Resolve worker stack size: `POINTER_WORKER_STACK_BYTES` override, else default.
+pub fn async_worker_stack_bytes() -> usize {
+    std::env::var("POINTER_WORKER_STACK_BYTES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|n| *n >= 64 * 1024)
+        .unwrap_or(ASYNC_WORKER_STACK_BYTES)
+}
+
+/// 若未设置环境变量，则启用 **全量** panic 栈（`RUST_BACKTRACE=full`）与库错误栈（`RUST_LIB_BACKTRACE=1`），
+/// 并将 `RUST_MIN_STACK` 抬到 [`ASYNC_WORKER_STACK_BYTES`]（在任意 runtime 线程创建之前调用）。
 pub fn init_backtrace_defaults() {
     BACKTRACE_ENV.call_once(|| {
         if std::env::var_os("RUST_BACKTRACE").is_none() {
@@ -67,6 +84,12 @@ pub fn init_backtrace_defaults() {
         }
         if std::env::var_os("RUST_LIB_BACKTRACE").is_none() {
             std::env::set_var("RUST_LIB_BACKTRACE", "1");
+        }
+        if std::env::var_os("RUST_MIN_STACK").is_none() {
+            std::env::set_var(
+                "RUST_MIN_STACK",
+                ASYNC_WORKER_STACK_BYTES.to_string(),
+            );
         }
     });
 }

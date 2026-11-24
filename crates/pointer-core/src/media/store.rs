@@ -304,7 +304,7 @@ pub fn model_visible_path(conversation_id: &str, raw: &str) -> Result<String> {
     if !path.is_absolute() {
         return Ok(raw.to_string());
     }
-    if env.path_map().to_host(path).is_ok() {
+    if env.path_map().contains_guest(path) {
         return Ok(raw.to_string());
     }
     match env.path_map().to_agent(path) {
@@ -710,9 +710,10 @@ pub fn read_chat_media_preview_in_env(
             let mime_type = mime_from_path(&path);
             return finish_media_preview(bytes, &file_name, &mime_type, None, env);
         }
-        log::info!(
-            "chat media preview: sandbox environment has no /data layout for {storage_rel_path}; reading host file"
+        log::warn!(
+            "chat media preview: sandbox refuses host fallback for non-v2 path rel={storage_rel_path}"
         );
+        anyhow::bail!("沙箱媒体只支持用户 data 卷路径，拒绝回落宿主");
     }
     let path = media_abs_path(storage_rel_path)?;
     read_file_preview(&path)
@@ -747,9 +748,10 @@ pub fn chat_media_body_in_env(
                     return Ok((body, mime_type, file_name));
                 }
                 Err(error) => {
-                    log::info!(
-                        "chat media body: sandbox environment, path is not v2 /data layout ({error:#}); reading host file"
+                    log::warn!(
+                        "chat media body: sandbox refuses host fallback rel={storage_rel_path}: {error:#}"
                     );
+                    anyhow::bail!("沙箱媒体只支持用户 data 卷路径，拒绝回落宿主");
                 }
             }
         }
@@ -762,8 +764,11 @@ pub fn chat_media_body_in_env(
     ))
 }
 
+/// Docker / Remote：guest data 根是 `/data`。LocalEnv::for_user 的 data 是宿主路径，不算沙箱。
 fn is_sandbox_data_env(env: &dyn crate::env::Environment) -> bool {
-    !env.is_denied() && !env.path_map().is_host_passthrough()
+    !env.is_denied()
+        && !env.path_map().is_host_passthrough()
+        && env.data_root() == Path::new(crate::env::mounts::GUEST_DATA)
 }
 
 /// v2 `storage_rel_path` → guest `/data/{kind}/{conversation}/{file}`.

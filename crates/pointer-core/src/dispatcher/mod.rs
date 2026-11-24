@@ -423,15 +423,24 @@ impl RunDispatcher {
         let conv_id_task = conversation_id.clone();
         let web_session_auth = req.web_session_auth.clone();
         let access_host = req.access_host.clone();
+        // Heap-pin each scope boundary so access_host → web_session →
+        // run_runner does not nest as one giant debug `poll` chain.
         let join = tokio::spawn(async move {
-            crate::access_host_scope::run_scoped(access_host, || async move {
-                crate::web_request_auth::run_with_optional_web_session(
-                    web_session_auth,
-                    || async move {
-                        this.run_runner(req, run_id_task, conv_id_task, cancel)
-                            .await
-                    },
-                )
+            Box::pin(async move {
+                crate::access_host_scope::run_scoped(access_host, || {
+                    Box::pin(async move {
+                        crate::web_request_auth::run_with_optional_web_session(
+                            web_session_auth,
+                            || {
+                                Box::pin(async move {
+                                    this.run_runner(req, run_id_task, conv_id_task, cancel)
+                                        .await
+                                })
+                            },
+                        )
+                        .await
+                    })
+                })
                 .await
             })
             .await;
@@ -578,7 +587,7 @@ impl RunDispatcher {
         // A panic anywhere in the agent loop must still produce a terminal status:
         // otherwise the run stays `running` forever and every waiter (UI stream, IM
         // reply, `wait()`) hangs with no error to show.
-        let run = run_chat(
+        let run = Box::pin(run_chat(
             tx,
             self.inner.state.clone(),
             conversation_id.clone(),
@@ -593,7 +602,7 @@ impl RunDispatcher {
             Some(req.trigger_source),
             im_auto_deliver,
             Some(run_id.clone()),
-        );
+        ));
         let result = match std::panic::AssertUnwindSafe(run).catch_unwind().await {
             Ok(result) => result,
             Err(payload) => {

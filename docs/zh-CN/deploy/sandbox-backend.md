@@ -124,8 +124,18 @@ desktop = "docker"
 | 权限 | 服务进程用户在 `docker` 组，或能访问 `/var/run/docker.sock` |
 | 磁盘 | 镜像 1.5 GB + 每容器可写层 + 挂载目录 |
 | 内核 | Linux 宿主最佳；macOS 用 Docker Desktop / OrbStack |
+| envd 二进制 | 文件读写走容器内 envd；见下方 |
 
 > **镜像 ≠ 运行时**。有镜像还必须装 Docker——镜像是文件系统快照，跑起来要守护进程。
+
+**envd（文件数据面）**：Docker 后端的 `read_file` / `write_file` / `open_reader`
+与 `envd` 后端共用同一套 `/files` 客户端。宿主需提供 Linux 静态二进制，按优先级：
+
+1. 环境变量 `POINTER_ENVD_BINARY`（绝对路径，推荐生产）
+2. 自动查找 `.dev-sandbox/envd-bin/envd-linux-{arm64,amd64}`（`scripts/dev-sandbox.sh up` 会从 e2b-local 镜像抽出）
+
+`docker run` 时 bind 进容器并映射 `127.0.0.1::<随机>→49983`，以 `-isnotfc` 启动。
+**不要把 49983 暴露到公网**（该模式无鉴权）。命令执行仍走 `docker exec`，控制面与 `backend=envd`（Cube / e2b-local）无关。
 
 ### 2.2 镜像从哪来
 

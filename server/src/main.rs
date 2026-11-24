@@ -367,7 +367,7 @@ pub(crate) struct ServerState {
 /// and exit non-zero — no `Error: …` + backtrace dump.
 fn main() -> std::process::ExitCode {
     pointer_core::logging::init_backtrace_defaults();
-    match run() {
+    match run_with_runtime() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(err) => {
             let text = format!("{err:#}");
@@ -376,6 +376,19 @@ fn main() -> std::process::ExitCode {
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+/// Explicit multi-thread runtime so worker stacks match multimodal LLM needs
+/// (see [`pointer_core::logging::ASYNC_WORKER_STACK_BYTES`]).
+fn run_with_runtime() -> anyhow::Result<()> {
+    let stack = pointer_core::logging::async_worker_stack_bytes();
+    eprintln!("pointer-server: tokio worker stack_size={stack}");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(stack)
+        .build()
+        .map_err(|e| anyhow::anyhow!("tokio runtime build failed: {e}"))?;
+    rt.block_on(run())
 }
 
 /// One-line Chinese headline for the expected startup failures operators hit.
@@ -395,7 +408,6 @@ fn startup_error_headline(text: &str) -> &'static str {
     }
 }
 
-#[tokio::main]
 async fn run() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
@@ -3023,11 +3035,26 @@ async fn update_project(
 ) -> Result<Json<pointer_core::models::Project>, ApiError> {
     require_platform_access(&state)?;
     let uid = platform_session_user_id(&state);
+    let workspace_root = match input.workspace_root {
+        Some(path) => {
+            let cid = format!("browse-{uid}");
+            let env = pointer_core::workspace_service::browse_env_for_user(&cid, &uid)
+                .map_err(ApiError::from)?;
+            let selected = pointer_core::workspace_service::select_workspace(
+                &uid,
+                &pointer_core::workspace_resolve::WorkspaceSelection { path },
+                env,
+            )
+            .map_err(ApiError::from)?;
+            Some(selected.path)
+        }
+        None => None,
+    };
     Ok(Json(storage::update_project(
         &project_id,
         &uid,
         input.name.as_deref(),
-        input.workspace_root.as_deref(),
+        workspace_root.as_deref(),
         input.is_pinned,
         input.is_archived,
     )?))

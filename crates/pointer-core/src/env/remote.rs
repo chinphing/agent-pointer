@@ -39,10 +39,6 @@ const START_EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub const DEFAULT_CONTROL_URL: &str = "http://127.0.0.1:3000";
 pub const DEFAULT_TEMPLATE: &str = "debian:bookworm-slim";
-/// envd 的 files 接口需要显式用户；headless 模式里 agent 以 root 身份跑在容器内。
-const FILES_USER: &str = "root";
-/// `open_reader` 每次 Range 请求的块大小（envd 支持 `Range`，实测返回 206）。
-const READER_CHUNK_BYTES: u64 = 4 * 1024 * 1024;
 /// 没显式给 timeout 时的进程上限（envd 默认只有 60s，太短）。
 const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 3600;
 const READY_WAIT: Duration = Duration::from_secs(30);
@@ -109,6 +105,8 @@ pub struct RemoteEnv {
     path_map: PathMap,
     capabilities: Capabilities,
     http: reqwest::blocking::Client,
+    /// 与 Docker 共用的 `/files` 客户端。
+    files: super::envd_fs::EnvdFs,
     has_rg: bool,
     /// 沙箱内是否有 coreutils `timeout`（envd 不认 timeout 字段，只能自己兜底）。
     has_timeout: bool,
@@ -166,6 +164,7 @@ impl RemoteEnv {
             .trim_end_matches('/')
             .to_string();
 
+        let files = super::envd_fs::EnvdFs::new(&envd_url)?;
         let mut env = Self {
             control_url: spec.control_url.trim_end_matches('/').to_string(),
             sandbox_id,
@@ -177,6 +176,7 @@ impl RemoteEnv {
             path_map: PathMap::new(spec.mounts.clone()),
             capabilities: desktop_capabilities(spec.desktop),
             http,
+            files,
             has_rg: false,
             has_timeout: false,
         };
@@ -190,10 +190,12 @@ impl RemoteEnv {
 
     /// 附着到已存在的沙箱（调试 / 测试用）。
     pub fn attach(spec: &RemoteSpec, sandbox_id: impl Into<String>, envd_url: impl Into<String>) -> Result<Self> {
+        let envd_url = envd_url.into().trim_end_matches('/').to_string();
+        let files = super::envd_fs::EnvdFs::new(&envd_url)?;
         Ok(Self {
             control_url: spec.control_url.trim_end_matches('/').to_string(),
             sandbox_id: sandbox_id.into(),
-            envd_url: envd_url.into().trim_end_matches('/').to_string(),
+            envd_url,
             workspace_root: spec.workspace_root.clone(),
             skills_root: spec.skills_root.clone(),
             home_root: spec.home_root.clone(),
@@ -201,6 +203,7 @@ impl RemoteEnv {
             path_map: PathMap::new(spec.mounts.clone()),
             capabilities: desktop_capabilities(spec.desktop),
             http: build_client()?,
+            files,
             has_rg: false,
             has_timeout: false,
         })
@@ -299,16 +302,6 @@ impl RemoteEnv {
         self.run_sh("command -v timeout >/dev/null 2>&1")
             .map(|o| o.success())
             .unwrap_or(false)
-    }
-
-    fn files_url(&self, path: &Path) -> Result<String> {
-        let p = path_to_str(path)?;
-        Ok(format!(
-            "{}/files?path={}&username={}",
-            self.envd_url,
-            urlencode(&p),
-            FILES_USER
-        ))
     }
 
     /// 内部用：跑一段 shell 脚本（cwd 固定 `/`，避免受工作区影响）。
@@ -671,49 +664,11 @@ impl Environment for RemoteEnv {
     }
 
     fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
-        super::run_blocking(|| {
-        let resp = self
-            .http
-            .get(self.files_url(path)?)
-            .timeout(Duration::from_secs(120))
-            .send()
-            .with_context(|| format!("read_file {}", path.display()))?;
-        let status = resp.status();
-        let bytes = resp.bytes().unwrap_or_default().to_vec();
-        if !status.is_success() {
-            bail!(
-                "read_file {} failed: HTTP {} {}",
-                path.display(),
-                status.as_u16(),
-                snippet(&bytes)
-            );
-        }
-        Ok(bytes)
-        })
+        self.files.read_file(path)
     }
 
     fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
-        super::run_blocking(|| {
-        let resp = self
-            .http
-            .post(self.files_url(path)?)
-            .header("Content-Type", "application/octet-stream")
-            .timeout(Duration::from_secs(300))
-            .body(data.to_vec())
-            .send()
-            .with_context(|| format!("write_file {}", path.display()))?;
-        let status = resp.status();
-        if status.is_success() {
-            return Ok(());
-        }
-        let body = resp.bytes().unwrap_or_default();
-        bail!(
-            "write_file {} failed: HTTP {} {}",
-            path.display(),
-            status.as_u16(),
-            snippet(&body)
-        );
-        })
+        self.files.write_file(path, data)
     }
 
     fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>> {
@@ -798,14 +753,8 @@ impl Environment for RemoteEnv {
     }
 
     fn open_reader(&self, path: &Path) -> Result<Box<dyn std::io::Read + Send>> {
-        super::run_blocking(|| {
         let meta = self.metadata(path)?;
-        Ok(Box::new(RangeReader::new(
-            self.http.clone(),
-            self.files_url(path)?,
-            meta.len,
-        )) as Box<dyn std::io::Read + Send>)
-        })
+        self.files.open_reader(path, meta.len)
     }
 
     fn walk(&self, root: &Path, opts: WalkOptions) -> Result<Vec<WalkEntry>> {
@@ -885,78 +834,6 @@ impl Environment for RemoteEnv {
 }
 
 // ---------------------------------------------------------------- 协议编解码
-
-/// 按 HTTP Range 分块拉取的只读流。
-///
-/// envd 的 `/files` 支持 `Range`（实测 `Accept-Ranges: bytes`、请求 206 + `Content-Range`），
-/// 所以大文件不再整文件下载；服务端若不支持 Range（返回 200），退化为一次性读完。
-pub(crate) struct RangeReader {
-    http: reqwest::blocking::Client,
-    url: String,
-    total: u64,
-    offset: u64,
-    buf: Vec<u8>,
-    pos: usize,
-    chunk: u64,
-}
-
-impl RangeReader {
-    pub(crate) fn new(http: reqwest::blocking::Client, url: String, total: u64) -> Self {
-        Self {
-            http,
-            url,
-            total,
-            offset: 0,
-            buf: Vec::new(),
-            pos: 0,
-            chunk: READER_CHUNK_BYTES,
-        }
-    }
-
-    fn fill(&mut self) -> std::io::Result<bool> {
-        if self.offset >= self.total {
-            return Ok(false);
-        }
-        let end = (self.offset + self.chunk - 1).min(self.total.saturating_sub(1));
-        let resp = self
-            .http
-            .get(&self.url)
-            .header("Range", format!("bytes={}-{}", self.offset, end))
-            .timeout(Duration::from_secs(120))
-            .send()
-            .map_err(|e| std::io::Error::other(format!("range read failed: {e}")))?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(std::io::Error::other(format!(
-                "range read failed: HTTP {}",
-                status.as_u16()
-            )));
-        }
-        let body = resp
-            .bytes()
-            .map_err(|e| std::io::Error::other(format!("range read body failed: {e}")))?
-            .to_vec();
-        if body.is_empty() {
-            return Ok(false);
-        }
-        self.offset += body.len() as u64;
-        self.buf = body;
-        self.pos = 0;
-        Ok(true)
-    }
-}
-
-impl std::io::Read for RangeReader {
-    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-        if self.pos >= self.buf.len() && !self.fill()? {
-            return Ok(0);
-        }
-        let n = out.len().min(self.buf.len() - self.pos);
-        out[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
-        self.pos += n;
-        Ok(n)
-    }
-}
 
 /// 从 Connect 流里读一帧：`(flags, body)`；流结束返回 `None`。
 fn read_connect_frame(stream: &mut impl std::io::Read) -> Result<Option<(u8, Vec<u8>)>> {
@@ -1564,19 +1441,6 @@ fn sh_quote(path: &Path) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-fn urlencode(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for b in raw.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
 fn unique_suffix() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1719,11 +1583,6 @@ mod tests {
     fn shell_quote_escapes_single_quotes() {
         assert_eq!(sh_quote(Path::new("/a b/c")), "'/a b/c'");
         assert_eq!(sh_quote(Path::new("/a'b")), "'/a'\\''b'");
-    }
-
-    #[test]
-    fn urlencode_keeps_slashes_and_escapes_spaces() {
-        assert_eq!(urlencode("/workspace/a b.txt"), "/workspace/a%20b.txt");
     }
 
     #[test]

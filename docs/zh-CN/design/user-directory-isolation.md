@@ -135,7 +135,7 @@ Client 与 Web 走同一套 `pointer-core` 逻辑。
 - 记忆：`data_root` 下 `memories/`
 - 附件、会话媒体、生成媒体、截图、回合基线、工作区、worktree：`data_root` 下对应子目录
 
-工作区的活动目录是 `data_root` 下的 `workspaces/{project}` 或 `worktrees/{conversation_key}`。容器里这会表现为 `/data/workspaces/...`，因为容器的 `data_root` 就是 `/data`。本地则是该用户 `data/workspaces/...`。
+没有选中目录时，工作区是 `data_root` 下的 `workspaces/{project}` 或 `worktrees/{conversation_key}`。容器里这会表现为 `/data/workspaces/...`，因为容器的 `data_root` 就是 `/data`。本地则是该用户 `data/workspaces/...`。用户明确选中的目录优先，见下文「工作区」。
 
 ## 设置怎么拆
 
@@ -217,13 +217,17 @@ ffmpeg、视频处理在该用户环境里执行，输入输出都在 `data_root
 
 没有会话 id 的定位调试图不再写系统目录。没有环境就记 warn 并跳过。
 
-客户端若传入宿主项目目录，绑定拒绝这个路径并返回明确错误。工作区只能建在该用户的 `data/workspaces` 或 `home` 下。选择器列出的是当前环境里的这两个根，不是跑服务的操作系统用户的家目录。
+## 工作区
+
+用户明确选中的目录就是这次会话的工作区。Web 和桌面客户端在本地档位里，文件工具和终端都在这个目录读写。容器档位只能选容器里的目录，选中后工作区就是这个路径。宿主路径在容器档位会被拒绝，不会挂进容器。没有选中目录时，工作区仍是该用户的 `data/workspaces`。旧的 `session-sandboxes` 路径不会被当成选中目录。
+
+界面展示工具实际使用的工作区。本地是选中的那一个目录。容器里是 `/data/workspaces` 下选中的目录。
 
 ## 跨平台和两端
 
 相对段用 `Path` 拼接，不用字符串拼 `/data/...`。容器内的 POSIX 路径只存在于容器环境实现里。Windows 上本地环境返回 Windows 路径。
 
-Client 与 Web 都通过同一绑定入口进入用户环境。界面展示媒体引用或环境内路径，不展示宿主绝对路径。
+Client 与 Web 都通过同一绑定入口进入用户环境。
 
 ## 实施顺序
 

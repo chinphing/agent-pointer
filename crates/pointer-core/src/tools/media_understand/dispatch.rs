@@ -1,8 +1,8 @@
 //! Async execution for `media_understand`.
 
 use crate::chat_service::StreamTx;
-use crate::media::exec::MediaInput;
 use crate::media::audio::{prepare_audio_bytes_for_asr_cached, AudioStorageContext};
+use crate::media::exec::MediaInput;
 use crate::media::jpeg_vision::prepare_jpeg_for_vision;
 use crate::media::manifest::{attachment_local_abs_path, attachment_ref_uri};
 use crate::media::store::{conversation_media_abs_to_rel, parse_conversation_media_ids};
@@ -48,6 +48,13 @@ pub struct MediaUnderstandDispatchContext<'a> {
 /// 工具分派点（`agent_tool_pass::dispatch`）在调用前已按会话重放过环境绑定
 /// （`session_env::bind_cached`），所以线程上一定有——这里**不兜底**：
 /// 拿不到就报错，宁可不跑，也不在宿主上处理沙箱里的媒体。
+fn session_path_is_dir(env: &dyn Environment, path: &std::path::Path) -> Result<bool> {
+    let meta = env
+        .metadata(path)
+        .with_context(|| format!("stat media path {}", path.display()))?;
+    Ok(meta.is_dir)
+}
+
 fn media_env() -> Result<Arc<dyn Environment>> {
     crate::env::current_env().ok_or_else(|| {
         anyhow!(
@@ -155,6 +162,12 @@ fn mode_name_hints(conversation_id: &str, inputs: &[MediaRefInput]) -> Result<Ve
     Ok(hints)
 }
 
+/// True for a lone file name (no path separators / URI scheme), as models often emit.
+fn is_bare_media_file_name(raw: &str) -> bool {
+    let t = raw.trim();
+    !t.is_empty() && !t.contains('/') && !t.contains('\\') && !t.contains(':')
+}
+
 fn resolve_ref_inputs(conversation_id: &str, args: &Value, mode: &str) -> Result<Vec<String>> {
     let inputs = validate_ref_inputs_for_mode(parse_ref_inputs_loose(args)?, mode)?;
     inputs
@@ -172,10 +185,27 @@ fn resolve_ref_inputs(conversation_id: &str, args: &Value, mode: &str) -> Result
                 })
             }
             MediaRefInput::Ref(raw) => {
-                if resolve_media_ref(&raw).is_ok()
-                    || find_attachment_by_media_ref(conversation_id, &raw)?.is_some()
-                {
+                // Models often pass a bare file name. Remap attachments first so
+                // we do not probe `resolve_media_ref` (and warn) on expected misses.
+                if is_bare_media_file_name(&raw) {
+                    if let Some(att) =
+                        find_attachment_by_media_ref(conversation_id, &raw)?
+                    {
+                        return attachment_media_ref(&att).ok_or_else(|| {
+                            anyhow!(
+                                "media ref {raw} matched an attachment without a storage path"
+                            )
+                        });
+                    }
+                }
+                if resolve_media_ref(&raw).is_ok() {
                     Ok(raw)
+                } else if let Some(att) =
+                    find_attachment_by_media_ref(conversation_id, &raw)?
+                {
+                    attachment_media_ref(&att).ok_or_else(|| {
+                        anyhow!("media ref {raw} matched an attachment without a storage path")
+                    })
                 } else {
                     Err(anyhow!(
                         "media ref not found: {raw}{}",
@@ -253,7 +283,7 @@ async fn understand_image_directory(
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
-    let files = list_image_files_in_dir(dir).context("list images in directory")?;
+    let files = list_image_files_in_dir(env.as_ref(), dir).context("list images in directory")?;
     let total = files.len();
     let range = parse_image_dir_range(args, total)?;
     let notice = format_image_dir_scope_notice(&range, total, &dir.display().to_string());
@@ -302,6 +332,7 @@ async fn understand_image_directory(
 }
 
 async fn understand_image_refs(
+    env: &Arc<dyn Environment>,
     settings: &ModelSettings,
     api_key: &str,
     refs: &[String],
@@ -316,7 +347,7 @@ async fn understand_image_refs(
         let media_ref = &refs[0];
         let path = resolve_media_ref(media_ref)
             .with_context(|| format!("resolve media ref {media_ref}"))?;
-        if path.is_dir() {
+        if session_path_is_dir(env.as_ref(), &path)? {
             anyhow::bail!(
                 "image ref is a directory; pass refs with one directory path and use pageStart/pageEnd"
             );
@@ -339,7 +370,7 @@ async fn understand_image_refs(
     for media_ref in refs {
         let path = resolve_media_ref(media_ref)
             .with_context(|| format!("resolve media ref {media_ref}"))?;
-        if path.is_dir() {
+        if session_path_is_dir(env.as_ref(), &path)? {
             anyhow::bail!(
                 "refs entry {media_ref} is a directory; pass one directory path in refs with pageStart/pageEnd"
             );
@@ -445,8 +476,7 @@ async fn understand_video(
     // 超过 Base64 上限时 `understand_video_dashscope` 返回 Ok(None)，自然落到抽帧路径。
     if let Some(input) = source {
         let mime = crate::media::video::video_mime_from_file_name(file_name);
-        let raw_limit =
-            crate::media::video::max_raw_bytes_for_native_video_api(mime) as u64;
+        let raw_limit = crate::media::video::max_raw_bytes_for_native_video_api(mime) as u64;
         let size = input.len_bytes(env).unwrap_or(u64::MAX);
         if size > raw_limit {
             log::info!(
@@ -603,9 +633,11 @@ pub async fn dispatch_media_understand_async(
                 "dispatch_media_understand_async mode=image refs={refs:?} goal={goal_preview}"
             );
             if refs.len() == 1 {
-                let path = resolve_media_ref(&refs[0])
+                let resolved = resolve_media_ref(&refs[0])
                     .with_context(|| format!("resolve media ref {}", refs[0]))?;
-                if path.is_dir() {
+                let path = crate::media::media_ref::session_env_path(env.as_ref(), &resolved)
+                    .unwrap_or(resolved);
+                if session_path_is_dir(env.as_ref(), &path)? {
                     understand_image_directory(
                         &env,
                         ctx.settings,
@@ -619,6 +651,7 @@ pub async fn dispatch_media_understand_async(
                     .await?
                 } else {
                     understand_image_refs(
+                        &env,
                         ctx.settings,
                         &api_key,
                         &refs,
@@ -630,6 +663,7 @@ pub async fn dispatch_media_understand_async(
                 }
             } else {
                 understand_image_refs(
+                    &env,
                     ctx.settings,
                     &api_key,
                     &refs,
@@ -689,11 +723,14 @@ async fn dispatch_single_ref_media(
                 .unwrap_or("attachment")
                 .to_string()
         });
-    let path = if mode == "video" && remote_url.is_some() {
+    let resolved = if mode == "video" && remote_url.is_some() {
         resolve_media_ref(media_ref).unwrap_or_else(|_| std::path::PathBuf::from(&file_name))
     } else {
         resolve_media_ref(media_ref).with_context(|| format!("resolve media ref {media_ref}"))?
     };
+    // resolve 可能给出宿主绝对路径；沙箱里 IO 必须用 guest（envd / docker exec）。
+    let path = crate::media::media_ref::session_env_path(env.as_ref(), &resolved)
+        .unwrap_or(resolved);
     // 只接受普通文件：FIFO / 设备文件会让读取一直卡到超时（Codex 同款补丁）。
     let mut source: Option<MediaInput> = None;
     let mut bytes: Option<Vec<u8>> = None;

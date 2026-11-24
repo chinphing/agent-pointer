@@ -69,7 +69,8 @@ mod tests {
     fn not_found_is_not_a_hit() {
         // The search ran and completed — but it found nothing, so the card must
         // not read as a successful call.
-        let payload = r#"{"results":[{"status":"not_found","target_desc":"Save","summary":"..."}]}"#;
+        let payload =
+            r#"{"results":[{"status":"not_found","target_desc":"Save","summary":"..."}]}"#;
         assert!(!locate_payload_has_a_hit(payload));
     }
 
